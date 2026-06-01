@@ -72,6 +72,25 @@
         <div><span class="label">重複メモ</span><span>{{ row.risk_detail }}</span></div>
         {% endif %}
       </div>
+      <div class="quiz-box">
+        <div class="pill {{ 'green' if row.dry_run_status == 'DRY_RUN_COMPLETED' else 'orange' if row.dry_run_status == 'NEEDS_REVIEW' else 'gray' }}">{{ row.dry_run_state_label or "dry_run未実行" }}</div>
+        <div class="quiz-item">
+          <div class="quiz-question">dry_runの要点</div>
+          <div class="quiz-choices">{{ row.dry_run_detail_label or "まだ dry_run はありません。" }}</div>
+        </div>
+        <div class="quiz-item">
+          <div class="quiz-question">実行時刻</div>
+          <div class="quiz-choices">{{ row.dry_run_at or "未記録" }}</div>
+        </div>
+        <div class="quiz-item">
+          <div class="quiz-question">分析JSON</div>
+          <div class="quiz-choices break">{{ row.dry_run_analysis_path or "未保存" }}</div>
+        </div>
+        <div class="quiz-item">
+          <div class="quiz-question">送信前チェック</div>
+          <div class="quiz-choices break">{{ row.dry_run_check_path or "未保存" }}</div>
+        </div>
+      </div>
       <label class="memo-field compact">
         <input type="checkbox" data-age-fill-toggle>
         <span>年齢・生年月日の入力補助を許可する</span>

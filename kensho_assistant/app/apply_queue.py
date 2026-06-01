@@ -50,6 +50,7 @@ QUEUE_HEADERS = [
     "prepared_at",
     "dry_run_status",
     "dry_run_at",
+    "dry_run_reason_summary",
     "dry_run_screenshot_path",
     "dry_run_check_path",
     "dry_run_analysis_path",
@@ -412,12 +413,15 @@ def mark_prepare_cancelled(queue_id: str, previous_queue_status: str = "", path:
 def mark_dry_run_result(
     queue_id: str,
     status: str,
+    needs_review_reasons: Iterable[str] | None = None,
     screenshot_path: str = "",
     analysis_path: str = "",
     check_path: str = "",
     path: Path = APPLY_QUEUE_CSV,
 ) -> bool:
     now = datetime.now().astimezone().isoformat(timespec="seconds")
+    reason_list = [str(reason).strip() for reason in (needs_review_reasons or []) if str(reason).strip()]
+    reason_summary = " / ".join(reason_list[:4])
     next_action = {
         "DRY_RUN_COMPLETED": "送信せずdry_run完了。スクショと送信前チェックを確認してください。",
         "NEEDS_REVIEW": "人間確認が必要です。送信前チェックを確認してください。",
@@ -428,6 +432,7 @@ def mark_dry_run_result(
         {
             "dry_run_status": status,
             "dry_run_at": now,
+            "dry_run_reason_summary": reason_summary,
             "dry_run_screenshot_path": screenshot_path,
             "dry_run_analysis_path": analysis_path,
             "dry_run_check_path": check_path,

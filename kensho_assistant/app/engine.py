@@ -91,6 +91,7 @@ def _run_campaign(campaign: dict[str, str], run_mode: str, browser: str = "chrom
                 mark_dry_run_result(
                     campaign_id,
                     str(record.get("status", "")),
+                    needs_review_reasons=record.get("needs_review_reasons", []),
                     screenshot_path=str(record.get("screenshot_path", "")),
                     analysis_path=str(analysis_path),
                     check_path=str(check_path),
@@ -104,6 +105,7 @@ def _run_campaign(campaign: dict[str, str], run_mode: str, browser: str = "chrom
                 "submit_attempted": record.get("submit_attempted", False),
                 "submit_clicked": record.get("submit_clicked", False),
                 "auto_submitted": record.get("auto_submitted", False),
+                "needs_review_reasons": record.get("needs_review_reasons", []),
                 "screenshot_path": record.get("screenshot_path", ""),
                 "analysis_path": str(analysis_path),
                 "check_path": str(check_path),

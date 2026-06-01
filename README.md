@@ -1,6 +1,7 @@
 # Kensho Entry Assistant v0.4.2-beta
 
 ローカル実行型の懸賞応募補助ツールです。対象サイトは `懸賞生活 https://www.knshow.com/` です。
+公開リポジトリは `https://github.com/sasaki202020/kensho_assistant` です。
 
 ## 推奨起動
 
@@ -58,8 +59,21 @@ python main.py agent-status run --task "safe-agent-run" --mode release
 data/agent_status/agent_run_log.jsonl に毎回の実行履歴が追記されます
 python main.py entries list
 python main.py browser doctor
+python main.py apply dry-run --campaign-id <campaign_id>
+python main.py apply dry-run-all --status PREPARED --limit 12
+python main.py apply show-analysis --campaign-id <campaign_id>
+python main.py apply show-check --campaign-id <campaign_id>
+python main.py apply mark-submitted --campaign-id <campaign_id>
 py scripts\run_x_search.py --query "懸賞 プレゼントキャンペーン 締切 今週 食品"
 ```
+
+## 開発検証
+
+- `python -m pytest -q`
+- `python -m compileall kensho_assistant\app`
+- `python web_app.py --smoke-test`
+
+GitHub Actions でも同じ検証を回します。`main` は CI で守る前提です。
 
 ## X Search Tool
 

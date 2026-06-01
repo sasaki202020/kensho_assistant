@@ -107,6 +107,25 @@
       {% endif %}
     </div>
     <div class="quiz-box">
+      <div class="pill {{ 'green' if current.dry_run_status == 'DRY_RUN_COMPLETED' else 'orange' if current.dry_run_status == 'NEEDS_REVIEW' else 'gray' }}">{{ current.dry_run_state_label or "dry_run未実行" }}</div>
+      <div class="quiz-item">
+        <div class="quiz-question">dry_runの要点</div>
+        <div class="quiz-choices">{{ current.dry_run_detail_label or "まだ dry_run はありません。" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">実行時刻</div>
+        <div class="quiz-choices">{{ current.dry_run_at or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">分析JSON</div>
+        <div class="quiz-choices break">{{ current.dry_run_analysis_path or "未保存" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">送信前チェック</div>
+        <div class="quiz-choices break">{{ current.dry_run_check_path or "未保存" }}</div>
+      </div>
+    </div>
+    <div class="quiz-box">
       <div class="pill blue">手動確認が必要</div>
       <div class="quiz-item">年齢 / 同意チェック / 利用規約 / メルマガ / クイズ / 任意項目 / CAPTCHA / ログイン</div>
       <div class="muted">これらは自動入力しません。応募ページ上でユーザー本人が確認してください。</div>

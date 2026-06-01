@@ -594,10 +594,13 @@ def cmd_apply(args: argparse.Namespace) -> int:
         print(f"ok: {ok_count}")
         print(f"failed: {len(results) - ok_count}")
         for result in results:
+            reason_list = result.get("needs_review_reasons", []) or []
+            reason_text = "; ".join(str(reason) for reason in reason_list if str(reason).strip()) or "-"
             print(
                 f"{result.get('campaign_id', '')} | {result.get('status', '')} | "
                 f"submit_clicked={str(result.get('submit_clicked', False)).lower()} | "
-                f"auto_submitted={str(result.get('auto_submitted', False)).lower()}"
+                f"auto_submitted={str(result.get('auto_submitted', False)).lower()} | "
+                f"needs_review_reasons={reason_text}"
             )
         return 0 if ok_count == len(results) else 1
     if command == "show-analysis":
@@ -621,6 +624,9 @@ def _print_apply_result(result: dict[str, object]) -> None:
     print(f"submit_attempted: {str(result.get('submit_attempted', False)).lower()}")
     print(f"submit_clicked: {str(result.get('submit_clicked', False)).lower()}")
     print(f"auto_submitted: {str(result.get('auto_submitted', False)).lower()}")
+    reason_list = result.get("needs_review_reasons", []) or []
+    reason_text = "; ".join(str(reason) for reason in reason_list if str(reason).strip()) or "-"
+    print(f"needs_review_reasons: {reason_text}")
     print(f"screenshot_path: {result.get('screenshot_path', '')}")
     print(f"analysis_path: {result.get('analysis_path', '')}")
     print(f"check_path: {result.get('check_path', '')}")

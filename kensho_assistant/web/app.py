@@ -545,6 +545,29 @@ def _queue_last_action_label(row: dict[str, str]) -> str:
     return labels.get(action, action or "なし")
 
 
+def _dry_run_state_label(row: dict[str, str]) -> str:
+    status = row.get("dry_run_status", "").strip()
+    labels = {
+        "DRY_RUN_COMPLETED": "dry_run完了",
+        "NEEDS_REVIEW": "要確認",
+        "SKIPPED": "対象外",
+    }
+    return labels.get(status, status or "未実行")
+
+
+def _dry_run_detail_label(row: dict[str, str]) -> str:
+    summary = row.get("dry_run_reason_summary", "").strip()
+    if summary:
+        return summary
+    if row.get("dry_run_status", "") == "DRY_RUN_COMPLETED":
+        return "送信せずに入力補助と送信前チェックまで完了しています。"
+    if row.get("dry_run_status", "") == "NEEDS_REVIEW":
+        return "送信前チェックで人間確認が必要です。"
+    if row.get("dry_run_status", "") == "SKIPPED":
+        return "危険または対象外判定です。"
+    return "まだ dry_run を実行していません。"
+
+
 def _queue_risk_notice(row: dict[str, str]) -> str:
     joined = " ".join(
         str(row.get(field, ""))
@@ -583,6 +606,8 @@ def _decorate_queue_row(row: dict[str, str]) -> dict[str, str]:
     decorated["manual_record_label"] = "手動送信済みを記録しました。" if row.get("manual_submitted_at", "").strip() or row.get("submission_method", "").strip().upper() == "MANUAL" else "送信した場合だけ記録してください"
     decorated["risk_notice"] = _queue_risk_notice(row)
     decorated["risk_detail"] = row.get("risk_level", "") or row.get("risk_reasons", "") or row.get("skip_reason_summary", "")
+    decorated["dry_run_state_label"] = _dry_run_state_label(row)
+    decorated["dry_run_detail_label"] = _dry_run_detail_label(row)
     return decorated
 
 

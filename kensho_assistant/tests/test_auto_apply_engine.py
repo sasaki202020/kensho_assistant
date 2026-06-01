@@ -10,6 +10,7 @@ from kensho_assistant.app.apply_run_logger import append_apply_run
 from kensho_assistant.app.paths import APPLY_RUNS_DIR, FORM_ANALYSIS_DIR, PRE_SUBMIT_CHECKS_DIR
 from kensho_assistant.app.submit_adapters.mock_submit import MockSubmitAdapter
 from kensho_assistant.app.submit_adapters.real_submit import RealSubmitAdapter
+from kensho_assistant.main import _print_apply_result
 
 
 PROFILE = {
@@ -112,3 +113,25 @@ def test_apply_run_logger_removes_pii_query_values(tmp_path, monkeypatch):
     assert "test@example.com" not in text
     assert "山田太郎" not in text
     assert "https://example.com/apply" in text
+
+
+def test_print_apply_result_includes_review_reasons_and_paths(capsys):
+    _print_apply_result(
+        {
+            "campaign_id": "campaign-1",
+            "status": "DRY_RUN_COMPLETED",
+            "filled_fields_count": 4,
+            "submit_attempted": False,
+            "submit_clicked": False,
+            "auto_submitted": False,
+            "needs_review_reasons": ["quiz detected", "manual consent required"],
+            "screenshot_path": "screenshots/dry_run/campaign-1.png",
+            "analysis_path": "data/form_analysis/campaign-1.json",
+            "check_path": "data/pre_submit_checks/campaign-1.json",
+        }
+    )
+    output = capsys.readouterr().out
+    assert "needs_review_reasons: quiz detected; manual consent required" in output
+    assert "screenshot_path: screenshots/dry_run/campaign-1.png" in output
+    assert "analysis_path: data/form_analysis/campaign-1.json" in output
+    assert "check_path: data/pre_submit_checks/campaign-1.json" in output
