@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>応募履歴</h2>
+    <span class="pill blue">{{ entry_summary.total if entry_summary else 0 }}件</span>
+  </div>
+  <p class="muted">応募履歴、締切、当選発表日、メルマガ状態、重複候補をまとめて確認します。自動送信はしません。</p>
+  <div class="grid metrics">
+    <div class="card soft"><div class="card-title">今日締切</div><div class="metric">{{ entry_summary.today_deadline if entry_summary else 0 }}</div><div class="metric-note">今日確認する案件</div></div>
+    <div class="card soft"><div class="card-title">今週締切</div><div class="metric">{{ entry_summary.week_deadline if entry_summary else 0 }}</div><div class="metric-note">今週確認する案件</div></div>
+    <div class="card soft"><div class="card-title">応募済み数</div><div class="metric">{{ entry_summary.applied if entry_summary else 0 }}</div><div class="metric-note">応募履歴に記録済み</div></div>
+    <div class="card soft"><div class="card-title">当選確認待ち</div><div class="metric">{{ entry_summary.result_pending if entry_summary else 0 }}</div><div class="metric-note">結果待ちの案件</div></div>
+    <div class="card soft"><div class="card-title">解除候補</div><div class="metric">{{ entry_summary.newsletter_unsubscribe_needed if entry_summary else 0 }}</div><div class="metric-note">メルマガ解除を検討</div></div>
+    <div class="card soft"><div class="card-title">重複候補</div><div class="metric">{{ entry_summary.duplicate_candidates if entry_summary else 0 }}</div><div class="metric-note">重複防止を確認</div></div>
+  </div>
+  <div class="actions compact">
+    <form method="post" action="/entries/export-csv"><input type="hidden" name="next_url" value="/entries"><button class="btn primary" type="submit">CSV出力</button></form>
+    <form method="post" action="/entries/win-mails/rescan"><input type="hidden" name="next_url" value="/entries"><button class="btn" type="submit">当選メール候補を再スキャン</button></form>
+    <a class="btn" href="/mail">メール懸賞を見る</a>
+    <a class="btn" href="/dashboard">ダッシュボードへ</a>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>フィルタ</h2>
+  </div>
+  <form method="get" action="/entries" class="filters-form">
+    <input type="text" name="q" value="{{ q }}" placeholder="キーワード検索">
+    <select name="deadline">
+      {% for label, value in entry_deadline_filters %}
+      <option value="{{ value }}" {% if deadline == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="result">
+      {% for label, value in entry_result_filters %}
+      <option value="{{ value }}" {% if result == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="newsletter">
+      {% for label, value in entry_newsletter_filters %}
+      <option value="{{ value }}" {% if newsletter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      {% for label, value in entry_status_filters %}
+      <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn primary" type="submit">絞り込む</button>
+  </form>
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in entry_rows %}
+    <article class="card result-card {{ 'danger-faded' if row.status == 'DUPLICATE' or row.duplicate_key else '' }}">
+      <div class="result-top">
+        <div class="thumb">記</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.title or row.campaign_id or "無題" }}</div>
+          <div class="item-sub">{{ row.source_site or "source未取得" }} / {{ row.url or "URL未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill blue">{{ entry_status_label(row.status) }}</span>
+            <span class="pill orange">{{ newsletter_status_label(row.newsletter_status) }}</span>
+            {% if row.duplicate_key %}
+            <span class="pill red">重複の可能性あり</span>
+            {% endif %}
+          </div>
+          <div class="muted">{{ row.memo or "メモなし" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">締切</span><span><strong>{{ row.deadline or "未取得" }}</strong></span></div>
+        <div><span class="label">応募日</span><span>{{ row.applied_at or "未記録" }}</span></div>
+        <div><span class="label">当選発表日</span><span>{{ row.result_check_date or "未記録" }}</span></div>
+        <div><span class="label">賞品</span><span>{{ row.prize or "未取得" }}</span></div>
+        <div><span class="label">重複キー</span><span class="break">{{ row.duplicate_key or "未設定" }}</span></div>
+      </div>
+      <div class="actions">
+        <a class="btn primary" href="{{ row.url or '#' }}" target="_blank" rel="noreferrer">URLを開く</a>
+        <a class="btn" href="/entries?selected={{ row.campaign_id }}">詳細を見る</a>
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">応募履歴はまだありません。`python main.py entries add --url ...` か `mark-applied` を使って追加してください。</div>
+    {% endfor %}
+  </div>
+
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head">
+        <h2>詳細</h2>
+      </div>
+      {% if detail %}
+      <div class="detail-grid">
+        <div>campaign_id</div><div>{{ detail.campaign_id }}</div>
+        <div>タイトル</div><div>{{ detail.title }}</div>
+        <div>URL</div><div class="break">{{ detail.url }}</div>
+        <div>締切</div><div>{{ detail.deadline }}</div>
+        <div>応募日</div><div>{{ detail.applied_at }}</div>
+        <div>当選発表日</div><div>{{ detail.result_check_date }}</div>
+        <div>status</div><div>{{ detail.status }}</div>
+        <div>newsletter_status</div><div>{{ detail.newsletter_status }}</div>
+        <div>pii_used</div><div>{{ detail.pii_used }}</div>
+        <div>重複キー</div><div class="break">{{ detail.duplicate_key }}</div>
+      </div>
+      <div class="actions vertical">
+        <a class="btn primary" href="{{ detail.url or '#' }}" target="_blank" rel="noreferrer">URLを開く</a>
+        <a class="btn" href="/queue?selected={{ detail.campaign_id }}">応募キューを見る</a>
+      </div>
+      {% else %}
+      <p class="muted">詳細はありません。</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <h2>当選メール候補</h2>
+        <span class="pill orange">{{ win_mail_summary.total if win_mail_summary else 0 }}件</span>
+      </div>
+      <div class="list compact-list">
+        {% for row in win_mail_candidates %}
+        <div class="list-item">
+          <div>
+            <div class="item-title">{{ row.subject }}</div>
+            <div class="item-sub">{{ row.sender or "差出人未取得" }} / {{ row.received_at or "受信日時未取得" }}</div>
+          </div>
+          <div class="item-sub">{{ row.keyword_hits|join(" / ") if row.keyword_hits else "キーワード未検出" }}</div>
+        </div>
+        {% else %}
+        <div class="muted">当選メール候補はまだありません。再スキャンしてください。</div>
+        {% endfor %}
+      </div>
+    </div>
+  </aside>
+</section>
+{% endblock %}

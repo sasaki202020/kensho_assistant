@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>要確認</h2>
+    <span class="pill orange">{{ review_rows|length }}件</span>
+  </div>
+  <p class="muted">この懸賞は応募フォームがありますが、年齢・同意・任意項目など人間確認が必要な項目があります。consent / age / newsletter は自動入力しません。送信ボタンは無効表示です。</p>
+  <div class="list">
+    {% for row in review_rows %}
+    <div class="review-card">
+      <div class="item-title">{{ row.campaign_name }}</div>
+      <div class="item-sub">{{ row.provider }} / {{ row.resolved_entry_url or row.entry_url or row.knshow_url or "未解決" }}</div>
+      <div class="review-grid">
+        <div>手動確認が必要</div><div>{{ row.manual_review_required_fields or "年齢 / 同意チェック / 利用規約 / 任意項目" }}</div>
+        <div>自動入力しない</div><div>{{ row.blocked_auto_fill_fields or "年齢・同意・メルマガ・任意項目" }}</div>
+        <div>必須だがスキップ</div><div>{{ row.required_but_skipped_fields or "なし" }}</div>
+        <div>スキップ理由</div><div>{{ row.one_line_reason or "人間確認が必要" }}</div>
+        <div>次のおすすめ</div><div>{{ row.next_action or "応募ページを開いて手動確認してください" }}</div>
+      </div>
+      {% if row.quiz_required %}
+      <div class="quiz-box">
+        <div class="pill orange">クイズあり</div>
+        <div class="muted">この懸賞はクイズ回答が必要です。アプリは自動回答しません。</div>
+        {% if row.quiz_summary %}
+        <div class="quiz-summary">{{ row.quiz_summary }}</div>
+        {% endif %}
+        {% for item in row.quiz_items or [] %}
+        <div class="quiz-item">
+          <div class="quiz-question">{{ item.question_text }}</div>
+          <div class="quiz-choices">{{ item.choices|join(' / ') if item.choices else '選択肢未取得' }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="actions">
+        <a class="btn primary" href="{{ row.resolved_entry_url or row.entry_url or row.knshow_url or '#' }}" target="_blank" rel="noreferrer">応募ページを開く</a>
+        <form method="post" action="/queue/{{ row.campaign_id }}/approve"><input type="hidden" name="next_url" value="/approved"><input type="hidden" name="approved_note" value="review から承認"><button class="btn" type="submit" onclick="return confirm('この懸賞を応募対象にします。応募条件・締切・個人情報の取り扱いを確認しましたか？ アプリは自動送信しません。最後の送信はあなた自身が行います。')">応募候補に承認</button></form>
+        <a class="btn" href="/search?selected={{ row.campaign_id }}">フォーム診断を見る</a>
+        <a class="btn" href="/campaigns?status=要確認">キャンペーン詳細</a>
+        <button class="btn disabled" type="button" disabled>送信ボタンは無効</button>
+      </div>
+    </div>
+    {% else %}
+    <div class="muted">要確認の案件はありません。</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

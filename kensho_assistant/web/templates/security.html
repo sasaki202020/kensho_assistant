@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="grid metrics">
+  <div class="card"><div class="card-title">localhost限定</div><div class="metric">ON</div><div class="metric-note">外部公開しません</div></div>
+  <div class="card"><div class="card-title">自動送信</div><div class="metric">無効</div><div class="metric-note">送信ボタンは使いません</div></div>
+  <div class="card"><div class="card-title">暗号化保存</div><div class="metric">ON</div><div class="metric-note">個人情報はローカル暗号化</div></div>
+  <div class="card"><div class="card-title">profile.enc</div><div class="metric">{{ storage.profile_enc }}</div><div class="metric-note">保存状態</div></div>
+  <div class="card"><div class="card-title">profile.json</div><div class="metric">{{ storage.profile_json }}</div><div class="metric-note">不在が望ましい</div></div>
+  <div class="card"><div class="card-title">ログマスキング</div><div class="metric">ON</div><div class="metric-note">実値は出しません</div></div>
+  <div class="card"><div class="card-title">release-report</div><div class="metric">{{ "OK" if report and report.release_status == "OK" else "要確認" }}</div><div class="metric-note">送信件数 0 が正常です</div></div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>安全表示</h2>
+  </div>
+  <p class="muted">個人情報の実値は画面に表示しません。 本番送信は必ず人間確認が必要です。</p>
+  <div class="mode-grid">
+    <div>localhost限定：ON</div>
+    <div>自動送信：無効</div>
+    <div>profileは暗号化保存</div>
+    <div>スクリーンショット保存：OFF</div>
+    <div>ログマスキング：ON</div>
+    <div>profile.json：不在</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><h2>Chrome応募準備</h2></div>
+  <div class="mode-grid">
+    <div>Playwright：{{ "ok" if browser_state.playwright == "ok" else "ng" }}</div>
+    <div>Chrome channel：{{ "ok" if browser_state.chrome_channel == "ok" else "ng" }}</div>
+    <div>専用Chromeプロファイル：{{ "ok" if browser_state.dedicated_profile == "ok" else "ng" }}</div>
+    <div>headed launch：{{ "ok" if browser_state.headed_launch == "ok" else "ng" }}</div>
+    <div>普段使いChromeプロファイル：使用しない</div>
+    <div>last checked：{{ browser_checked_at }}</div>
+  </div>
+  <div class="actions">
+    <form method="post" action="/action/browser_doctor"><input type="hidden" name="next_url" value="/security"><button class="btn" type="submit">browser doctor を実行</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><h2>状態一覧</h2></div>
+  <div class="list">
+    {% for label, value in security_items %}
+    <div class="list-item">
+      <div class="item-title">{{ label }}</div>
+      <div class="item-sub">{{ value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><h2>操作</h2></div>
+  <div class="actions">
+    <form method="post" action="/action/doctor"><input type="hidden" name="next_url" value="/security"><button class="btn primary" type="submit">doctor 実行</button></form>
+    <form method="post" action="/action/release_report"><input type="hidden" name="next_url" value="/security"><button class="btn" type="submit">release-report 実行</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>マスク済みプロフィール</h2>
+  </div>
+  <div class="detail-grid">
+    <div>名前</div><div>{{ profile_preview.name }}</div>
+    <div>郵便番号</div><div>{{ profile_preview.postal_code }}</div>
+    <div>メール</div><div>{{ profile_preview.email }}</div>
+    <div>電話</div><div>{{ profile_preview.phone }}</div>
+  </div>
+</section>
+{% endblock %}

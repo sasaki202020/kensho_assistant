@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero-grid">
+  <div class="card hero-main">
+    <div class="eyebrow">懸賞生活対応</div>
+    <h2>懸賞応募アシスタント {{ app_version }}</h2>
+    <p>自動スキャン + 人間確認モードで、懸賞生活から候補を整理し、安全に次の一手を選べます。</p>
+    <div class="tag-row">
+      <span class="pill blue">本番送信は人間確認が必要です</span>
+      <span class="pill green">自動スキャン + 人間確認モード</span>
+      <span class="pill orange">自動送信：無効</span>
+    </div>
+  </div>
+  <div class="card hero-safety">
+    <div class="section-head"><h2>安全チップ</h2></div>
+    <div class="stack">
+      <div class="mini-stat"><span>localhost only</span><strong>127.0.0.1</strong></div>
+      <div class="mini-stat"><span>自動送信</span><strong>無効</strong></div>
+      <div class="mini-stat"><span>暗号化保存</span><strong>ON</strong></div>
+      <div class="mini-stat"><span>送信件数</span><strong>{{ report.submitted_count if report else 0 }}</strong></div>
+    </div>
+  </div>
+</section>
+
+<section class="grid metrics">
+  <div class="card">
+    <div class="card-title">収集件数</div>
+    <div class="metric">{{ summary.count if summary else 0 }}</div>
+    <div class="metric-note">収集した懸賞の総数</div>
+  </div>
+  <div class="card">
+    <div class="card-title">解析済み</div>
+    <div class="metric">{{ auto_scan.analyzed_count if auto_scan else 0 }}</div>
+    <div class="metric-note">自動スキャンで解析した件数</div>
+  </div>
+  <div class="card">
+    <div class="card-title">URL解決済み</div>
+    <div class="metric">{{ summary.resolved if summary else 0 }}</div>
+    <div class="metric-note">応募先まで解決済み</div>
+  </div>
+  <div class="card">
+    <div class="card-title">REVIEW_ONLY</div>
+    <div class="metric">{{ summary.review_only if summary else 0 }}</div>
+    <div class="metric-note">人間確認が必要な候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">READY_FOR_FILL</div>
+    <div class="metric">{{ summary.ready_for_fill if summary else 0 }}</div>
+    <div class="metric-note">安全度が高い入力候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Submitted</div>
+    <div class="metric">{{ report.submitted_count if report else 0 }}</div>
+    <div class="metric-note">このバージョンでは 0 が正常</div>
+  </div>
+  <div class="card">
+    <div class="card-title">応募キュー</div>
+    <div class="metric">{{ queue_summary.get('total', 0) if queue_summary else 0 }}</div>
+    <div class="metric-note">応募準備の順番待ち</div>
+  </div>
+  <div class="card">
+    <div class="card-title">承認済み</div>
+    <div class="metric">{{ queue_summary.get('APPROVED', 0) if queue_summary else 0 }}</div>
+    <div class="metric-note">応募対象にした案件</div>
+  </div>
+  <div class="card">
+    <div class="card-title">あとで応募</div>
+    <div class="metric">{{ later_queue_summary.total if later_queue_summary else 0 }}</div>
+    <div class="metric-note">URLだけ先に登録した候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">自動スキャン</div>
+    <div class="metric">{{ auto_scan.warning if auto_scan else "未実行" }}</div>
+    <div class="metric-note">候補更新の状態</div>
+  </div>
+  <div class="card">
+    <div class="card-title">今日の狙い目</div>
+    <div class="metric">{{ research_summary.score_80_plus if research_summary else 0 }}</div>
+    <div class="metric-note">スコア80以上の候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">要確認候補</div>
+    <div class="metric">{{ research_summary.review_only if research_summary else 0 }}</div>
+    <div class="metric-note">レビュー優先の候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">除外推奨</div>
+    <div class="metric">{{ research_summary.exclude if research_summary else 0 }}</div>
+    <div class="metric-note">手間が大きい候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">締切間近</div>
+    <div class="metric">{{ research_summary.deadline_soon if research_summary else 0 }}</div>
+    <div class="metric-note">今見るべき候補</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Chrome応募準備</div>
+    <div class="metric">{{ browser_prepare_status }}</div>
+    <div class="metric-note">送信前で停止</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>キュー状況</h2>
+    <a class="btn" href="/queue/session">続きから処理</a>
+  </div>
+  <div class="grid metrics">
+    <div class="card"><div class="card-title">総数</div><div class="metric">{{ queue_summary.get('total', 0) if queue_summary else 0 }}</div><div class="metric-note">応募準備の順番待ち</div></div>
+    <div class="card"><div class="card-title">未処理</div><div class="metric">{{ queue_summary.get('QUEUED', 0) if queue_summary else 0 }}</div><div class="metric-note">まだ応募準備していない案件</div></div>
+    <div class="card"><div class="card-title">承認済み</div><div class="metric">{{ queue_summary.get('APPROVED', 0) if queue_summary else 0 }}</div><div class="metric-note">ユーザーが応募対象にした案件</div></div>
+    <div class="card"><div class="card-title">応募準備済み</div><div class="metric">{{ queue_summary.get('PREPARED', 0) if queue_summary else 0 }}</div><div class="metric-note">送信前で停止している案件</div></div>
+    <div class="card"><div class="card-title">手動送信済み</div><div class="metric">{{ queue_summary.get('MANUALLY_SUBMITTED', 0) if queue_summary else 0 }}</div><div class="metric-note">このアプリでは送信しません</div></div>
+    <div class="card"><div class="card-title">保留</div><div class="metric">{{ queue_summary.get('HOLD', 0) if queue_summary else 0 }}</div><div class="metric-note">あとで再確認する案件</div></div>
+    <div class="card"><div class="card-title">スキップ</div><div class="metric">{{ queue_summary.get('SKIPPED', 0) if queue_summary else 0 }}</div><div class="metric-note">対象外として除外</div></div>
+    <div class="card"><div class="card-title">自動送信</div><div class="metric">0</div><div class="metric-note">実装していません</div></div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>応募履歴の状況</h2>
+    <a class="btn" href="/entries">応募履歴を見る</a>
+  </div>
+  <div class="grid metrics">
+    <div class="card"><div class="card-title">今日締切</div><div class="metric">{{ entry_summary.today_deadline if entry_summary else 0 }}</div><div class="metric-note">今日確認する案件</div></div>
+    <div class="card"><div class="card-title">今週締切</div><div class="metric">{{ entry_summary.week_deadline if entry_summary else 0 }}</div><div class="metric-note">今週中に確認する案件</div></div>
+    <div class="card"><div class="card-title">応募済み数</div><div class="metric">{{ entry_summary.applied if entry_summary else 0 }}</div><div class="metric-note">履歴に記録された応募</div></div>
+    <div class="card"><div class="card-title">当選確認待ち</div><div class="metric">{{ entry_summary.result_pending if entry_summary else 0 }}</div><div class="metric-note">結果を追う案件</div></div>
+    <div class="card"><div class="card-title">メルマガ解除候補</div><div class="metric">{{ entry_summary.newsletter_unsubscribe_needed if entry_summary else 0 }}</div><div class="metric-note">解除を検討する案件</div></div>
+    <div class="card"><div class="card-title">重複候補</div><div class="metric">{{ entry_summary.duplicate_candidates if entry_summary else 0 }}</div><div class="metric-note">重複防止を確認する案件</div></div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>今日のおすすめアクション</h2>
+    <span class="pill blue">{{ today_candidates|length }}件の候補</span>
+  </div>
+  <p class="muted">次に何をするか迷ったら、この順で確認してください。</p>
+  <div class="actions action-grid">
+    <a class="btn primary" href="/review">要確認を見る</a>
+    <a class="btn" href="/search">懸賞を探す</a>
+    <a class="btn" href="/queue">応募キュー</a>
+    <a class="btn" href="/queue/session">続きから処理</a>
+    <a class="btn primary" href="/approved/session">承認済みキューを開始</a>
+    <a class="btn" href="/entries">応募履歴</a>
+    <a class="btn" href="/later-queue">あとで応募</a>
+    <a class="btn primary" href="/research">リサーチ画面へ</a>
+    <a class="btn" href="/research?q=&category=すべて">狙い目を見る</a>
+    <a class="btn" href="/mail">メール懸賞</a>
+    <a class="btn" href="/today">今日の候補</a>
+    <a class="btn" href="/campaigns">キャンペーン一覧</a>
+    <a class="btn" href="/security">セキュリティ確認</a>
+    <form method="post" action="/action/auto_scan"><input type="hidden" name="next_url" value="/"><button class="btn" type="submit">自動スキャンを実行</button></form>
+    <form method="post" action="/action/build_queue"><input type="hidden" name="next_url" value="/"><button class="btn" type="submit">応募キューを作成</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>今日見るべき候補</h2>
+    <div class="section-actions">
+      <span class="pill orange">{{ today_candidates|length }}件</span>
+      <a class="btn" href="/today">今日の候補を開く</a>
+    </div>
+  </div>
+  <div class="list">
+    {% for row in today_candidates %}
+    <article class="list-item candidate-card {{ row.risk_class }}">
+      <div class="candidate-main">
+        <div>
+          <div class="item-title"><a href="/today?selected={{ row.campaign_id }}">{{ row.campaign_name }}</a></div>
+          <div class="item-sub">{{ row.provider }} / 締切 {{ row.deadline or "未取得" }}</div>
+        </div>
+        <div class="candidate-right">
+          <span class="pill {{ 'green' if row.form_readiness_status == 'READY_FOR_FILL' else 'orange' if row.form_readiness_status == 'REVIEW_ONLY' else 'purple' if row.form_readiness_status == 'SEARCH_ONLY' else 'gray' }}">{{ display_status_label(row.form_readiness_status or row.resolve_status or "未収集") }}</span>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">要確認理由</span><span>{{ row.one_line_reason or "安全に診断して候補化します" }}</span></div>
+        <div><span class="label">次のおすすめ</span><span>{{ "フォーム診断を見る" if row.form_readiness_status in ["REVIEW_ONLY", "READY_FOR_FILL"] else "URL解決を確認する" }}</span></div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/search?selected={{ row.campaign_id }}">詳細を見る</a>
+        <a class="btn primary" href="/review">要確認を見る</a>
+        <a class="btn" href="/queue?selected={{ row.campaign_id }}">応募キューへ</a>
+      </div>
+    </article>
+    {% else %}
+    <div class="muted">要確認または入力候補の案件はまだありません。</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>安全アクション</h2>
+  </div>
+  <div class="actions">
+    <form method="post" action="/action/release_report"><input type="hidden" name="next_url" value="/"><button class="btn" type="submit">release-report 実行</button></form>
+    <form method="post" action="/action/doctor"><input type="hidden" name="next_url" value="/"><button class="btn" type="submit">doctor 実行</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>セーフティチェックリスト</h2>
+  </div>
+  <div class="list">
+    {% for label, value in safety_checklist %}
+    <div class="list-item">
+      <div class="item-title">{{ label }}</div>
+      <div class="item-sub">{{ value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <div>
+      <h2>AI司令塔</h2>
+      <div class="muted">現在はJSON結果表示モードです。Agent Control はローカル dry-run のみ実行します。</div>
+    </div>
+    <div class="pill-row">
+      <span class="pill blue">JSON結果表示</span>
+      <a class="pill green" href="/agent-control">最新表示</a>
+    </div>
+  </div>
+  <p class="muted">自動送信はありません。submit / click / send / post / like / follow / DM 系の自動化は行いません。profile.enc は読まれません。</p>
+  <p class="muted">target_url は入力補助用です。外部送信やブラウザ操作は行いません。</p>
+  <form method="get" action="/agent-control" class="inline-form">
+    <input type="text" name="target_url" value="{{ agent_control_target_url or '' }}" placeholder="target_url を入力して dry-run に渡す">
+    <button class="btn" type="submit">候補を表示</button>
+  </form>
+  {% if request.query_params.get('message') %}
+  <div class="status-banner success">{{ request.query_params.get('message') }}</div>
+  {% endif %}
+  <div class="note-box">
+    <div>自動送信なし</div>
+    <div>submit_attempted=false</div>
+    <div>submitted_count_auto=0</div>
+    <div>safe_to_submit=false</div>
+    <div>profile.enc 未読込</div>
+    <div>PIIログなし</div>
+  </div>
+</section>
+
+<section class="grid metrics">
+  <div class="card soft"><div class="card-title">pending</div><div class="metric">{{ agent_control_report.counts.pending if agent_control_report else 0 }}</div></div>
+  <div class="card soft"><div class="card-title">running</div><div class="metric">{{ agent_control_report.counts.running if agent_control_report else 0 }}</div></div>
+  <div class="card soft"><div class="card-title">needs_review</div><div class="metric">{{ agent_control_report.counts.needs_review if agent_control_report else 0 }}</div></div>
+  <div class="card soft"><div class="card-title">blocked</div><div class="metric">{{ agent_control_report.counts.blocked if agent_control_report else 0 }}</div></div>
+  <div class="card soft"><div class="card-title">done</div><div class="metric">{{ agent_control_report.counts.done if agent_control_report else 0 }}</div></div>
+  <div class="card soft"><div class="card-title">failed</div><div class="metric">{{ agent_control_report.counts.failed if agent_control_report else 0 }}</div></div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>AI担当者カード</h2>
+    <span class="pill orange">dry-run / 人間確認前提</span>
+  </div>
+  {% if agent_control_agents %}
+  <div class="agent-grid">
+    {% for agent in agent_control_agents %}
+    <article class="agent-card {% if agent.status == 'blocked' or agent.blocked_count > 0 or agent.status == 'failed' or agent.failed_count > 0 %}agent-error{% elif agent.status == 'needs_review' %}agent-warning{% endif %}">
+      <div class="agent-head">
+        <div>
+          <div class="item-title">{{ agent.display_name }}</div>
+          <div class="item-sub">{{ agent.role }}</div>
+        </div>
+        <span class="pill {% if agent.status == 'done' %}green{% elif agent.status == 'running' %}blue{% elif agent.status == 'needs_review' %}orange{% elif agent.status == 'blocked' or agent.status == 'failed' %}red{% else %}gray{% endif %}">{{ agent.status }}</span>
+      </div>
+      <div class="muted">{{ agent.purpose }}</div>
+      <div class="agent-meta">
+        <div><span class="label">最終実行時刻</span><span>{{ agent.last_run_at or "未実行" }}</span></div>
+        <div><span class="label">最新結果</span><span class="break">{{ agent.latest_result or "未実行" }}</span></div>
+        <div><span class="label">安全メモ</span><span class="break">{{ agent.latest_safety_memo or "未設定" }}</span></div>
+      </div>
+      {% if agent.agent_name == "SafetyAgent" %}
+      <div class="note-box agent-safety">
+        <div>自動送信なし</div>
+        <div>profile.enc 未読込</div>
+        <div>PIIログなし</div>
+        <div>X操作自動化なし</div>
+      </div>
+      {% endif %}
+      <div class="actions wrap">
+        <form method="post" action="/agent-control/run">
+          <input type="hidden" name="agent_name" value="{{ agent.agent_name }}">
+          <input type="hidden" name="action" value="{% if agent.agent_name == 'HumanReviewAgent' %}human_review{% else %}{{ agent.agent_name }}{% endif %}">
+          <input type="hidden" name="target_url" value="{{ agent_control_target_url or '' }}">
+          <button class="btn primary" type="submit">実行</button>
+        </form>
+        <form method="post" action="/agent-control/cancel">
+          <input type="hidden" name="agent_name" value="{{ agent.agent_name }}">
+          <input type="hidden" name="job_id" value="{{ agent.latest_job_id }}">
+          <button class="btn" type="submit">停止</button>
+        </form>
+        <a class="btn" href="/agent-control?agent={{ agent.agent_name }}#jobs">ログ</a>
+        <a class="btn" href="/agent-control?agent={{ agent.agent_name }}&job_id={{ agent.latest_job_id }}#jobs">結果</a>
+        <form method="post" action="/agent-control/run">
+          <input type="hidden" name="agent_name" value="{{ agent.agent_name }}">
+          <input type="hidden" name="action" value="human_review">
+          <input type="hidden" name="target_url" value="{{ agent_control_target_url or '' }}">
+          <button class="btn" type="submit">人間確認へ送る</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="muted">担当者情報はありません。</div>
+  {% endif %}
+</section>
+
+<section class="card" id="jobs">
+  <div class="section-head">
+    <h2>ジョブ一覧</h2>
+    <span class="pill blue">{{ agent_control_jobs|length }} 件</span>
+  </div>
+  {% if agent_control_selected_job %}
+  <div class="note-box">
+    <div>選択中ジョブ</div>
+    <div>job_id: {{ agent_control_selected_job.job_id }}</div>
+    <div>agent_name: {{ agent_control_selected_job.agent_name }}</div>
+    <div>status: {{ agent_control_selected_job.status }}</div>
+    <div>result: {{ agent_control_selected_job.result_summary }}</div>
+  </div>
+  {% endif %}
+  <div class="table-wrap">
+    <table class="campaign-table">
+      <thead>
+        <tr>
+          <th>作成日時</th>
+          <th>担当者</th>
+          <th>対象URL</th>
+          <th>ステータス</th>
+          <th>安全メモ</th>
+          <th>結果</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in agent_control_jobs %}
+        <tr {% if agent_control_selected_job and job.job_id == agent_control_selected_job.job_id %}class="selected"{% endif %}>
+          <td>{{ job.created_at }}</td>
+          <td>{{ job.agent_name }}</td>
+          <td class="break">{{ job.target_url or "unknown" }}</td>
+          <td><span class="pill {% if job.status == 'done' %}green{% elif job.status == 'running' %}blue{% elif job.status == 'needs_review' %}orange{% elif job.status == 'blocked' or job.status == 'failed' %}red{% else %}gray{% endif %}">{{ job.status }}</span></td>
+          <td class="break">{{ job.safety_memo }}</td>
+          <td class="break">{{ job.result_summary }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

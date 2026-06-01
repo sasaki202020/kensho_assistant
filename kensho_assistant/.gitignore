@@ -1,0 +1,7 @@
+config/profile.json
+config/profile.enc
+.env
+logs/
+screenshots/
+__pycache__/
+.pytest_cache/

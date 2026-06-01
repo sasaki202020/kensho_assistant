@@ -1,0 +1,99 @@
+{
+  "generated_at": "2026-06-01T07:41:26+09:00",
+  "warning": "OK",
+  "submitted_count_auto": 0,
+  "total": 12,
+  "queued": 10,
+  "prepared": 1,
+  "manually_submitted": 0,
+  "skipped": 0,
+  "hold": 0,
+  "blocked": 0,
+  "today": 0,
+  "tomorrow": 0,
+  "this_week": 0,
+  "unknown": 12,
+  "expired": 0,
+  "candidates": [
+    {
+      "queue_id": "rayhv4hzz668yhac",
+      "campaign_name": "高倉びわ",
+      "deadline": "5月31日(残り 15日 )",
+      "queue_status": "PREPARED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "29e9f66b6602545b",
+      "campaign_name": "天下一品 × 映画『スマッシング・マシーン』タイアップ特製どんぶり",
+      "deadline": "5月24日(残り 12日 )",
+      "queue_status": "APPROVED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "w2aerzt4r3btxqsw",
+      "campaign_name": "MUFGスタジアム（国立競技場）「JリーグオールスターDAZNカップ」ペア無料ご観戦チケット　オリジナルUTme！Tシャツ",
+      "deadline": "6月21日(残り 36日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "e621928349fb6",
+      "campaign_name": "【プレママ・ママ限定】NUKおしゃぶりくまのプーさん(6-18ヶ月)　ベビー歯がためほか [PR]",
+      "deadline": "5月31日(残り 13日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "yosxenjbkkxfnc",
+      "campaign_name": "ハーブ苗「香り青じそ」＆「香り赤じそ」",
+      "deadline": "20... ハーブ苗「香り青じそ」＆「香り赤じそ」に応募する 提供：エスビー食品 締切: 5月19日 12:00(残り 13時間40分 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "1f78c160079ab",
+      "campaign_name": "図書カードネットギフト2000円分",
+      "deadline": "5月31日(残り 12日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "uyrjnrmf0qge32nx",
+      "campaign_name": "映画『スター・ウォーズ／マンダロリアン・アンド・グローグー』オリジナルグッズ(非売品)",
+      "deadline": "5月27日(残り 8日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "qjbocafeuqwijiw6",
+      "campaign_name": "「BIGうまい棒」10種40本入り",
+      "deadline": "5月31日(残り 12日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "196f385e2fd78",
+      "campaign_name": "【プレママ・ママ限定】エアバギー「ココプレミア フロムバース」　Ergobaby「OMNI Breeze」ほか [PR]",
+      "deadline": "5月31日(残り 13日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    },
+    {
+      "queue_id": "n8yfp4xhoo946ex5",
+      "campaign_name": "図書カード500円分",
+      "deadline": "5月31日(残り 12日 )",
+      "queue_status": "QUEUED",
+      "readiness_status": "REVIEW_ONLY"
+    }
+  ],
+  "need_human_review": [
+    "応募送信は行っていない",
+    "REVIEW_ONLY は人間確認が必要",
+    "年齢・同意・メルマガ・任意項目は自動入力しない"
+  ],
+  "next_actions": [
+    "応募準備を確認する",
+    "要確認を開く",
+    "応募ページを人間確認する"
+  ]
+}

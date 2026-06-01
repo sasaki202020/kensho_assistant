@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>狙い目ランキング</h2>
+    <span class="pill blue">{{ research_summary.total if research_summary else 0 }}件</span>
+  </div>
+  <p class="muted">応募したくなる候補だけを見つけるための画面です。応募送信はしません。</p>
+  <div class="actions">
+    <form method="get" action="/research" class="inline-form">
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="キーワード検索">
+      <select name="category">
+        <option value="すべて">すべて</option>
+        {% for label in category_labels %}
+        <option value="{{ label }}" {% if category == label %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn primary" type="submit">検索</button>
+    </form>
+    <form method="post" action="/action/research">
+      <input type="hidden" name="next_url" value="/research">
+      <button class="btn" type="submit">リサーチ実行</button>
+    </form>
+    <form method="post" action="/action/research_report">
+      <input type="hidden" name="next_url" value="/research">
+      <button class="btn" type="submit">レポート更新</button>
+    </form>
+    <a class="btn" href="/research/x-campaigns">X懸賞を見る</a>
+    <a class="btn" href="/queue">応募キューへ</a>
+  </div>
+</section>
+
+<section class="grid metrics">
+  <div class="card"><div class="card-title">スコア80以上</div><div class="metric">{{ research_summary.score_80_plus if research_summary else 0 }}</div><div class="metric-note">狙い目</div></div>
+  <div class="card"><div class="card-title">要確認</div><div class="metric">{{ research_summary.review_only if research_summary else 0 }}</div><div class="metric-note">人間確認が必要</div></div>
+  <div class="card"><div class="card-title">締切間近</div><div class="metric">{{ research_summary.deadline_soon if research_summary else 0 }}</div><div class="metric-note">今見るべき候補</div></div>
+  <div class="card"><div class="card-title">除外推奨</div><div class="metric">{{ research_summary.exclude if research_summary else 0 }}</div><div class="metric-note">手間が大きい候補</div></div>
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in research_rows %}
+    <article class="card result-card">
+      <div class="result-top">
+        <div class="thumb">R</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.campaign_name }}</div>
+          <div class="item-sub">{{ row.provider }} / 締切 {{ row.deadline or "未取得" }} / 賞品 {{ row.prize or "未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill blue">score {{ row.opportunity_score or 0 }}</span>
+            <span class="pill {{ 'green' if row.risk_level == 'low' else 'orange' if row.risk_level == 'medium' else 'red' }}">{{ row.risk_level or "unknown" }}</span>
+            <span class="pill gray">{{ row.next_action or "手動確認" }}</span>
+          </div>
+          <div class="muted">{{ row.recommendation_reason or "候補を評価中です。" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">おすすめ理由</span><span>{{ row.opportunity_reason or "なし" }}</span></div>
+        <div><span class="label">除外理由</span><span>{{ row.risk_reasons or "なし" }}</span></div>
+        <div><span class="label">次のアクション</span><span>{{ row.next_action or "手動確認" }}</span></div>
+      </div>
+      <div class="actions">
+        <form method="post" action="/research/{{ row.campaign_id }}/add-to-queue">
+          <input type="hidden" name="next_url" value="/research">
+          <button class="btn primary" type="submit">応募キューに追加</button>
+        </form>
+        <a class="btn" href="/search?selected={{ row.campaign_id }}">詳細を見る</a>
+        <a class="btn" href="/search?selected={{ row.campaign_id }}">URL解決</a>
+        <a class="btn" href="/review">フォーム診断</a>
+        <form method="post" action="/campaigns/{{ row.campaign_id }}/exclude">
+          <input type="hidden" name="next_url" value="/research">
+          <input type="hidden" name="reason" value="リサーチで除外">
+          <button class="btn" type="submit">除外する</button>
+        </form>
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">候補がありません。先に collect / analyze / resolve-urls / inspect-form を実行してください。</div>
+    {% endfor %}
+  </div>
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head"><h2>リサーチ要約</h2></div>
+      <div class="detail-grid">
+        <div>総数</div><div>{{ research_report.total if research_report else 0 }}</div>
+        <div>カテゴリ数</div><div>{{ research_report.category_counts|length if research_report and research_report.category_counts else 0 }}</div>
+        <div>キーワード数</div><div>{{ research_report.keyword_counts|length if research_report and research_report.keyword_counts else 0 }}</div>
+        <div>狙い目件数</div><div>{{ research_report.score_bins['80_plus'] if research_report and research_report.score_bins else 0 }}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-head"><h2>カテゴリ候補</h2></div>
+      <div class="tag-row">
+        {% for label in category_labels %}
+        <a class="pill {% if category == label %}blue{% endif %}" href="/research?category={{ label }}">{{ label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </aside>
+</section>
+{% endblock %}

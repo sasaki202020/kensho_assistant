@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title or "懸賞応募アシスタント" }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-title">懸賞応募アシスタント</div>
+        <div class="brand-subtitle">{{ app_version }}</div>
+      </div>
+      <div class="site-note">対象サイト：懸賞生活 https://www.knshow.com/</div>
+      <div class="site-note">懸賞生活の公式ツールではありません</div>
+      <nav class="nav">
+        {% for key, label, href in nav_items %}
+        <a class="nav-item {% if active_page == key %}active{% endif %}" href="{{ href }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-footer">
+        <div>安全モード：ON</div>
+        <div>送信機能：無効</div>
+        <div>スクリーンショット保存：OFF</div>
+        <div>ログのマスキング：ON</div>
+        <div>個人情報はローカル保存</div>
+        <div>本番送信は人間確認が必要</div>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="hero">
+        <div>
+          <div class="eyebrow">{{ app_version }}</div>
+          <h1>{{ page_title or "ダッシュボード" }}</h1>
+          <p>本番送信は人間確認が必要です。自動送信は無効です。</p>
+        </div>
+        <div class="hero-badges">
+          <span class="badge blue">localhost only</span>
+          <span class="badge green">暗号化保存</span>
+          <span class="badge orange">要確認</span>
+        </div>
+      </header>
+      {% block content %}{% endblock %}
+      <footer class="footer">
+        <div>本番送信は人間確認が必要です</div>
+        <div>自動送信は無効です</div>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

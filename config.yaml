@@ -1,0 +1,25 @@
+project_name: pension-video-maker
+output_root: output
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  target_seconds: 600
+  subtitle_font_size: 30
+  subtitle_margin_v: 42
+theme:
+  title_font_size: 66
+  body_font_size: 44
+  footer_font_size: 26
+  panel_radius: 36
+  accent_color: "#2E5E8A"
+  bg_colors:
+    - "#FFFFFF"
+    - "#F5F0E6"
+    - "#EAF3FF"
+tts:
+  preferred_engine: auto
+  rate: 145
+  openai_model: gpt-4.1-mini
+  openai_voice: alloy
+  openai_tts_model: gpt-4o-mini-tts

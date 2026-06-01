@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>承認済み応募キュー</h2>
+    <span class="pill blue">{{ queue_rows|length }}件</span>
+  </div>
+  <p class="muted">この画面は承認済みの応募準備リストです。アプリは応募送信しません。最後の送信はユーザー本人が行います。規約同意は自動チェックしません。</p>
+  <div class="actions">
+    <a class="btn primary" href="/approved/session">承認済みキューを開始</a>
+    <a class="btn" href="/queue">通常キューへ戻る</a>
+  </div>
+  <label class="memo-field compact">
+    <input type="checkbox" data-age-fill-toggle>
+    <span>年齢・生年月日の入力補助を許可する</span>
+  </label>
+  <div class="muted">年齢・生年月日は個人情報です。この懸賞で入力してよいと判断した場合のみ許可してください。</div>
+  <section class="card soft prepare-status" id="approved-prepare-status" data-default-command="{{ prepare_command }}">
+    <div class="section-head">
+      <h3>実行結果</h3>
+      <span class="pill gray" data-prepare-state>未実行</span>
+    </div>
+    <div class="status-message" data-prepare-message>Chromeで応募準備を押すと、ここに結果が表示されます。</div>
+    <div class="muted" data-prepare-next>アプリは送信していません。</div>
+    <div data-prepare-fallback hidden>
+      <div class="command-box">
+        <div class="card-title">手動コマンド</div>
+        <code data-prepare-command>{{ prepare_command }}</code>
+      </div>
+      <div class="actions compact">
+        <button class="btn" type="button" data-copy-command>コマンドをコピー</button>
+        <a class="btn" href="/security">start_chrome_prepare.bat の使い方を見る</a>
+      </div>
+      <div class="muted" data-prepare-help>Chrome起動に失敗した場合は browser doctor を確認してください。</div>
+    </div>
+  </section>
+  <div class="grid metrics">
+    <div class="card"><div class="card-title">承認済み</div><div class="metric">{{ approved_count if approved_count is not none else 0 }}</div><div class="metric-note">応募してよいと承認済み</div></div>
+    <div class="card"><div class="card-title">応募準備済み</div><div class="metric">{{ prepared_count if prepared_count is not none else 0 }}</div><div class="metric-note">Chromeで応募準備済み</div></div>
+    <div class="card"><div class="card-title">保留</div><div class="metric">{{ hold_count if hold_count is not none else 0 }}</div><div class="metric-note">あとで再確認</div></div>
+    <div class="card"><div class="card-title">自動送信</div><div class="metric">0</div><div class="metric-note">実装していません</div></div>
+  </div>
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in queue_rows %}
+    <article class="card result-card">
+      <div class="result-top">
+        <div class="thumb">A</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.campaign_name }}</div>
+          <div class="item-sub">{{ row.provider }} / 締切 {{ row.deadline or "未取得" }} / 賞品 {{ row.prize or "未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill blue">{{ row.queue_status }}</span>
+            <span class="pill {{ 'green' if row.readiness_status == 'READY_FOR_FILL' else 'orange' if row.readiness_status == 'REVIEW_ONLY' else 'gray' }}">{{ display_status_label(row.readiness_status) }}</span>
+            <span class="pill gray">承認済み</span>
+          </div>
+          <div class="muted">{{ row.approved_note or "承認済み候補です。" }}</div>
+          {% if row.risk_notice %}
+          <div class="muted">{{ row.risk_notice }}</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">手動確認が必要</span><span>{{ row.manual_review_required_fields or "なし" }}</span></div>
+        <div><span class="label">年齢入力補助</span><span>{{ "可" if row.age_fill_user_approved == "true" else "不可" }}</span></div>
+        <div><span class="label">規約同意</span><span>自動チェックしません</span></div>
+        <div><span class="label">クイズ</span><span>{{ row.quiz_summary or ("あり" if row.quiz_required == "true" else "なし") }}</span></div>
+        <div><span class="label">次のアクション</span><span>{{ "Chromeで応募準備" if row.queue_status in ["APPROVED", "PREPARED"] else "確認を続ける" }}</span></div>
+        {% if row.risk_detail %}
+        <div><span class="label">重複メモ</span><span>{{ row.risk_detail }}</span></div>
+        {% endif %}
+      </div>
+      <label class="memo-field compact">
+        <input type="checkbox" data-age-fill-toggle>
+        <span>年齢・生年月日の入力補助を許可する</span>
+      </label>
+      <div class="muted">年齢・生年月日は個人情報です。この懸賞で入力してよいと判断した場合のみ許可してください。</div>
+      <div class="actions">
+        <form method="post" action="/queue/{{ row.queue_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/approved/{{ row.queue_id }}/prepare">
+          <input type="hidden" name="next_url" value="/approved">
+          <button class="btn primary" type="submit">Chromeで応募準備</button>
+        </form>
+        <form method="post" action="/queue/{{ row.queue_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/approved/{{ row.queue_id }}/prepare" data-allow-age-fill="1">
+          <input type="hidden" name="next_url" value="/approved">
+          <input type="hidden" name="age_fill_user_approved" value="true">
+          <button class="btn" type="submit">年齢入力を許可してChromeで応募準備</button>
+        </form>
+        <form method="post" action="/queue/{{ row.queue_id }}/manual-submitted"><input type="hidden" name="next_url" value="/approved"><button class="btn" type="submit">手動送信済みにする</button></form>
+        <form method="post" action="/queue/{{ row.queue_id }}/hold"><input type="hidden" name="next_url" value="/approved"><button class="btn" type="submit">保留</button></form>
+        <form method="post" action="/queue/{{ row.queue_id }}/skip"><input type="hidden" name="next_url" value="/approved"><button class="btn" type="submit">スキップ</button></form>
+        <a class="btn" href="{{ row.resolved_entry_url or '#' }}" target="_blank" rel="noreferrer">応募ページを開く</a>
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">承認済みの案件はありません。先に応募候補に承認してください。</div>
+    {% endfor %}
+  </div>
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head"><h2>注意</h2></div>
+      <div class="muted">規約同意は法的な意思表示です。アプリは自動チェックしません。内容を確認し、同意する場合は応募ページ上でご自身で操作してください。</div>
+    </div>
+    <div class="card">
+      <div class="section-head"><h2>詳細</h2></div>
+      {% if detail %}
+      <div class="detail-grid">
+        <div>キャンペーン名</div><div>{{ detail.campaign_name }}</div>
+        <div>賞品</div><div>{{ detail.prize or "未取得" }}</div>
+        <div>提供元</div><div>{{ detail.provider }}</div>
+        <div>締切</div><div>{{ detail.deadline or "未取得" }}</div>
+        <div>状態</div><div>{{ detail.queue_status }}</div>
+        <div>approved_note</div><div>{{ detail.approved_note or "なし" }}</div>
+        <div>年齢入力補助</div><div>{{ "可" if detail.age_fill_user_approved == "true" else "不可" }}</div>
+        <div>クイズ</div><div>{{ detail.quiz_summary or ("あり" if detail.quiz_required == "true" else "なし") }}</div>
+      </div>
+      {% else %}
+      <div class="muted">候補を選ぶと詳細を表示します。</div>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+<script>
+(function () {
+  const status = document.getElementById("approved-prepare-status");
+  if (!status) {
+    return;
+  }
+  const stateEl = status.querySelector("[data-prepare-state]");
+  const messageEl = status.querySelector("[data-prepare-message]");
+  const nextEl = status.querySelector("[data-prepare-next]");
+  const fallbackPanel = status.querySelector("[data-prepare-fallback]");
+  const commandEl = status.querySelector("[data-prepare-command]");
+  const helpEl = status.querySelector("[data-prepare-help]");
+  const copyButton = status.querySelector("[data-copy-command]");
+  const ageToggle = document.querySelector("[data-age-fill-toggle]");
+
+  function applyResult(data) {
+    const ok = Boolean(data && data.ok);
+    stateEl.textContent = ok ? "成功" : "失敗";
+    stateEl.className = ok ? "pill green" : "pill red";
+    messageEl.textContent = data && data.message ? data.message : "";
+    nextEl.textContent = data && data.next_action ? data.next_action : "";
+    if (fallbackPanel) {
+      fallbackPanel.hidden = ok;
+    }
+    if (commandEl) {
+      commandEl.textContent = data && data.fallback_command ? data.fallback_command : status.dataset.defaultCommand;
+    }
+    if (helpEl) {
+      helpEl.textContent = data && data.fallback_help ? data.fallback_help : "Chrome起動に失敗した場合は browser doctor を確認してください。";
+    }
+  }
+
+  const forms = document.querySelectorAll("[data-prepare-form]");
+  forms.forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const apiUrl = form.dataset.prepareApiUrl;
+      if (!apiUrl) {
+        form.submit();
+        return;
+      }
+      try {
+        let targetUrl = apiUrl;
+        if (form.dataset.allowAgeFill === "1" && ageToggle && ageToggle.checked && !targetUrl.includes("allow_age_fill=1")) {
+          targetUrl = `${targetUrl}${targetUrl.includes("?") ? "&" : "?"}allow_age_fill=1`;
+        }
+        const response = await fetch(targetUrl, { method: "POST" });
+        const data = await response.json();
+        applyResult(data);
+      } catch (error) {
+        applyResult({
+          ok: false,
+          message: "Chrome起動に失敗しました。",
+          next_action: "browser doctor を確認してください。",
+          fallback_command: status.dataset.defaultCommand,
+          fallback_help: "手動コマンドを表示します。",
+        });
+      }
+    });
+  });
+
+  if (copyButton && commandEl) {
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(commandEl.textContent || status.dataset.defaultCommand || "");
+        copyButton.textContent = "コピーしました";
+        setTimeout(() => {
+          copyButton.textContent = "コマンドをコピー";
+        }, 1400);
+      } catch (error) {
+        copyButton.textContent = "コピー失敗";
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

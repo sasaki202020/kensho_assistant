@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>あとで応募</h2>
+    <span class="pill blue">{{ later_summary.total if later_summary else 0 }}件</span>
+  </div>
+  <p class="muted">URLを貼るだけで候補を登録し、あとでまとめて確認できます。この機能は自動送信しません。最後の送信はユーザーが確認して行います。個人情報はこのキューには保存しません。</p>
+  <div class="grid metrics">
+    <div class="card soft"><div class="card-title">あとで応募件数</div><div class="metric">{{ later_summary.total if later_summary else 0 }}</div><div class="metric-note">登録済み候補</div></div>
+    <div class="card soft"><div class="card-title">要確認件数</div><div class="metric">{{ later_summary.needs_review if later_summary else 0 }}</div><div class="metric-note">unknown 項目あり</div></div>
+    <div class="card soft"><div class="card-title">入力準備</div><div class="metric">{{ later_summary.ready_for_fill if later_summary else 0 }}</div><div class="metric-note">準備待ち候補</div></div>
+    <div class="card soft"><div class="card-title">期限切れ件数</div><div class="metric">{{ later_summary.expired if later_summary else 0 }}</div><div class="metric-note">期限が過ぎた候補</div></div>
+  </div>
+  <div class="actions compact">
+    <form method="post" action="/later-queue/add-url" class="inline-form">
+      <input type="url" name="url" placeholder="https://example.com/campaign" required>
+      <button class="btn primary" type="submit">登録</button>
+    </form>
+    <a class="btn" href="/queue">応募キューを見る</a>
+    <a class="btn" href="/entries">応募履歴を見る</a>
+  </div>
+  <div class="note-box">
+    <div>この機能は自動送信しません。</div>
+    <div>最後の送信はユーザーが確認して行います。</div>
+    <div>個人情報はこのキューには保存しません。</div>
+    <div>当選・応募条件・締切日は自動抽出が不完全な場合があります。unknown の項目はユーザー確認が必要です。</div>
+  </div>
+  {% if later_message %}
+  <div class="status-banner success">{{ later_message }}</div>
+  {% endif %}
+  {% if later_error %}
+  <div class="status-banner danger">{{ later_error }}</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>フィルタ</h2>
+  </div>
+  <form method="get" action="/later-queue" class="filters-form">
+    <input type="text" name="q" value="{{ q }}" placeholder="キーワード検索">
+    <select name="status">
+      {% for label, value in later_status_filters %}
+      <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="sort">
+      {% for label, value in later_sort_filters %}
+      <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn primary" type="submit">絞り込む</button>
+  </form>
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in later_rows %}
+    <article class="card result-card {{ 'danger-faded' if row.status == 'expired' else '' }}">
+      <div class="result-top">
+        <div class="thumb">後</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.title or "unknown" }}</div>
+          <div class="item-sub">{{ row.site_name or "unknown" }} / {{ row.url or "URL未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill blue">{{ row.status }}</span>
+            <span class="pill orange">{{ row.source_type or "manual_url" }}</span>
+            {% if row.duplicate_key %}
+            <span class="pill red">重複防止</span>
+            {% endif %}
+          </div>
+          <div class="muted">{{ row.safety_memo or "安全メモなし" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">締切</span><span><strong>{{ row.deadline or "unknown" }}</strong></span></div>
+        <div><span class="label">登録日時</span><span>{{ row.created_at or "未記録" }}</span></div>
+        <div><span class="label">更新日時</span><span>{{ row.updated_at or "未記録" }}</span></div>
+        <div><span class="label">確認メモ</span><span class="break">{{ row.review_note or "なし" }}</span></div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/later-queue?selected={{ row.id }}">詳細確認</a>
+        <form method="post" action="/later-queue/{{ row.id }}/prepare-fill"><button class="btn primary" type="submit">入力準備</button></form>
+        <form method="post" action="/later-queue/{{ row.id }}/mark-applied-manual"><button class="btn" type="submit">応募済みにする</button></form>
+        <form method="post" action="/later-queue/{{ row.id }}/skip"><button class="btn" type="submit">スキップ</button></form>
+        <form method="post" action="/later-queue/{{ row.id }}/remove"><button class="btn" type="submit">削除</button></form>
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">あとで応募候補はまだありません。URLを貼って登録してください。</div>
+    {% endfor %}
+  </div>
+
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head">
+        <h2>詳細</h2>
+      </div>
+      {% if detail %}
+      <div class="detail-grid">
+        <div>id</div><div>{{ detail.id }}</div>
+        <div>タイトル</div><div>{{ detail.title }}</div>
+        <div>サイト名</div><div>{{ detail.site_name }}</div>
+        <div>URL</div><div class="break">{{ detail.url }}</div>
+        <div>normalized_url</div><div class="break">{{ detail.normalized_url }}</div>
+        <div>締切</div><div>{{ detail.deadline }}</div>
+        <div>status</div><div>{{ detail.status }}</div>
+        <div>source_type</div><div>{{ detail.source_type }}</div>
+        <div>安全メモ</div><div class="break">{{ detail.safety_memo }}</div>
+        <div>確認メモ</div><div class="break">{{ detail.review_note }}</div>
+        <div>登録日時</div><div>{{ detail.created_at }}</div>
+        <div>更新日時</div><div>{{ detail.updated_at }}</div>
+      </div>
+      <div class="actions vertical">
+        <a class="btn primary" href="{{ detail.url or '#' }}" target="_blank" rel="noreferrer">URLを開く</a>
+        <form method="post" action="/later-queue/{{ detail.id }}/review"><button class="btn" type="submit">詳細確認</button></form>
+        <form method="post" action="/later-queue/{{ detail.id }}/prepare-fill"><button class="btn primary" type="submit">入力準備</button></form>
+        <form method="post" action="/later-queue/{{ detail.id }}/mark-applied-manual"><button class="btn" type="submit">応募済みにする</button></form>
+        <form method="post" action="/later-queue/{{ detail.id }}/skip"><button class="btn" type="submit">スキップ</button></form>
+      </div>
+      {% else %}
+      <p class="muted">詳細はありません。</p>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+{% endblock %}

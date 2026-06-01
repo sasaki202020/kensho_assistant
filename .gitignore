@@ -1,0 +1,10 @@
+kensho_assistant/config/profile.json
+kensho_assistant/config/profile.enc
+.env
+kensho_assistant/logs/
+kensho_assistant/screenshots/
+kensho_assistant/data/
+kensho_assistant/browser_profile/
+browser_profile/
+__pycache__/
+.pytest_cache/

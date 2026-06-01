@@ -1,0 +1,2 @@
+"""Kensho entry assistant package."""
+

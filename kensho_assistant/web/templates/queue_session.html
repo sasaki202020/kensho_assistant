@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>応募キュー連続処理</h2>
+    <span class="pill blue">{{ queue_rows|length if queue_rows else 0 }}件</span>
+  </div>
+  <p class="muted">これは送信キューではなく、応募準備の順番待ちです。最後の送信は必ず人間確認が必要です。</p>
+  {% if not queue_has_items %}
+  <div class="card muted">応募キューが空です。先に自動スキャンまたは build-queue を実行してください。</div>
+  {% else %}
+  <div class="grid metrics">
+    <div class="card">
+      <div class="card-title">現在の順番</div>
+      <div class="metric">{{ current_index + 1 }} / {{ queue_rows|length }}</div>
+      <div class="metric-note">1件ずつ確認します</div>
+    </div>
+    <div class="card">
+      <div class="card-title">手動確認</div>
+      <div class="metric">{{ current.manual_review_required_fields or "なし" }}</div>
+      <div class="metric-note">年齢 / 同意 / クイズは自動入力しません</div>
+    </div>
+    <div class="card">
+      <div class="card-title">クイズ</div>
+      <div class="metric">{{ current.quiz_summary or ("クイズ回答は手動" if current.quiz_required else "なし") }}</div>
+      <div class="metric-note">クイズ回答は自動入力しません</div>
+    </div>
+  </div>
+
+  <section class="card soft">
+    <div class="section-head">
+      <h3>Chrome応募準備状態</h3>
+      <span class="pill {{ 'green' if current.queue_status == 'PREPARED' else 'orange' if current.queue_status == 'HOLD' else 'gray' }}">{{ current.state_label or current.queue_status or "未処理" }}</span>
+    </div>
+      <div class="detail-grid">
+        <div>現在の候補</div><div>{{ current.campaign_name }}</div>
+        <div>現在の状態</div><div>{{ current.state_label or current.queue_status or "未処理" }}</div>
+        <div>最終操作</div><div>{{ current.last_action_label or current.last_action or "なし" }}</div>
+        <div>次にやること</div><div>{{ current.next_action_label or "アプリは送信していません。応募ページで内容を確認し、送信する場合はユーザー本人が操作してください。" }}</div>
+        <div>送信状態</div><div>アプリは送信していません。</div>
+        <div>自動送信</div><div>{{ current.auto_submit_label or "無効" }}</div>
+        <div>手動送信済み記録</div><div>{{ current.manual_record_label or "送信した場合だけ記録してください" }}</div>
+      </div>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h3>{{ current.campaign_name }}</h3>
+      <span class="pill {{ 'green' if current.readiness_status == 'READY_FOR_FILL' else 'orange' if current.readiness_status == 'REVIEW_ONLY' else 'gray' }}">{{ display_status_label(current.readiness_status) }}</span>
+    </div>
+    <div class="detail-grid">
+      <div>campaign_id</div><div>{{ current.campaign_id }}</div>
+      <div>賞品</div><div>{{ current.prize or "未取得" }}</div>
+      <div>提供元</div><div>{{ current.provider or "未取得" }}</div>
+      <div>締切</div><div>{{ current.deadline or "未取得" }}</div>
+      <div>URL</div><div class="break">{{ current.resolved_entry_url or "未取得" }}</div>
+      <div>状態</div><div>{{ current.queue_status or "QUEUED" }}</div>
+      <div>危険判定</div><div>{{ current.risk_level or "未評価" }}</div>
+      <div>要確認</div><div>{{ current.manual_review_required_fields or "なし" }}</div>
+      <div>スキップ理由</div><div>{{ current.skip_reason_summary or "なし" }}</div>
+      <div>prepared_at</div><div>{{ current.prepared_at or "未記録" }}</div>
+    </div>
+    <div class="quiz-box">
+      <div class="pill blue">手動確認が必要</div>
+      <div class="quiz-item">
+        <div class="quiz-question">緑: 自動入力候補</div>
+        <div class="quiz-choices">氏名 / 住所 / メール</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">黄: 確認後に入力補助可能</div>
+        <div class="quiz-choices">年齢 / 生年月日（明示許可時のみ）</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">赤: 必ず手動</div>
+        <div class="quiz-choices">規約同意は手動 / クイズ回答は手動 / メルマガは手動 / CAPTCHAは手動</div>
+      </div>
+      <div class="muted">赤の項目はアプリが操作しません。応募ページ上でユーザー本人が確認してください。</div>
+    </div>
+    <div class="actions">
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/queue/{{ current.campaign_id }}/prepare">
+        <input type="hidden" name="next_url" value="/queue/session">
+        <button class="btn primary" type="submit">Chromeで応募準備</button>
+      </form>
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/manual-submitted">
+        <input type="hidden" name="next_url" value="/queue/session">
+        <button class="btn" type="submit" onclick="return confirm('これはアプリが送信する機能ではありません。あなた自身がChrome上で応募送信した場合だけ記録してください。記録すると次の候補へ進めます。')">手動送信済みにする</button>
+      </form>
+      {% if next_item %}
+      <a class="btn primary" href="/queue/session/{{ next_item.campaign_id }}">次の候補へ</a>
+      {% endif %}
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/hold">
+        <input type="hidden" name="next_url" value="/queue/session">
+        <button class="btn" type="submit">保留</button>
+      </form>
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/skip">
+        <input type="hidden" name="next_url" value="/queue/session">
+        <button class="btn" type="submit">スキップ</button>
+      </form>
+      <a class="btn" href="{{ current.resolved_entry_url or '#' }}" target="_blank" rel="noreferrer">応募ページを開く</a>
+      <a class="btn" href="/review">フォーム診断を見る</a>
+      {% if previous %}
+      <a class="btn" href="/queue/session/{{ previous.campaign_id }}">前の候補へ</a>
+      {% endif %}
+      <a class="btn" href="/queue">キュー一覧へ戻る</a>
+    </div>
+
+    <div class="card soft prepare-status" data-default-command="{{ prepare_command }}">
+      <div class="section-head">
+        <h4>実行結果</h4>
+        <span class="pill gray" data-prepare-state>未実行</span>
+      </div>
+      <div class="status-message" data-prepare-message>Chromeで応募準備を押すと、ここに結果が表示されます。</div>
+      <div class="muted" data-prepare-next>送信はしていません。送信した場合だけ「手動送信済みにする」を押してください。</div>
+      <div data-prepare-fallback hidden>
+        <div class="command-box">
+          <div class="card-title">手動コマンド</div>
+          <code data-prepare-command>{{ prepare_command }}</code>
+        </div>
+        <div class="actions compact">
+          <button class="btn" type="button" data-copy-command>コマンドをコピー</button>
+          <a class="btn" href="/security">browser doctor を確認する</a>
+        </div>
+        <div class="muted" data-prepare-help>Chrome起動に失敗した場合は browser doctor を確認してください。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <h4>次の候補</h4>
+        <span class="pill blue">{% if next_item %}{{ next_item.campaign_name }}{% else %}なし{% endif %}</span>
+      </div>
+      {% if previous %}
+      <div class="muted">前の候補: {{ previous.campaign_name }}</div>
+      {% endif %}
+      {% if next_item %}
+      <div class="muted">次の候補: {{ next_item.campaign_name }} / {{ next_item.state_label or next_item.queue_status }}</div>
+      {% endif %}
+    </div>
+
+    <div class="card muted">
+      キーボード案内: N 次へ / H 保留 / S スキップ / M 手動送信済み / P 応募準備
+    </div>
+    <div class="muted">コマンド例: <code>{{ prepare_command }}</code></div>
+  </section>
+
+  <section class="card soft">
+    <div class="section-head">
+      <h3>自己テストメモ</h3>
+      <span class="pill gray">reports/self_test_log.md</span>
+    </div>
+    <p class="muted">迷ったところを短く残してください。次回の改善点をそのまま記録できます。</p>
+    <form class="memo-form" method="post" action="/queue/session/{{ current.campaign_id }}/self-test-note">
+      <input type="hidden" name="next_url" value="/queue/session">
+      <label class="memo-field">
+        <span>迷ったところ</span>
+        <textarea name="note_confusion" rows="2" placeholder="例: Chrome起動後に次に押すボタンが少し迷った"></textarea>
+      </label>
+      <label class="memo-field">
+        <span>応募したいと思ったか</span>
+        <textarea name="note_interest" rows="2" placeholder="例: かなり応募したいと思った / まだ判断保留"></textarea>
+      </label>
+      <label class="memo-field">
+        <span>次回改善したい点</span>
+        <textarea name="note_improve" rows="2" placeholder="例: 次の候補ボタンをもっと大きくする"></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn primary" type="submit">メモを保存</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+</section>
+
+{% if x_queue_rows %}
+<section class="card">
+  <div class="section-head">
+    <h2>X懸賞 review キュー</h2>
+    <span class="pill blue">{{ x_queue_summary.total if x_queue_summary else 0 }}件</span>
+  </div>
+  <p class="muted">review 候補を選んでから、Chromeで応募準備を押してください。送信はしません。</p>
+  <div class="results">
+    {% for row in x_queue_rows[:5] %}
+    <article class="card result-card {{ 'danger-faded' if row.status == 'skipped' else '' }}">
+      <div class="result-top">
+        <div class="thumb">X</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.title or "無題" }}</div>
+          <div class="item-sub">{{ row.organizer or "主催者不明" }} / 締切 {{ row.deadline or "未取得" }} / 賞品 {{ row.prize or "未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill {{ 'green' if row.recommendation == 'review' else 'orange' if row.recommendation == 'watch' else 'red' }}">{{ row.recommendation or 'review' }}</span>
+            <span class="pill {{ row.safety_badge or 'gray' }}">safe {{ row.safety_score or 0 }}</span>
+            <span class="pill gray">{{ row.status or 'review_pending' }}</span>
+          </div>
+          <div class="muted">{{ row.recommendation_reason or row.queue_reason or "人間確認が必要です。" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">応募条件</span><span>{{ row.requirements|join(' / ') if row.requirements else "なし" }}</span></div>
+        <div><span class="label">リスク理由</span><span>{{ row.risk_flags|join(' / ') if row.risk_flags else "なし" }}</span></div>
+      </div>
+      <div class="actions">
+        {% if row.status == 'review_pending' %}
+        <form method="post" action="/queue/x/{{ row.candidate_id }}/select">
+          <input type="hidden" name="next_url" value="/queue/session">
+          <button class="btn primary" type="submit">応募候補に追加</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/queue/x/{{ row.candidate_id }}/skip">
+          <input type="hidden" name="next_url" value="/queue/session">
+          <input type="hidden" name="skip_reason" value="スキップ">
+          <button class="btn" type="submit">スキップ</button>
+        </form>
+        <form method="post" action="/queue/x/{{ row.candidate_id }}/open-prepare">
+          <input type="hidden" name="next_url" value="/queue/session">
+          <button class="btn primary" type="submit" {% if row.prepare_disabled %}disabled{% endif %}>Chromeで応募準備</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<script>
+(function () {
+  const status = document.querySelector("[data-prepare-api-url]");
+  if (!status) {
+    return;
+  }
+  const forms = document.querySelectorAll("[data-prepare-form]");
+  const resultCard = document.querySelector(".prepare-status[data-default-command]") || null;
+  const stateCard = resultCard ? resultCard.querySelector("[data-prepare-state]") : null;
+  const messageLine = resultCard ? resultCard.querySelector("[data-prepare-message]") : null;
+  const nextLine = resultCard ? resultCard.querySelector("[data-prepare-next]") : null;
+  const fallbackPanel = resultCard ? resultCard.querySelector("[data-prepare-fallback]") : null;
+  const commandLine = resultCard ? resultCard.querySelector("[data-prepare-command]") : null;
+  const helpLine = resultCard ? resultCard.querySelector("[data-prepare-help]") : null;
+  const copyButton = resultCard ? resultCard.querySelector("[data-copy-command]") : null;
+
+  if (copyButton && commandLine) {
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(commandLine.textContent || "");
+      } catch (error) {
+        // ignore clipboard failures
+      }
+    });
+  }
+
+  function applyResult(data) {
+    const ok = Boolean(data && data.ok);
+    if (stateCard) {
+      stateCard.textContent = ok ? "Chromeで応募準備済み" : "要確認";
+      stateCard.className = ok ? "pill green" : "pill red";
+    }
+    if (messageLine) {
+      messageLine.textContent = data && data.message ? data.message : "";
+    }
+    if (nextLine) {
+      nextLine.textContent = data && data.next_action ? data.next_action : "送信はしていません。送信した場合だけ「手動送信済みにする」を押してください。";
+    }
+    if (fallbackPanel) {
+      fallbackPanel.hidden = ok;
+    }
+    if (commandLine && data && data.fallback_command) {
+      commandLine.textContent = data.fallback_command;
+    }
+    if (helpLine && data && data.fallback_help) {
+      helpLine.textContent = data.fallback_help;
+    }
+  }
+
+  forms.forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const apiUrl = form.dataset.prepareApiUrl;
+      if (!apiUrl) {
+        form.submit();
+        return;
+      }
+      try {
+        const response = await fetch(apiUrl, { method: "POST" });
+        const data = await response.json();
+        applyResult(data);
+      } catch (error) {
+        applyResult({
+          ok: false,
+          queue_status: "要確認",
+          fallback_command: "{{ prepare_command }}",
+        });
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

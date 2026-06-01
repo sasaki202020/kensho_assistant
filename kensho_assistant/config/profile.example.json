@@ -1,0 +1,17 @@
+{
+  "last_name": "山田",
+  "first_name": "太郎",
+  "last_name_kana": "ヤマダ",
+  "first_name_kana": "タロウ",
+  "postal_code": "000-0000",
+  "prefecture": "愛知県",
+  "city": "名古屋市",
+  "address1": "〇〇区〇〇",
+  "address2": "1-2-3",
+  "phone": "09000000000",
+  "email": "example@example.com",
+  "gender": "男性",
+  "birth_year": "1980",
+  "birth_month": "1",
+  "birth_day": "1"
+}
