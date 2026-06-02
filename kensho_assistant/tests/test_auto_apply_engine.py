@@ -44,6 +44,7 @@ def test_mock_mode_submits_basic_form_only():
         page.goto(_form_url("basic.html"))
         result = AutoApplyEngine("mock").run(page, _campaign("basic.html"), PROFILE)
         assert result["record"]["auto_submitted"] is True
+        assert result["record"]["status"] == "MOCK_SUBMITTED"
         assert "submitted.html" in page.url
         browser.close()
 
@@ -67,14 +68,42 @@ def test_dry_run_never_clicks_submit_and_saves_artifacts():
         page.goto(_form_url("basic.html"))
         result = AutoApplyEngine("dry_run").run(page, _campaign("dry_real_site.html"), PROFILE)
         record = result["record"]
+        assert record["status"] == "PRE_SUBMIT_READY"
         assert record["submit_attempted"] is False
         assert record["submit_clicked"] is False
         assert record["auto_submitted"] is False
+        assert record["submit_button_detected"] is True
+        assert record["pre_submit_score"] >= 90
         assert "submitted.html" not in page.url
         assert (FORM_ANALYSIS_DIR / "dry_real_site.json").exists()
-        assert (PRE_SUBMIT_CHECKS_DIR / "dry_real_site.json").exists()
+        check_path = PRE_SUBMIT_CHECKS_DIR / "dry_real_site.json"
+        assert check_path.exists()
+        check_data = json.loads(check_path.read_text(encoding="utf-8"))
+        assert check_data["status"] == "PRE_SUBMIT_READY"
+        assert check_data["submit_button_detected"] is True
+        assert check_data["html_snapshot_path"]
         assert Path(str(record["screenshot_path"])).exists()
+        assert Path(str(record["html_snapshot_path"])).exists()
         browser.close()
+
+
+def test_pre_submit_statuses_cover_review_manual_and_skip():
+    cases = {
+        "quiz.html": "REVIEW_FILL_READY",
+        "consent.html": "REVIEW_FILL_READY",
+        "login.html": "MANUAL_ASSIST_READY",
+        "captcha.html": "SKIPPED",
+    }
+    for form, expected_status in cases.items():
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(_form_url(form))
+            result = AutoApplyEngine("dry_run").run(page, _campaign(form), PROFILE)
+            assert result["record"]["status"] == expected_status
+            assert result["record"]["submit_clicked"] is False
+            assert result["record"]["auto_submitted"] is False
+            browser.close()
 
 
 def test_real_submit_adapter_is_disabled():

@@ -54,6 +54,13 @@ QUEUE_HEADERS = [
     "dry_run_screenshot_path",
     "dry_run_check_path",
     "dry_run_analysis_path",
+    "dry_run_pre_submit_score",
+    "dry_run_total_fields_count",
+    "dry_run_fill_completion_rate",
+    "dry_run_unresolved_required_fields_count",
+    "dry_run_review_items",
+    "dry_run_submit_button_detected",
+    "dry_run_html_snapshot_path",
     "created_at",
     "updated_at",
 ]
@@ -417,14 +424,22 @@ def mark_dry_run_result(
     screenshot_path: str = "",
     analysis_path: str = "",
     check_path: str = "",
+    pre_submit_score: int | float | str = 0,
+    total_fields_count: int | float | str = 0,
+    fill_completion_rate: int | float | str = 0,
+    unresolved_required_fields_count: int | float | str = 0,
+    review_items: Iterable[object] | None = None,
+    submit_button_detected: bool = False,
+    html_snapshot_path: str = "",
     path: Path = APPLY_QUEUE_CSV,
 ) -> bool:
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     reason_list = [str(reason).strip() for reason in (needs_review_reasons or []) if str(reason).strip()]
     reason_summary = " / ".join(reason_list[:4])
     next_action = {
-        "DRY_RUN_COMPLETED": "送信せずdry_run完了。スクショと送信前チェックを確認してください。",
-        "NEEDS_REVIEW": "人間確認が必要です。送信前チェックを確認してください。",
+        "PRE_SUBMIT_READY": "送信直前まで入力済みです。人間が最終確認して送信してください。",
+        "REVIEW_FILL_READY": "追加の確認項目があります。送信前チェックを確認してください。",
+        "MANUAL_ASSIST_READY": "人間操作が必要です。手動応募キューに残してください。",
         "SKIPPED": "対象外または危険判定です。理由を確認してください。",
     }.get(status, "dry_run結果を確認してください。")
     return update_apply_queue_fields(
@@ -436,6 +451,13 @@ def mark_dry_run_result(
             "dry_run_screenshot_path": screenshot_path,
             "dry_run_analysis_path": analysis_path,
             "dry_run_check_path": check_path,
+            "dry_run_pre_submit_score": str(pre_submit_score),
+            "dry_run_total_fields_count": str(total_fields_count),
+            "dry_run_fill_completion_rate": str(fill_completion_rate),
+            "dry_run_unresolved_required_fields_count": str(unresolved_required_fields_count),
+            "dry_run_review_items": json.dumps(list(review_items or []), ensure_ascii=False),
+            "dry_run_submit_button_detected": "true" if submit_button_detected else "false",
+            "dry_run_html_snapshot_path": html_snapshot_path,
             "last_action": status,
             "next_action": next_action,
         },

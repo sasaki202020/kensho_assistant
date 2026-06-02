@@ -40,6 +40,10 @@ def run_prepared_campaign_dry_run(campaign_id: str, browser: str = "chromium", k
     return _run_campaign(campaign, run_mode="dry_run", browser=browser, keep_open=keep_open)
 
 
+def run_prepared_campaign_pre_submit_audit(campaign_id: str, browser: str = "chromium", keep_open: bool = False) -> dict[str, object]:
+    return run_prepared_campaign_dry_run(campaign_id, browser=browser, keep_open=keep_open)
+
+
 def run_prepared_campaigns_dry_run_all(status: str = "PREPARED", limit: int = 12, browser: str = "chromium") -> list[dict[str, object]]:
     rows = [
         row for row in load_apply_queue(APPLY_QUEUE_CSV)
@@ -74,6 +78,10 @@ def load_pre_submit_check(campaign_id: str) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_pre_submit_audit(campaign_id: str) -> dict[str, object]:
+    return load_pre_submit_check(campaign_id)
+
+
 def _run_campaign(campaign: dict[str, str], run_mode: str, browser: str = "chromium", keep_open: bool = False) -> dict[str, object]:
     profile = load_profile()
     campaign_id = campaign.get("campaign_id", "")
@@ -95,6 +103,13 @@ def _run_campaign(campaign: dict[str, str], run_mode: str, browser: str = "chrom
                     screenshot_path=str(record.get("screenshot_path", "")),
                     analysis_path=str(analysis_path),
                     check_path=str(check_path),
+                    pre_submit_score=record.get("pre_submit_score", 0),
+                    total_fields_count=record.get("total_fields_count", 0),
+                    fill_completion_rate=record.get("fill_completion_rate", 0),
+                    unresolved_required_fields_count=record.get("unresolved_required_fields_count", 0),
+                    review_items=record.get("review_items", []),
+                    submit_button_detected=record.get("submit_button_detected", False),
+                    html_snapshot_path=str(record.get("html_snapshot_path", "")),
                 )
             return {
                 "campaign_id": campaign_id,
@@ -102,11 +117,18 @@ def _run_campaign(campaign: dict[str, str], run_mode: str, browser: str = "chrom
                 "run_mode": run_mode,
                 "status": record.get("status", ""),
                 "filled_fields_count": record.get("filled_fields_count", 0),
+                "total_fields_count": record.get("total_fields_count", 0),
+                "fill_completion_rate": record.get("fill_completion_rate", 0),
                 "submit_attempted": record.get("submit_attempted", False),
                 "submit_clicked": record.get("submit_clicked", False),
                 "auto_submitted": record.get("auto_submitted", False),
                 "needs_review_reasons": record.get("needs_review_reasons", []),
+                "review_items": record.get("review_items", []),
+                "pre_submit_score": record.get("pre_submit_score", 0),
+                "unresolved_required_fields_count": record.get("unresolved_required_fields_count", 0),
+                "submit_button_detected": record.get("submit_button_detected", False),
                 "screenshot_path": record.get("screenshot_path", ""),
+                "html_snapshot_path": record.get("html_snapshot_path", ""),
                 "analysis_path": str(analysis_path),
                 "check_path": str(check_path),
             }

@@ -41,6 +41,13 @@ FIELD_SYNONYMS: dict[str, list[str]] = {
     "birth_day": ["生日", "日", "birth_day"],
     "gender": ["性別", "gender"],
     "age": ["年齢", "age"],
+    "age_group": ["年代", "年齢層", "世代", "age group"],
+    "occupation": ["職業", "job", "occupation"],
+    "marital_status": ["既婚", "未婚", "結婚", "配偶者", "marital", "結婚歴"],
+    "children": ["子どもの有無", "子供の有無", "お子様", "child", "children"],
+    "survey_choice": ["簡単な選択式アンケート", "アンケート", "設問", "質問", "回答欄", "choice"],
+    "prize_choice": ["プレゼント選択", "賞品選択", "希望賞品", "choose prize", "select prize"],
+    "entry_count": ["応募口数", "口数", "応募数", "entry count", "応募回数"],
 }
 
 CONSENT_TERMS = ["規約同意", "同意", "利用規約", "応募規約", "プライバシーポリシー"]
@@ -49,10 +56,7 @@ DM_TERMS = ["dm希望", "dm 配信", "ダイレクトメール"]
 OPINION_TERMS = ["御意見", "ご意見", "御感想", "ご感想", "意見", "感想"]
 FREE_TEXT_TERMS = ["アンケート自由記述", "自由記述", "メッセージ", "コメント"]
 BLOCKED_TERMS: dict[str, list[str]] = {
-    "occupation": ["職業"],
     "income": ["年収", "世帯年収"],
-    "family": ["家族構成", "子どもの有無"],
-    "interest": ["趣味", "興味関心"],
     "password": ["パスワード", "password"],
     "credit_card": ["クレジットカード", "card number", "credit"],
     "bank_account": ["口座情報", "銀行口座", "account number"],
@@ -170,6 +174,7 @@ def _metadata_from_element(element, index: int) -> dict[str, str | bool]:
                 id,
                 placeholder: node.getAttribute('placeholder') || '',
                 aria_label: node.getAttribute('aria-label') || '',
+                autocomplete: node.getAttribute('autocomplete') || '',
                 class_name: node.getAttribute('class') || '',
                 label_text: clip((labelFor || parentLabel || previousLabel)?.innerText || ''),
                 parent_text: clip(parentLabel?.innerText || container?.innerText || ''),
@@ -224,6 +229,7 @@ def _candidate_score(
     element_id = str(metadata.get("id", ""))
     placeholder = str(metadata.get("placeholder", ""))
     aria_label = str(metadata.get("aria_label", ""))
+    autocomplete = str(metadata.get("autocomplete", ""))
     label_text = str(metadata.get("label_text", ""))
     class_name = str(metadata.get("class_name", ""))
     required = bool(metadata.get("required", False))
@@ -234,7 +240,7 @@ def _candidate_score(
 
     has_explicit_match = any(
         _matches_any(str(metadata.get(key, "")), terms)
-        for key in ("name", "id", "placeholder", "aria_label", "label_text", "class_name", "nearby_text")
+        for key in ("name", "id", "placeholder", "aria_label", "autocomplete", "label_text", "class_name", "nearby_text")
     )
     if field_name in {"email", "email_confirm"} and input_type == "email":
         if _matches_any(f"{name} {element_id}", terms):
@@ -255,6 +261,8 @@ def _candidate_score(
         return 0.85, ["placeholder"], f"placeholder={placeholder}"
     if _matches_any(aria_label, terms):
         return 0.85, ["aria_label"], f"aria-label={aria_label}"
+    if _matches_any(autocomplete, terms):
+        return 0.82, ["autocomplete"], f"autocomplete={autocomplete}"
     if _matches_any(f"{name} {element_id}", terms):
         return 0.80, ["name_or_id"], "name/id match"
     if _matches_any(class_name, terms):
@@ -301,6 +309,7 @@ def detect_field_from_metadata(metadata: Mapping[str, str | bool]) -> DetectedFi
         input_type=str(metadata.get("input_type", "")),
         aria_label=str(metadata.get("aria_label", "")),
         placeholder=str(metadata.get("placeholder", "")),
+        autocomplete=str(metadata.get("autocomplete", "")),
         name=str(metadata.get("name", "")),
         element_id=str(metadata.get("id", "")),
         nearby_text=str(metadata.get("nearby_text", "")),

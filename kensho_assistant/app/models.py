@@ -130,6 +130,7 @@ class DetectedField:
     input_type: str = ""
     aria_label: str = ""
     placeholder: str = ""
+    autocomplete: str = ""
     name: str = ""
     element_id: str = ""
     nearby_text: str = ""

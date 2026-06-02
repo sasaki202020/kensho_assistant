@@ -14,11 +14,7 @@ NO_FILL_FIELD_NAMES = {
     "consent",
     "newsletter",
     "dm_opt_in",
-    "free_text",
-    "occupation",
     "income",
-    "family",
-    "interest",
     "password",
     "credit_card",
     "bank_account",
@@ -31,16 +27,19 @@ NO_FILL_FIELD_NAMES = {
 OPTIONAL_FILL_FIELD_NAMES = {
     "phone",
     "phone_confirm",
+    "opinion",
+    "free_text",
+    "age_group",
+    "occupation",
+    "marital_status",
+    "children",
+    "survey_choice",
+    "prize_choice",
+    "entry_count",
 }
 NO_FILL_KEYWORDS = [
     "年収",
     "世帯年収",
-    "職業",
-    "家族構成",
-    "子どもの有無",
-    "趣味",
-    "興味関心",
-    "自由記述",
     "メルマガ",
     "規約",
     "プライバシーポリシー",
@@ -102,6 +101,13 @@ def _profile_value(profile: Mapping[str, str], field_name: str) -> str:
         "birth_year": profile.get("birth_year", ""),
         "birth_month": profile.get("birth_month", ""),
         "birth_day": profile.get("birth_day", ""),
+        "age_group": profile.get("age_group", ""),
+        "occupation": profile.get("occupation", ""),
+        "marital_status": profile.get("marital_status", ""),
+        "children": profile.get("children", ""),
+        "survey_choice": profile.get("survey_choice", ""),
+        "prize_choice": profile.get("prize_choice", ""),
+        "entry_count": profile.get("entry_count", "") or "1",
         "opinion": profile.get("opinion", "") or DEFAULT_OPINION_TEXT,
     }
     return mapping.get(field_name, "")
@@ -127,6 +133,8 @@ def _mask_preview(field_name: str, value: str) -> str:
     if field_name in {"prefecture", "city", "address1", "address2"}:
         return "***"
     if field_name in {"birth_year", "birth_month", "birth_day"}:
+        return "***"
+    if field_name in {"age_group", "occupation", "marital_status", "children", "survey_choice", "prize_choice", "entry_count"}:
         return "***"
     return value
 

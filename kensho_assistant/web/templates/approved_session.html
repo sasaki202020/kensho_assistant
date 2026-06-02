@@ -107,10 +107,40 @@
       {% endif %}
     </div>
     <div class="quiz-box">
-      <div class="pill {{ 'green' if current.dry_run_status == 'DRY_RUN_COMPLETED' else 'orange' if current.dry_run_status == 'NEEDS_REVIEW' else 'gray' }}">{{ current.dry_run_state_label or "dry_run未実行" }}</div>
+      <div class="pill {{ 'green' if current.dry_run_status in ['PRE_SUBMIT_READY', 'DRY_RUN_COMPLETED'] else 'orange' if current.dry_run_status in ['REVIEW_FILL_READY', 'MANUAL_ASSIST_READY', 'NEEDS_REVIEW'] else 'gray' }}">{{ current.dry_run_state_label or "dry_run未実行" }}</div>
       <div class="quiz-item">
-        <div class="quiz-question">dry_runの要点</div>
+        <div class="quiz-question">判定</div>
         <div class="quiz-choices">{{ current.dry_run_detail_label or "まだ dry_run はありません。" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">入力完了率</div>
+        <div class="quiz-choices">{{ current.dry_run_completion_label or "未記録" }}%</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">pre_submit_score</div>
+        <div class="quiz-choices">{{ current.dry_run_score_label or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">未解決項目</div>
+        <div class="quiz-choices">{{ current.dry_run_unresolved_label or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">送信ボタン検出</div>
+        <div class="quiz-choices">{{ current.dry_run_submit_button_label or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">人間確認 checklist</div>
+        <div class="quiz-choices break">
+          {% if current.dry_run_review_items_summary %}
+          <ul style="margin:0; padding-left:1.2em;">
+            {% for item in current.dry_run_review_items_summary %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          {{ current.dry_run_review_items_label or "未記録" }}
+          {% endif %}
+        </div>
       </div>
       <div class="quiz-item">
         <div class="quiz-question">実行時刻</div>
@@ -124,17 +154,26 @@
         <div class="quiz-question">送信前チェック</div>
         <div class="quiz-choices break">{{ current.dry_run_check_path or "未保存" }}</div>
       </div>
+      <div class="quiz-item">
+        <div class="quiz-question">HTML snapshot</div>
+        <div class="quiz-choices break">{{ current.dry_run_html_snapshot_path or "未保存" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">自動送信の証拠</div>
+        <div class="quiz-choices">submit_clicked={{ current.get('submit_clicked', false) }} / auto_submitted={{ current.get('auto_submitted', false) }} / submitted_count_auto=0</div>
+      </div>
     </div>
     <div class="quiz-box">
       <div class="pill blue">手動確認が必要</div>
-      <div class="quiz-item">年齢 / 同意チェック / 利用規約 / メルマガ / クイズ / 任意項目 / CAPTCHA / ログイン</div>
-      <div class="muted">これらは自動入力しません。応募ページ上でユーザー本人が確認してください。</div>
+      <div class="quiz-item">同意チェック / 年齢確認 / クイズ / メルマガ / 自由記述 / ログイン / SNS / LINE</div>
+      <div class="muted">これらは自動確定しません。応募ページ上でユーザー本人が確認してください。</div>
     </div>
     <label class="memo-field compact">
       <input type="checkbox" data-age-fill-toggle>
       <span>年齢・生年月日の入力補助を許可する</span>
     </label>
     <div class="muted">年齢・生年月日は個人情報です。この懸賞で入力してよいと判断した場合のみ許可してください。</div>
+    <div class="muted">送信ボタンの自動クリックはしません。実サイトで auto_submitted=true にすることもありません。</div>
     {% if current.risk_notice %}
     <div class="muted">{{ current.risk_notice }}</div>
     {% endif %}

@@ -26,14 +26,19 @@ AUTO_FILL_ALLOWED_FIELDS = {
     "birth_year",
     "birth_month",
     "birth_day",
+    "age_group",
+    "occupation",
+    "marital_status",
+    "children",
+    "survey_choice",
+    "prize_choice",
+    "entry_count",
 }
 
 AUTO_FILL_BLOCKED_FIELDS = {
     "consent",
     "age",
     "quiz_answer",
-    "free_text",
-    "opinion",
     "newsletter",
     "dm_opt_in",
     "sns_account",
@@ -42,6 +47,8 @@ AUTO_FILL_BLOCKED_FIELDS = {
     "captcha",
     "submit",
     "confirm",
+    "login_id",
+    "search",
 }
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -548,8 +549,11 @@ def _queue_last_action_label(row: dict[str, str]) -> str:
 def _dry_run_state_label(row: dict[str, str]) -> str:
     status = row.get("dry_run_status", "").strip()
     labels = {
-        "DRY_RUN_COMPLETED": "dry_run完了",
-        "NEEDS_REVIEW": "要確認",
+        "PRE_SUBMIT_READY": "送信直前まで入力済み",
+        "REVIEW_FILL_READY": "確認ありで入力済み",
+        "MANUAL_ASSIST_READY": "手動補助が必要",
+        "DRY_RUN_COMPLETED": "送信直前まで入力済み",
+        "NEEDS_REVIEW": "確認ありで入力済み",
         "SKIPPED": "対象外",
     }
     return labels.get(status, status or "未実行")
@@ -559,13 +563,45 @@ def _dry_run_detail_label(row: dict[str, str]) -> str:
     summary = row.get("dry_run_reason_summary", "").strip()
     if summary:
         return summary
-    if row.get("dry_run_status", "") == "DRY_RUN_COMPLETED":
+    status = row.get("dry_run_status", "")
+    if status == "PRE_SUBMIT_READY":
+        return "送信直前まで入力済みで、人間が最終確認して送信する状態です。"
+    if status == "REVIEW_FILL_READY":
+        return "基本入力は済んでいますが、確認項目があります。"
+    if status == "MANUAL_ASSIST_READY":
+        return "ログインやSNSなど、人間操作が必要です。"
+    if status == "DRY_RUN_COMPLETED":
         return "送信せずに入力補助と送信前チェックまで完了しています。"
-    if row.get("dry_run_status", "") == "NEEDS_REVIEW":
+    if status == "NEEDS_REVIEW":
         return "送信前チェックで人間確認が必要です。"
     if row.get("dry_run_status", "") == "SKIPPED":
         return "危険または対象外判定です。"
     return "まだ dry_run を実行していません。"
+
+
+def _parse_review_items(raw: str) -> list[dict[str, object]]:
+    if not raw.strip():
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    items: list[dict[str, object]] = []
+    for item in data:
+        if isinstance(item, dict):
+            items.append(item)
+    return items
+
+
+def _review_item_summary(item: dict[str, object]) -> str:
+    kind = str(item.get("kind", "")).strip() or "item"
+    field_name = str(item.get("field_name", "")).strip()
+    label = str(item.get("label", "")).strip()
+    reason = str(item.get("reason", "")).strip()
+    parts = [part for part in [kind, field_name or label, reason] if part]
+    return " / ".join(parts)
 
 
 def _queue_risk_notice(row: dict[str, str]) -> str:
@@ -608,6 +644,13 @@ def _decorate_queue_row(row: dict[str, str]) -> dict[str, str]:
     decorated["risk_detail"] = row.get("risk_level", "") or row.get("risk_reasons", "") or row.get("skip_reason_summary", "")
     decorated["dry_run_state_label"] = _dry_run_state_label(row)
     decorated["dry_run_detail_label"] = _dry_run_detail_label(row)
+    decorated["dry_run_score_label"] = row.get("dry_run_pre_submit_score", "")
+    decorated["dry_run_completion_label"] = row.get("dry_run_fill_completion_rate", "")
+    decorated["dry_run_unresolved_label"] = row.get("dry_run_unresolved_required_fields_count", "")
+    decorated["dry_run_submit_button_label"] = "あり" if row.get("dry_run_submit_button_detected", "").lower() == "true" else "なし"
+    decorated["dry_run_review_items_label"] = row.get("dry_run_review_items", "")
+    decorated["dry_run_review_items_parsed"] = _parse_review_items(row.get("dry_run_review_items", ""))
+    decorated["dry_run_review_items_summary"] = [_review_item_summary(item) for item in decorated["dry_run_review_items_parsed"]]
     return decorated
 
 

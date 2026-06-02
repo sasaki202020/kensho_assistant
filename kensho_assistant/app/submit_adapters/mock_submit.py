@@ -17,7 +17,7 @@ class MockSubmitAdapter(BaseSubmitAdapter):
         if not self._is_allowed(page.url):
             raise RuntimeError(f"mock submit blocked for non-allowed url: {page.url}")
         check = context.get("pre_submit_check")
-        if isinstance(check, dict) and check.get("status") != "DRY_RUN_COMPLETED":
+        if isinstance(check, dict) and check.get("status") != "PRE_SUBMIT_READY":
             return SubmitResult(status=str(check.get("status", "NEEDS_REVIEW")), message="pre-submit check blocked mock submit")
         button = page.locator('button[type="submit"], input[type="submit"]').first
         if button.count() == 0:

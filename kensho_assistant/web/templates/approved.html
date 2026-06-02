@@ -73,7 +73,7 @@
         {% endif %}
       </div>
       <div class="quiz-box">
-        <div class="pill {{ 'green' if row.dry_run_status == 'DRY_RUN_COMPLETED' else 'orange' if row.dry_run_status == 'NEEDS_REVIEW' else 'gray' }}">{{ row.dry_run_state_label or "dry_run未実行" }}</div>
+        <div class="pill {{ 'green' if row.dry_run_status in ['PRE_SUBMIT_READY', 'DRY_RUN_COMPLETED'] else 'orange' if row.dry_run_status in ['REVIEW_FILL_READY', 'MANUAL_ASSIST_READY', 'NEEDS_REVIEW'] else 'gray' }}">{{ row.dry_run_state_label or "dry_run未実行" }}</div>
         <div class="quiz-item">
           <div class="quiz-question">dry_runの要点</div>
           <div class="quiz-choices">{{ row.dry_run_detail_label or "まだ dry_run はありません。" }}</div>

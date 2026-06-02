@@ -583,11 +583,11 @@ def cmd_auto_apply(args: argparse.Namespace) -> int:
 def cmd_apply(args: argparse.Namespace) -> int:
     ensure_runtime_dirs()
     command = args.apply_command
-    if command == "dry-run":
+    if command in {"dry-run", "pre-submit-audit"}:
         result = run_prepared_campaign_dry_run(args.campaign_id, browser=args.browser, keep_open=args.keep_open)
         _print_apply_result(result)
         return 0 if result.get("ok") else 1
-    if command == "dry-run-all":
+    if command in {"dry-run-all", "pre-submit-audit-all"}:
         results = run_prepared_campaigns_dry_run_all(status=args.status, limit=args.limit, browser=args.browser)
         ok_count = sum(1 for result in results if result.get("ok"))
         print(f"processed: {len(results)}")
@@ -600,13 +600,16 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 f"{result.get('campaign_id', '')} | {result.get('status', '')} | "
                 f"submit_clicked={str(result.get('submit_clicked', False)).lower()} | "
                 f"auto_submitted={str(result.get('auto_submitted', False)).lower()} | "
+                f"pre_submit_score={result.get('pre_submit_score', 0)} | "
+                f"fill_completion_rate={result.get('fill_completion_rate', 0)} | "
+                f"unresolved_required_fields_count={result.get('unresolved_required_fields_count', 0)} | "
                 f"needs_review_reasons={reason_text}"
             )
         return 0 if ok_count == len(results) else 1
     if command == "show-analysis":
         print(json.dumps(load_form_analysis(args.campaign_id), ensure_ascii=False, indent=2))
         return 0
-    if command == "show-check":
+    if command in {"show-check", "show-pre-submit-check"}:
         print(json.dumps(load_pre_submit_check(args.campaign_id), ensure_ascii=False, indent=2))
         return 0
     if command == "mark-submitted":
@@ -621,13 +624,19 @@ def _print_apply_result(result: dict[str, object]) -> None:
     print(f"campaign_id: {result.get('campaign_id', '')}")
     print(f"status: {result.get('status', '')}")
     print(f"filled_fields_count: {result.get('filled_fields_count', 0)}")
+    print(f"total_fields_count: {result.get('total_fields_count', 0)}")
+    print(f"fill_completion_rate: {result.get('fill_completion_rate', 0)}")
+    print(f"pre_submit_score: {result.get('pre_submit_score', 0)}")
+    print(f"unresolved_required_fields_count: {result.get('unresolved_required_fields_count', 0)}")
     print(f"submit_attempted: {str(result.get('submit_attempted', False)).lower()}")
     print(f"submit_clicked: {str(result.get('submit_clicked', False)).lower()}")
     print(f"auto_submitted: {str(result.get('auto_submitted', False)).lower()}")
+    print(f"submit_button_detected: {str(result.get('submit_button_detected', False)).lower()}")
     reason_list = result.get("needs_review_reasons", []) or []
     reason_text = "; ".join(str(reason) for reason in reason_list if str(reason).strip()) or "-"
     print(f"needs_review_reasons: {reason_text}")
     print(f"screenshot_path: {result.get('screenshot_path', '')}")
+    print(f"html_snapshot_path: {result.get('html_snapshot_path', '')}")
     print(f"analysis_path: {result.get('analysis_path', '')}")
     print(f"check_path: {result.get('check_path', '')}")
 
@@ -1469,17 +1478,30 @@ def build_parser() -> argparse.ArgumentParser:
     apply_dry_run.add_argument("--browser", choices=("chrome", "chromium"), default="chromium", help="headed browser to use")
     apply_dry_run.add_argument("--keep-open", action="store_true", help="keep browser open after dry-run")
     apply_dry_run.set_defaults(func=cmd_apply)
+    apply_pre_submit = apply_sub.add_parser("pre-submit-audit", help="audit one PREPARED campaign to just-before-submit")
+    apply_pre_submit.add_argument("--campaign-id", required=True, help="campaign id")
+    apply_pre_submit.add_argument("--browser", choices=("chrome", "chromium"), default="chromium", help="headed browser to use")
+    apply_pre_submit.add_argument("--keep-open", action="store_true", help="keep browser open after audit")
+    apply_pre_submit.set_defaults(func=cmd_apply)
     apply_dry_run_all = apply_sub.add_parser("dry-run-all", help="dry-run multiple prepared campaigns")
     apply_dry_run_all.add_argument("--status", default="PREPARED", help="queue_status to process")
     apply_dry_run_all.add_argument("--limit", type=int, default=12, help="max campaigns")
     apply_dry_run_all.add_argument("--browser", choices=("chrome", "chromium"), default="chromium", help="headed browser to use")
     apply_dry_run_all.set_defaults(func=cmd_apply)
+    apply_pre_submit_all = apply_sub.add_parser("pre-submit-audit-all", help="audit multiple prepared campaigns")
+    apply_pre_submit_all.add_argument("--status", default="PREPARED", help="queue_status to process")
+    apply_pre_submit_all.add_argument("--limit", type=int, default=12, help="max campaigns")
+    apply_pre_submit_all.add_argument("--browser", choices=("chrome", "chromium"), default="chromium", help="headed browser to use")
+    apply_pre_submit_all.set_defaults(func=cmd_apply)
     apply_show_analysis = apply_sub.add_parser("show-analysis", help="show form analysis JSON")
     apply_show_analysis.add_argument("--campaign-id", required=True, help="campaign id")
     apply_show_analysis.set_defaults(func=cmd_apply)
     apply_show_check = apply_sub.add_parser("show-check", help="show pre-submit check JSON")
     apply_show_check.add_argument("--campaign-id", required=True, help="campaign id")
     apply_show_check.set_defaults(func=cmd_apply)
+    apply_show_pre_submit_check = apply_sub.add_parser("show-pre-submit-check", help="show pre-submit audit JSON")
+    apply_show_pre_submit_check.add_argument("--campaign-id", required=True, help="campaign id")
+    apply_show_pre_submit_check.set_defaults(func=cmd_apply)
     apply_mark_submitted = apply_sub.add_parser("mark-submitted", help="mark one campaign manually submitted")
     apply_mark_submitted.add_argument("--campaign-id", required=True, help="campaign id")
     apply_mark_submitted.set_defaults(func=cmd_apply)
