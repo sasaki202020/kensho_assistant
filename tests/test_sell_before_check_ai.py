@@ -35,7 +35,7 @@ def test_evaluate_check_level_for_single_mild_keyword():
 
 
 def test_evaluate_caution_level_for_rush_keywords():
-    verdict = evaluate("本日限り! 査定額アップ! 今だけのチャンス!", "flyer", [])
+    verdict = evaluate("本日限り! 今だけのチャンス!", "flyer", [])
     assert verdict["level_label"] == "即決注意"
 
 
@@ -43,6 +43,13 @@ def test_evaluate_consult_level_for_stacked_signals():
     verdict = evaluate("本日限り、キャンセル不可と言われた", "quote", ["visit", "rush"])
     assert verdict["level_label"] == "相談推奨"
     assert verdict["score"] >= 5
+
+
+def test_evaluate_expanded_keywords_hit():
+    # v0.3.0 で拡充したキーワードが判定に反映されること
+    assert evaluate("本日中なら特別価格です", "quote", [])["score"] >= 4
+    assert evaluate("古銭と記念硬貨と腕時計を売りたい", "item", [])["score"] >= 3
+    assert evaluate("出張費無料・査定額アップ", "flyer", [])["score"] >= 2
 
 
 def test_evaluate_keywords_respect_check_type_targets():

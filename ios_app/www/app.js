@@ -246,6 +246,7 @@
       '<section class="settings-group"><h2 class="sec-title">チェック履歴</h2>' +
       '<label class="flag-item"><input type="checkbox" id="save-history"><span>判定結果をこの端末に保存する</span></label>' +
       '<p id="history-count" class="muted"></p>' +
+      '<p><a class="btn-secondary" href="#/history">履歴一覧を見る</a></p>' +
       '<button class="btn-danger" id="clear-history">保存データをすべて削除</button>' +
       '<p class="muted">履歴はこの端末の中だけに保存され、外部には送信されません。</p></section>' +
       '<section class="settings-group"><h2 class="sec-title">情報</h2><ul class="link-list">' +
@@ -257,17 +258,48 @@
 
   /* ---------- 履歴 (端末内のみ) ---------- */
 
+  function loadHistory() {
+    try { return JSON.parse(localStorage.getItem(KEY_HIST) || '[]'); } catch (e) { return []; }
+  }
+
   function saveHistoryIfEnabled(verdict) {
     if (localStorage.getItem(KEY_OPT) !== '1') return;
-    var items = [];
-    try { items = JSON.parse(localStorage.getItem(KEY_HIST) || '[]'); } catch (e) {}
+    var items = loadHistory();
     items.unshift({
       at: new Date().toISOString(),
       check_type: verdict.check_type,
       level_label: verdict.level_label,
+      tone: verdict.tone,
       score: verdict.score
     });
     localStorage.setItem(KEY_HIST, JSON.stringify(items.slice(0, 50)));
+  }
+
+  function formatWhen(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) +
+      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function renderHistory() {
+    var items = loadHistory();
+    if (!items.length) {
+      return '<h1 class="page-title">チェック履歴</h1>' +
+        '<section class="note-box"><p>保存された履歴はありません。履歴を残すには「設定」で「判定結果をこの端末に保存する」をオンにしてください。</p></section>' +
+        '<p class="back-links"><a href="#/settings">設定へ</a> ・ <a href="#/home">ホームに戻る</a></p>';
+    }
+    var list = items.map(function (it) {
+      var typeLabel = CHECK_TYPES[it.check_type] || 'チェック';
+      var tone = it.tone || 'notice';
+      return '<li><p class="copy-title">' + esc(formatWhen(it.at)) + ' ・ ' + esc(typeLabel) + '</p>' +
+        '<p class="hist-level tone-text-' + esc(tone) + '">' + esc(it.level_label || '') + '</p></li>';
+    }).join('');
+    return '<h1 class="page-title">チェック履歴</h1>' +
+      '<p class="lead">この端末に保存された判定結果です(最大50件)。外部には送信されません。</p>' +
+      '<ul class="hist-list">' + list + '</ul>' +
+      '<p class="back-links"><a href="#/settings">設定(履歴の削除)へ</a> ・ <a href="#/home">ホームに戻る</a></p>';
   }
 
   /* ---------- ルーター ---------- */
@@ -295,6 +327,8 @@
       html = renderPrivacy();
     } else if (hash === 'settings') {
       html = renderSettings();
+    } else if (hash === 'history') {
+      html = renderHistory();
     } else {
       hash = 'home';
       html = renderHome();
@@ -303,8 +337,9 @@
     view.innerHTML = html;
     window.scrollTo(0, 0);
 
+    var activeTab = hash === 'history' ? 'settings' : hash;
     document.querySelectorAll('.tabbar a').forEach(function (a) {
-      a.classList.toggle('on', a.dataset.tab === hash);
+      a.classList.toggle('on', a.dataset.tab === activeTab);
     });
 
     copyButtons(view);

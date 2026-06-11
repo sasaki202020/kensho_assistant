@@ -10,15 +10,25 @@
   --notice: #0277bd;
   --warning: #e65100;
   --alert: #c62828;
+  --link: var(--brand-dark);
+  --tone-text-calm: var(--ok);
+  --tone-text-notice: var(--notice);
+  --tone-text-warning: var(--warning);
+  --tone-text-alert: var(--alert);
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+/* iOSの「文字サイズ」設定(Dynamic Type)に追従させる。
+ * -apple-system-body を基準フォントにすると 1rem がユーザー設定に応じて拡縮する。 */
+@supports (font: -apple-system-body) {
+  html { font: -apple-system-body; }
+}
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
   background: var(--bg);
   color: var(--text);
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.65;
   padding-bottom: calc(64px + env(safe-area-inset-bottom));
 }
@@ -28,16 +38,16 @@ body {
   background: var(--brand); color: #fff;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
 }
-.app-header .brand { color: #fff; text-decoration: none; font-weight: 700; font-size: 18px; }
-.app-header .ver { font-size: 12px; opacity: .8; }
+.app-header .brand { color: #fff; text-decoration: none; font-weight: 700; font-size: 1.125rem; }
+.app-header .ver { font-size: .75rem; opacity: .8; }
 .app-main { max-width: 560px; margin: 0 auto; padding: 16px; }
 
-.hero h1 { font-size: 24px; margin: 8px 0 4px; }
+.hero h1 { font-size: 1.5rem; margin: 8px 0 4px; }
 .hero p { color: var(--muted); margin: 0 0 12px; }
 
-.page-title { font-size: 22px; margin: 4px 0 8px; }
+.page-title { font-size: 1.375rem; margin: 4px 0 8px; }
 .lead { color: var(--muted); margin: 0 0 16px; }
-.sec-title { font-size: 17px; margin: 20px 0 8px; }
+.sec-title { font-size: 1.0625rem; margin: 20px 0 8px; }
 
 .menu-cards { display: grid; gap: 10px; margin: 14px 0; }
 .card {
@@ -48,13 +58,14 @@ body {
   min-height: 56px;
 }
 .card:active { transform: scale(.99); }
-.card-ico { font-size: 26px; }
-.card-body strong { display: block; font-size: 16px; }
+.card-ico { font-size: 1.625rem; }
+.card-body strong { display: block; font-size: 1rem; }
 .card-body small { color: var(--muted); }
 
 .check-form textarea {
-  width: 100%; border: 1px solid #cfd8d4; border-radius: 12px;
-  padding: 12px; font-size: 16px; font-family: inherit; background: #fff;
+  width: 100%; border: 1px solid var(--field-border, #cfd8d4); border-radius: 12px;
+  padding: 12px; font-size: 1rem; font-family: inherit;
+  background: var(--card); color: var(--text);
 }
 .field-label { display: block; font-weight: 600; margin-bottom: 6px; }
 .flags { border: 0; padding: 0; margin: 16px 0; }
@@ -67,75 +78,105 @@ body {
 
 .btn-primary, .btn-secondary, .btn-danger, .btn-copy {
   display: inline-block; border: 0; border-radius: 12px; cursor: pointer;
-  font-size: 16px; font-family: inherit; text-decoration: none; text-align: center;
+  font-size: 1rem; font-family: inherit; text-decoration: none; text-align: center;
 }
 .btn-primary { background: var(--brand); color: #fff; width: 100%; padding: 14px; font-weight: 700; }
 .btn-primary:active { background: var(--brand-dark); }
-.btn-secondary { background: #fff; color: var(--brand); border: 1px solid var(--brand); padding: 10px 16px; }
-.btn-danger { background: #fff; color: var(--alert); border: 1px solid var(--alert); padding: 10px 16px; }
-.btn-copy { background: #eef3f1; color: var(--brand-dark); padding: 8px 14px; font-size: 14px; }
+.btn-secondary { background: var(--card); color: var(--link); border: 1px solid var(--link); padding: 10px 16px; }
+.btn-danger { background: var(--card); color: var(--tone-text-alert); border: 1px solid var(--tone-text-alert); padding: 10px 16px; }
+.btn-copy { background: var(--chip, #eef3f1); color: var(--link); padding: 8px 14px; font-size: .875rem; }
 
 .verdict {
   border-radius: 16px; padding: 18px; color: #fff; margin: 8px 0 16px;
 }
-.verdict-type { margin: 0; font-size: 13px; opacity: .9; }
-.verdict-level { margin: 2px 0 6px; font-size: 26px; font-weight: 800; }
-.verdict-summary { margin: 0; font-size: 15px; }
+.verdict-type { margin: 0; font-size: .8125rem; opacity: .9; }
+.verdict-level { margin: 2px 0 6px; font-size: 1.625rem; font-weight: 800; }
+.verdict-summary { margin: 0; font-size: .9375rem; }
 .tone-calm { background: var(--ok); }
 .tone-notice { background: var(--notice); }
 .tone-warning { background: var(--warning); }
 .tone-alert { background: var(--alert); }
+.tone-text-calm { color: var(--tone-text-calm); }
+.tone-text-notice { color: var(--tone-text-notice); }
+.tone-text-warning { color: var(--tone-text-warning); }
+.tone-text-alert { color: var(--tone-text-alert); }
 
-.hit-list, .copy-list, .link-list, .plain-list { list-style: none; padding: 0; margin: 0; }
-.hit-list li, .copy-list li, .link-list li {
+.hit-list, .copy-list, .link-list, .plain-list, .hist-list { list-style: none; padding: 0; margin: 0; }
+.hit-list li, .copy-list li, .link-list li, .hist-list li {
   background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px;
   box-shadow: 0 1px 2px rgba(0,0,0,.06);
 }
 .plain-list li { padding: 4px 0 4px 1.2em; text-indent: -1.2em; }
 .plain-list li::before { content: "・"; }
-.copy-title { margin: 0; font-size: 13px; color: var(--muted); }
+.copy-title { margin: 0; font-size: .8125rem; color: var(--muted); }
 .copy-text { margin: 4px 0 8px; font-weight: 600; }
-.link-list a { color: var(--brand-dark); font-weight: 600; }
+.link-list a { color: var(--link); font-weight: 600; }
 .link-list small { color: var(--muted); }
+.hist-level { margin: 2px 0 0; font-weight: 700; }
 
 .hotline-box {
-  background: #fff7ed; border: 1px solid #fdba74; border-radius: 14px;
-  padding: 14px 16px; margin: 20px 0;
+  background: var(--hotline-bg, #fff7ed); border: 1px solid var(--hotline-border, #fdba74);
+  border-radius: 14px; padding: 14px 16px; margin: 20px 0;
 }
 .hotline-box.big { text-align: center; }
-.hotline-number { font-size: 34px; font-weight: 800; margin: 6px 0; }
+.hotline-number { font-size: 2.125rem; font-weight: 800; margin: 6px 0; }
 
 .note-box {
-  background: #eef3f1; border-radius: 12px; padding: 12px 14px;
-  color: var(--muted); font-size: 14px; margin: 18px 0;
+  background: var(--chip, #eef3f1); border-radius: 12px; padding: 12px 14px;
+  color: var(--muted); font-size: .875rem; margin: 18px 0;
 }
-.sample-note { color: var(--muted); font-size: 14px; }
+.sample-note { color: var(--muted); font-size: .875rem; }
 .settings-group { background: var(--card); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
-.muted { color: var(--muted); font-size: 14px; }
+.muted { color: var(--muted); font-size: .875rem; }
 .back-links { margin: 22px 0; }
-.back-links a { color: var(--brand-dark); }
+.back-links a { color: var(--link); }
 
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
   display: flex; justify-content: space-around;
-  background: #fff; border-top: 1px solid #dde4e1;
+  background: var(--card); border-top: 1px solid var(--tab-border, #dde4e1);
   padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
 }
 .tabbar a {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
-  font-size: 11px; color: var(--muted); text-decoration: none;
+  font-size: .6875rem; color: var(--muted); text-decoration: none;
   min-width: 56px; padding: 2px 4px;
 }
-.tabbar a .ico { font-size: 20px; }
-.tabbar a.on { color: var(--brand); font-weight: 700; }
+.tabbar a .ico { font-size: 1.25rem; }
+.tabbar a.on { color: var(--tab-on, var(--brand)); font-weight: 700; }
 
 .app-footer {
   max-width: 560px; margin: 0 auto; padding: 8px 16px 16px;
-  color: var(--muted); font-size: 12px;
+  color: var(--muted); font-size: .75rem;
 }
 .app-footer a { color: var(--muted); }
 
 @media (min-width: 700px) {
   .menu-cards { grid-template-columns: 1fr 1fr; }
   .menu-cards.sub { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* ダークモード(iOSの外観設定に追従) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand: #11705e;
+    --brand-dark: #3fae97;
+    --bg: #131917;
+    --card: #1e2724;
+    --text: #e7ecea;
+    --muted: #9aa9a3;
+    --link: #6fc6b3;
+    --chip: #2a3431;
+    --field-border: #3b4844;
+    --tab-border: #2b3431;
+    --tab-on: #6fc6b3;
+    --hotline-bg: #2c2317;
+    --hotline-border: #8a6336;
+    --tone-text-calm: #81c784;
+    --tone-text-notice: #4fc3f7;
+    --tone-text-warning: #ffb74d;
+    --tone-text-alert: #ef9a9a;
+  }
+  .card, .hit-list li, .copy-list li, .link-list li, .hist-list li { box-shadow: none; }
+  .btn-secondary, .btn-danger { background: transparent; }
 }
