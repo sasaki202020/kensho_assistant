@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | ホーム{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>売る前に、ひと呼吸。</h1>
+  <p>買取チラシ・売りたい品物・見積もりの気になるポイントを、その場でかんたんチェック。</p>
+</section>
+
+<section class="menu-cards">
+  <a class="card" href="/flyer-check">
+    <span class="card-ico">📰</span>
+    <span class="card-body"><strong>チラシチェック</strong><small>ポストの買取チラシの文言を確認</small></span>
+  </a>
+  <a class="card" href="/item-check">
+    <span class="card-ico">📦</span>
+    <span class="card-body"><strong>商品チェック</strong><small>売ろうとしている品物の注意点を確認</small></span>
+  </a>
+  <a class="card" href="/quote-check">
+    <span class="card-ico">🧾</span>
+    <span class="card-body"><strong>見積もりチェック</strong><small>見積もり・業者の説明のあいまいな点を確認</small></span>
+  </a>
+</section>
+
+<section class="menu-cards sub">
+  <a class="card" href="/refusal-examples"><span class="card-ico">🙅</span><span class="card-body"><strong>断り文例</strong><small>そのまま使える断りフレーズ集</small></span></a>
+  <a class="card" href="/market-links"><span class="card-ico">📈</span><span class="card-body"><strong>相場リンク</strong><small>公開されている相場を自分で確認</small></span></a>
+  <a class="card" href="/hotline-188"><span class="card-ico">📞</span><span class="card-body"><strong>188相談案内</strong><small>消費者ホットラインの使い方</small></span></a>
+</section>
+
+<section class="note-box">
+  <p>判定は「問題なさそう / 確認推奨 / 即決注意 / 相談推奨」の4段階です。入力した内容は端末の外に送信されず、サーバーにも保存されません。</p>
+</section>
+{% endblock %}

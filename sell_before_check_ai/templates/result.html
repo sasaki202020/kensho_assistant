@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | 診断結果{% endblock %}
+{% block content %}
+<h1 class="page-title">診断結果</h1>
+{% if sample %}<p class="sample-note">これはサンプル入力での表示例です。各チェック画面から実際の内容で診断できます。</p>{% endif %}
+
+<section class="verdict tone-{{ verdict.tone }}">
+  <p class="verdict-type">{{ verdict.check_type_label }}</p>
+  <p class="verdict-level">{{ verdict.level_label }}</p>
+  <p class="verdict-summary">{{ verdict.summary }}</p>
+</section>
+
+{% if verdict.hits %}
+<section>
+  <h2 class="sec-title">気になったポイント</h2>
+  <ul class="hit-list">
+    {% for h in verdict.hits %}
+    <li><strong>「{{ h.pattern }}」</strong><br>{{ h.note }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<section class="note-box"><p>登録されている注意キーワードには該当しませんでした。それでも、契約前には金額と条件を書面で確認しましょう。</p></section>
+{% endif %}
+
+<section>
+  <h2 class="sec-title">そのまま使える断り文例</h2>
+  <ul class="copy-list">
+    {% for r in refusal_templates[:3] %}
+    <li>
+      <p class="copy-title">{{ r.title }}</p>
+      <p class="copy-text" id="copy-{{ r.id }}">{{ r.text }}</p>
+      <button class="btn-copy" data-target="copy-{{ r.id }}">コピー</button>
+    </li>
+    {% endfor %}
+  </ul>
+  <p><a href="/refusal-examples">断り文例をもっと見る →</a></p>
+</section>
+
+<section>
+  <h2 class="sec-title">相場を自分で確認する</h2>
+  <ul class="link-list">
+    {% for m in market_links[:2] %}
+    <li><a href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{{ m.title }}</a><br><small>{{ m.desc }}</small></li>
+    {% endfor %}
+  </ul>
+  <p><a href="/market-links">相場リンクをもっと見る →</a></p>
+</section>
+
+<section class="hotline-box">
+  <h2 class="sec-title">迷ったら 188（いやや）</h2>
+  <p>{{ verdict.hotline }}</p>
+  <a class="btn-secondary" href="/hotline-188">188相談案内を見る</a>
+</section>
+
+<section class="note-box">
+  <p>{{ verdict.disclaimer }}</p>
+</section>
+
+<p class="back-links"><a href="/">ホームに戻る</a></p>
+
+<script>
+document.querySelectorAll('.btn-copy').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var el = document.getElementById(btn.dataset.target);
+    navigator.clipboard.writeText(el.textContent.trim()).then(function () {
+      btn.textContent = 'コピーしました';
+      setTimeout(function () { btn.textContent = 'コピー'; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}

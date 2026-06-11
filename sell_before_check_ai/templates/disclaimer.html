@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | 免責・注意事項{% endblock %}
+{% block content %}
+<h1 class="page-title">免責・注意事項</h1>
+
+<section>
+  <h2 class="sec-title">このアプリができること</h2>
+  <ul class="plain-list">
+    <li>チラシ・品物・見積もりの文章から、注意した方がよい表現をお知らせします</li>
+    <li>判定は「問題なさそう / 確認推奨 / 即決注意 / 相談推奨」の4段階の参考情報です</li>
+    <li>断り文例・相場リンク・相談窓口（188）をご案内します</li>
+  </ul>
+</section>
+
+<section>
+  <h2 class="sec-title">このアプリができないこと（保証しないこと）</h2>
+  <ul class="plain-list">
+    <li>正確な査定額・買取額の算定や保証</li>
+    <li>品物の真贋（本物かどうか）の判定</li>
+    <li>法律上の判断（クーリング・オフの可否など個別ケースの判断）</li>
+    <li>特定の事業者が悪質・違法であるという判断や認定</li>
+  </ul>
+</section>
+
+<section>
+  <h2 class="sec-title">免責</h2>
+  <p>{{ disclaimer }}</p>
+  <p>本アプリの利用、または利用できなかったことにより生じたいかなる損害についても、開発者は責任を負いません。取引の最終判断はご自身で行い、不安がある場合は消費者ホットライン188などの公的窓口にご相談ください。</p>
+</section>
+
+<p class="back-links"><a href="/">ホームに戻る</a></p>
+{% endblock %}

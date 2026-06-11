@@ -3,6 +3,12 @@
 ローカル実行型の懸賞応募補助ツールです。対象サイトは `懸賞生活 https://www.knshow.com/` です。
 公開リポジトリは `https://github.com/sasaki202020/kensho_assistant` です。
 
+> **同居プロジェクト: 売る前チェック (sell_before_check_ai)**
+> 一般向けの買取トラブル防止チェックアプリと、その iOS 化一式がこのリポジトリに含まれています。
+> 起動: `start_sell_before_check.bat`（または `py -3 run_sell_before_check.py`）→ `http://127.0.0.1:8788`
+> iOS化・App Store 公開手順: `ios_app/README.md` と `docs/sell_before_check_ai/` を参照。
+> 業者向けバックエンドは `field_assessment_ai/`（`uvicorn field_assessment_ai.app:app --port 8789`）。
+
 ## 推奨起動
 
 1. `start_web_app.bat` をダブルクリックする

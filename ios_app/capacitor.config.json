@@ -1,0 +1,12 @@
+{
+  "appId": "jp.example.sellbeforecheck",
+  "appName": "売る前チェック",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#f4f6f5"
+  },
+  "server": {
+    "iosScheme": "capacitor"
+  }
+}
