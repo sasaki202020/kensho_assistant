@@ -3,6 +3,9 @@ name: 競艇AI ページ採取(パーサー検証用)
 # 公式サイトの実HTMLを採取し、パーサーのテストフィクスチャとして
 # リポジトリへコミットする。サイト改修でパーサーが壊れた際の調査に使う。
 on:
+  push:
+    paths:
+      - '.github/workflows/boatrace-sample-pages.yml'
   workflow_dispatch:
     inputs:
       date:
@@ -28,12 +31,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: ページ取得
         run: |
-          DEST="boat_race_ai/tests/fixtures/real_pages/${{ inputs.date }}_${{ inputs.jcd }}_${{ inputs.rno }}"
+          DEST="boat_race_ai/tests/fixtures/real_pages/${{ inputs.date || '20260610' }}_${{ inputs.jcd || '01' }}_${{ inputs.rno || '1' }}"
           mkdir -p "$DEST"
           for page in racelist beforeinfo raceresult oddstf; do
             curl -sL --max-time 30 \
               -A 'kensho-boat-race-ai/1.0 (research; contact: goooo1002@gmail.com)' \
-              "https://www.boatrace.jp/owpc/pc/race/${page}?rno=${{ inputs.rno }}&jcd=${{ inputs.jcd }}&hd=${{ inputs.date }}" \
+              "https://www.boatrace.jp/owpc/pc/race/${page}?rno=${{ inputs.rno || '1' }}&jcd=${{ inputs.jcd || '01' }}&hd=${{ inputs.date || '20260610' }}" \
               -o "$DEST/${page}.html" \
               -w "${page}: HTTP %{http_code} %{size_download}B\n"
             sleep 2
@@ -47,11 +50,11 @@ jobs:
           if git diff --cached --quiet; then
             echo '変更なし'
           else
-            git commit -m "実ページサンプルを追加: ${{ inputs.date }} jcd=${{ inputs.jcd }} ${{ inputs.rno }}R"
+            git commit -m "実ページサンプルを追加: ${{ inputs.date || '20260610' }} jcd=${{ inputs.jcd || '01' }} ${{ inputs.rno || '1' }}R"
             git pull --rebase origin "${{ github.ref_name }}"
             git push origin "HEAD:${{ github.ref_name }}"
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: pages-${{ inputs.date }}-${{ inputs.jcd }}-${{ inputs.rno }}
+          name: pages-${{ inputs.date || '20260610' }}-${{ inputs.jcd || '01' }}-${{ inputs.rno || '1' }}
           path: boat_race_ai/tests/fixtures/real_pages
