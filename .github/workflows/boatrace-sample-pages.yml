@@ -1,0 +1,57 @@
+name: 競艇AI ページ採取(パーサー検証用)
+
+# 公式サイトの実HTMLを採取し、パーサーのテストフィクスチャとして
+# リポジトリへコミットする。サイト改修でパーサーが壊れた際の調査に使う。
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '対象日 YYYYMMDD'
+        required: true
+      jcd:
+        description: '場コード(2桁)'
+        required: false
+        default: '01'
+      rno:
+        description: 'レース番号'
+        required: false
+        default: '1'
+
+permissions:
+  contents: write
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: ページ取得
+        run: |
+          DEST="boat_race_ai/tests/fixtures/real_pages/${{ inputs.date }}_${{ inputs.jcd }}_${{ inputs.rno }}"
+          mkdir -p "$DEST"
+          for page in racelist beforeinfo raceresult oddstf; do
+            curl -sL --max-time 30 \
+              -A 'kensho-boat-race-ai/1.0 (research; contact: goooo1002@gmail.com)' \
+              "https://www.boatrace.jp/owpc/pc/race/${page}?rno=${{ inputs.rno }}&jcd=${{ inputs.jcd }}&hd=${{ inputs.date }}" \
+              -o "$DEST/${page}.html" \
+              -w "${page}: HTTP %{http_code} %{size_download}B\n"
+            sleep 2
+          done
+          ls -la "$DEST"
+      - name: コミット
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add boat_race_ai/tests/fixtures/real_pages
+          if git diff --cached --quiet; then
+            echo '変更なし'
+          else
+            git commit -m "実ページサンプルを追加: ${{ inputs.date }} jcd=${{ inputs.jcd }} ${{ inputs.rno }}R"
+            git pull --rebase origin "${{ github.ref_name }}"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pages-${{ inputs.date }}-${{ inputs.jcd }}-${{ inputs.rno }}
+          path: boat_race_ai/tests/fixtures/real_pages
