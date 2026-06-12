@@ -18,7 +18,13 @@ python3 -m http.server 8790
 # → http://127.0.0.1:8790 をスマホ幅で開く
 ```
 
-## iOSビルド手順（Macで実行）
+## Macがない場合（Windowsのみで公開する）
+
+GitHub Actions のクラウドMacでビルド〜TestFlightアップロードまで行えます。
+手順は `docs/sell_before_check_ai/WINDOWS_RELEASE_GUIDE.md` を参照
+（ワークフロー: `.github/workflows/ios-build.yml`）。
+
+## iOSビルド手順（Macがある場合）
 
 前提: macOS + Xcode 15以上 + Node.js 18以上
 

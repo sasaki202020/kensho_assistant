@@ -21,19 +21,23 @@
 - [x] ダークモード対応（`prefers-color-scheme: dark`。Web・iOS共通CSS）
 - [x] 履歴一覧画面（`#/history`。設定画面からアクセス、端末内のみ・最大50件）
 - [x] ルール辞書の拡充（v0.3.0: 特別価格・今決め・査定額アップ・古銭・記念硬貨・腕時計・毛皮 など14語追加）
-- [ ] App Store スクリーンショットの本番撮影（シミュレータ / Macが必要）
-- [ ] iOS実機での最終UI確認（Dynamic Type 最大サイズ・ダークモードの実機表示）
+- [x] GitHub ActionsでのiOSビルド〜TestFlightアップロード（Mac不要。`.github/workflows/ios-build.yml`）
+- [x] Windowsだけで公開するための手順書（`WINDOWS_RELEASE_GUIDE.md`）
+- [x] App Store用スクリーンショットのWindows撮影対応（1290x2796。`scripts/capture_sbc_screenshots.py`）
+- [ ] iOS実機での最終UI確認（TestFlight配布後に。Dynamic Type 最大サイズ・ダークモードの表示）
 
-## 残タスク（人間にしかできないもの）
+## 残タスク（人間にしかできないもの / Windowsだけで可）
+
+詳しい手順は **`WINDOWS_RELEASE_GUIDE.md`** にまとめてあります（Macは不要です）。
 
 1. **Apple Developer Program 登録**（99 USD/年、D-U-N-S不要の個人登録可、承認まで数日）
 2. **App Store Connect アカウント設定**（有料販売する場合は契約・税務・銀行口座も）
-3. **バンドルIDの決定** — `capacitor.config.json` の `appId`（現在は仮の `jp.example.sellbeforecheck`）
-4. **プライバシーポリシーの公開URL** — `PRIVACY_POLICY.md` を GitHub Pages 等で公開
-5. **サポートURL** — `SUPPORT.md` を同様に公開し、連絡先メールを記載
-6. **販売価格の決定** — 推奨: 無料で公開しレビューを集める → 将来 買い切り(¥300-500) or 機能追加で検討
-7. **Macでのビルド・スクリーンショット確認** — `ios_app/README.md` の手順で Xcode ビルド
-8. **TestFlight で家族・知人テスト** → フィードバック反映 → 審査提出
+3. **バンドルIDの決定**と App ID・証明書・プロファイルの作成（ガイド手順3〜4）
+4. **GitHub に Secrets/Variables を設定**し、Actions の `iOS build` を実行（ガイド手順5〜6）
+5. **プライバシーポリシーの公開URL** — `PRIVACY_POLICY.md` を GitHub Pages 等で公開
+6. **サポートURL** — `SUPPORT.md` を同様に公開し、連絡先メールを記載
+7. **販売価格の決定** — 推奨: 無料で公開しレビューを集める → 将来 買い切り(¥300-500) or 機能追加で検討
+8. **TestFlight で実機確認・家族/知人テスト** → フィードバック反映 → 審査提出
 
 ## ローカル版（C:\Users\goo10\OneDrive\ドキュメント\New project）との関係
 

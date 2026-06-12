@@ -1,0 +1,155 @@
+name: iOS build (sell_before_check)
+
+# Windowsしかなくても、GitHubのクラウドMacでiOSアプリをビルドするためのワークフロー。
+# 使い方: docs/sell_before_check_ai/WINDOWS_RELEASE_GUIDE.md を参照。
+#
+# - upload_testflight = false (既定): 署名なしでビルドが通るかだけ確認(Apple Developer不要)
+# - upload_testflight = true : 署名してTestFlightへアップロード(Secrets/Variablesの設定が必要)
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: "TestFlightにアップロードする（要: 署名用Secrets/Variables設定）"
+        type: boolean
+        default: false
+
+jobs:
+  build-check:
+    name: ビルド確認（署名なし）
+    if: ${{ !inputs.upload_testflight }}
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: ios_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 依存関係のインストール
+        run: npm install
+      - name: Web資産の同期とiOSプロジェクト生成
+        run: |
+          python3 ../scripts/sync_ios_assets.py
+          npx cap add ios
+          npx @capacitor/assets generate --ios
+          npx cap sync ios
+      - name: シミュレータ向けビルド
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
+
+  testflight:
+    name: TestFlightアップロード（署名あり）
+    if: ${{ inputs.upload_testflight }}
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: ios_app
+    env:
+      BUNDLE_ID: ${{ vars.APP_BUNDLE_ID }}
+      TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      PROFILE_NAME: ${{ vars.IOS_PROFILE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 設定の事前チェック
+        run: |
+          ok=1
+          [ -n "$BUNDLE_ID" ] || { echo "::error::Variables に APP_BUNDLE_ID を設定してください"; ok=0; }
+          [ -n "$TEAM_ID" ] || { echo "::error::Variables に APPLE_TEAM_ID を設定してください"; ok=0; }
+          [ -n "$PROFILE_NAME" ] || { echo "::error::Variables に IOS_PROFILE_NAME を設定してください"; ok=0; }
+          [ "$BUNDLE_ID" != "jp.example.sellbeforecheck" ] || { echo "::error::APP_BUNDLE_ID が仮の値のままです"; ok=0; }
+          [ -n "${{ secrets.IOS_DIST_CERT_P12_BASE64 }}" ] || { echo "::error::Secrets に IOS_DIST_CERT_P12_BASE64 を設定してください"; ok=0; }
+          [ -n "${{ secrets.APPSTORE_ISSUER_ID }}" ] || { echo "::error::Secrets に APPSTORE_ISSUER_ID を設定してください"; ok=0; }
+          [ -n "${{ secrets.APPSTORE_KEY_ID }}" ] || { echo "::error::Secrets に APPSTORE_KEY_ID を設定してください"; ok=0; }
+          [ -n "${{ secrets.APPSTORE_PRIVATE_KEY }}" ] || { echo "::error::Secrets に APPSTORE_PRIVATE_KEY を設定してください"; ok=0; }
+          [ "$ok" = "1" ]
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 依存関係のインストール
+        run: npm install
+
+      - name: バンドルIDを反映
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          path = "capacitor.config.json"
+          cfg = json.load(open(path, encoding="utf-8"))
+          cfg["appId"] = os.environ["BUNDLE_ID"]
+          json.dump(cfg, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          EOF
+
+      - name: Web資産の同期とiOSプロジェクト生成
+        run: |
+          python3 ../scripts/sync_ios_assets.py
+          npx cap add ios
+          npx @capacitor/assets generate --ios
+          npx cap sync ios
+
+      - name: 配布証明書をキーチェーンに登録
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+
+      - name: プロビジョニングプロファイルを取得
+        uses: apple-actions/download-provisioning-profiles@v3
+        with:
+          bundle-id: ${{ vars.APP_BUNDLE_ID }}
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      - name: アーカイブ（署名あり）
+        run: |
+          MARKETING_VERSION=$(python3 -c "import json;print(json.load(open('../sell_before_check_ai/rules.json'))['version'])")
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive archive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      - name: IPAの書き出し
+        id: export
+        run: |
+          cat > build/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key><string>$PROFILE_NAME</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/ExportOptions.plist
+          IPA=$(find build/export -name '*.ipa' | head -1)
+          echo "ipa=ios_app/$IPA" >> "$GITHUB_OUTPUT"
+
+      - name: TestFlightへアップロード
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ steps.export.outputs.ipa }}
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
