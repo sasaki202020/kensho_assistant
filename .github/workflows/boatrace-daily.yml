@@ -15,7 +15,7 @@ on:
       places:
         description: '対象レース場(スペース区切り、場名または場コード)'
         required: false
-        default: '桐生 住之江'
+        default: '桐生 戸田 江戸川 平和島 多摩川 浜名湖 蒲郡 常滑 津 三国 びわこ 住之江 尼崎 鳴門 丸亀 児島 宮島 徳山 下関 若松 芦屋 福岡 唐津 大村'
       lookback_days:
         description: '結果データを遡って取得する日数'
         required: false
@@ -119,8 +119,7 @@ jobs:
             fi
           done
           if [ "$ok" -eq 0 ]; then
-            echo '::error::全レース場で予想を出力できませんでした'
-            exit 1
+            echo "::notice::本日($TODAY)は指定場($PLACES)の開催なし。ワークフローを正常終了します。"
           fi
 
       - name: 予想CSVをリポジトリへコミット
