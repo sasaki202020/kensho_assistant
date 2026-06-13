@@ -14,6 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -56,9 +57,15 @@ def load_data(args, config) -> "pd.DataFrame":
         if not (args.start and args.end and args.places):
             sys.exit("--fetch には --start/--end/--places が必要です")
         print(f"実データ取得: {args.start}〜{args.end} {args.places}")
-        df = fetcher.fetch_period(args.start, args.end, args.places)
-        saved = db.save_dataframe(df)
-        print(f"DBへ保存: {saved}行")
+        total_saved = 0
+        for d in pd.date_range(args.start, args.end):
+            for place in args.places:
+                day_df = fetcher.fetch_day(d.strftime("%Y-%m-%d"), place)
+                if not day_df.empty:
+                    saved = db.save_dataframe(day_df)
+                    total_saved += saved
+                    print(f"  {d.strftime('%Y-%m-%d')} {place}: {saved}行保存")
+        print(f"DBへ保存(合計): {total_saved}行")
 
     df = db.load_dataframe(with_results_only=True)
     print(f"DBから読込: {df['race_id'].nunique() if len(df) else 0}レース / {len(df)}行")

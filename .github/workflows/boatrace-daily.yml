@@ -55,7 +55,7 @@ jobs:
   predict:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: boat_race_ai
@@ -101,6 +101,7 @@ jobs:
           echo "取得期間: $START 〜 $END / 予想対象: $TODAY / 場: $PLACES"
 
       - name: 前日までの結果取得 + 再学習
+        continue-on-error: true
         run: >
           python main.py --source real --fetch
           --start '${{ steps.dates.outputs.start }}'
