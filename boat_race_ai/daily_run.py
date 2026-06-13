@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.daily_ops import run_daily_prediction, run_daily_settlement
+from src.profitability_analysis import AnalysisPaths, run_analysis
 
 BASE_DIR = Path(__file__).parent
 
@@ -21,6 +22,8 @@ def main() -> None:
                         help="朝予想の対象レース場(省略時は開催場を自動検出)")
     parser.add_argument("--overwrite", action="store_true",
                         help="morning/fullで既存 predictions.csv を上書きする")
+    parser.add_argument("--bankroll-yen", type=int, default=None,
+                        help="night/full後の収益性分析で使うbankroll")
     args = parser.parse_args()
 
     try:
@@ -37,6 +40,14 @@ def main() -> None:
             print(f"night_status={report['status']}")
             print(f"settled_races={report['settled_races']}")
             print(f"unavailable_races={report['unavailable_races_count']}")
+            analysis = run_analysis(
+                AnalysisPaths(
+                    daily_root=BASE_DIR / "output" / "daily",
+                    output_dir=BASE_DIR / "output" / "analysis" / "profitability",
+                ),
+                bankroll_yen=args.bankroll_yen,
+            )
+            print(f"profitability_decision={analysis['recommendation']['decision']}")
     except FileNotFoundError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)

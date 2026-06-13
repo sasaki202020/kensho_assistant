@@ -52,15 +52,15 @@ python predict_today.py --date 2026-06-12 --place 桐生 --race 1   # 1Rのみ
 
 ```bash
 python daily_run.py --date 2026-06-13 --phase morning
-python daily_run.py --date 2026-06-13 --phase night
-python daily_run.py --date 2026-06-13 --phase full
+python daily_run.py --date 2026-06-13 --phase night --bankroll-yen 10000
+python daily_run.py --date 2026-06-13 --phase full --bankroll-yen 10000
 ```
 
 個別に実行する場合:
 
 ```bash
 python daily_predict.py --date 2026-06-13
-python daily_settle.py --date 2026-06-13
+python daily_settle.py --date 2026-06-13 --bankroll-yen 10000
 ```
 
 - 出力先は `output/daily/YYYY-MM-DD/`
@@ -73,6 +73,27 @@ python daily_settle.py --date 2026-06-13
 - `value_filter` は収益化検証用の shadow 評価であり、本番推奨買い目ではない。
 - 未取得・未公開・中止・パース不能は推測補完せず、`coverage.json` と
   `daily_report.json/md` に理由付きで記録する。
+
+### 5. 収益性分析と資金管理ゲート
+
+勝率だけでは資産は増えないため、日次決済データから ROI・買い条件・資金管理を
+shadow 分析する。
+
+夜答え合わせ後に自動実行される。単独で再集計する場合:
+
+```bash
+python analyze_profitability.py --bankroll-yen 10000
+```
+
+出力:
+
+- `output/analysis/profitability/profitability_summary.json`
+- `output/analysis/profitability/profitability_report.md`
+- `output/analysis/profitability/profitability_slices.csv`
+
+本番購入は自動では許可しない。最低条件は「十分な買い目数」「複数日での安定」
+「ROI 105%以上」をすべて満たすこと。条件未達なら `paper_trade_only` とし、
+記録だけを継続する。
 
 ## 設計方針(リーク防止)
 
