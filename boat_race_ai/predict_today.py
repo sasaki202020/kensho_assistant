@@ -25,6 +25,11 @@ from src.features.feature_engineer import FeatureEngineer
 from src.models.prediction_system import PredictionSystem
 
 BASE_DIR = Path(__file__).parent
+OUTPUT_COLUMNS = [
+    "race_id", "race_date", "course_id", "race_number", "lane",
+    "racer_id", "name", "grade", "win_odds",
+    "pred_proba", "pred_rank", "expected_value",
+]
 
 
 def load_config() -> dict:
@@ -66,6 +71,16 @@ def format_race_table(race_df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def save_empty_prediction(date: str, jcd: int, config: dict) -> Path:
+    """開催なし/取得失敗時も後続CIが判定できる空CSVを残す。"""
+    out_dir = BASE_DIR / config["output"]["predictions_dir"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"prediction_{date.replace('-', '')}_{jcd:02d}.csv"
+    pd.DataFrame(columns=OUTPUT_COLUMNS).to_csv(
+        out_path, index=False, encoding="utf-8-sig")
+    return out_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="当日レース予想")
     parser.add_argument("--date", required=True, help="予想対象日 YYYY-MM-DD")
@@ -97,6 +112,8 @@ def main() -> None:
     today = fetcher.fetch_day(args.date, jcd, include_results=False,
                               race_numbers=race_numbers)
     if today.empty:
+        out_path = save_empty_prediction(args.date, jcd, config)
+        print(f"空CSV保存: {out_path}")
         sys.exit("出走表を取得できませんでした(開催なし、または取得失敗)。")
 
     db = BoatRaceDatabase(str(BASE_DIR / config["data"]["database_path"]))
@@ -111,9 +128,6 @@ def main() -> None:
     pred["expected_value"] = pred["pred_proba"] * pred["win_odds"]
 
     print(f"\n===== {args.date} {PLACE_NAMES[jcd]} 予想 =====")
-    out_cols = ["race_id", "race_date", "course_id", "race_number", "lane",
-                "racer_id", "name", "grade", "win_odds",
-                "pred_proba", "pred_rank", "expected_value"]
     for race_id in sorted(pred["race_id"].unique()):
         print(format_race_table(pred[pred["race_id"] == race_id]))
         print()
@@ -121,7 +135,7 @@ def main() -> None:
     out_dir = BASE_DIR / config["output"]["predictions_dir"]
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"prediction_{args.date.replace('-', '')}_{jcd:02d}.csv"
-    pred[out_cols].sort_values(["race_number", "lane"]).to_csv(
+    pred[OUTPUT_COLUMNS].sort_values(["race_number", "lane"]).to_csv(
         out_path, index=False, encoding="utf-8-sig")
     print(f"CSV保存: {out_path}")
 
