@@ -14,12 +14,18 @@ from __future__ import annotations
 import logging
 import re
 import time
+import unicodedata
 import urllib.robotparser
+import warnings
 from pathlib import Path
 
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+# boatrace.jp は XHTML 宣言付きのため lxml が XML と誤認して警告するが、
+# HTMLパーサーで問題なく解析できる
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -158,8 +164,14 @@ class RealDataFetcher:
             text = tbody.get_text(" ", strip=True)
             rid = re.search(r"(\d{4})\s*/\s*([AB][12])", text)
             aw = re.search(r"(\d{2})歳\s*/\s*([\d.]+)kg", text)
-            name_el = tbody.select_one("a")
-            name = name_el.get_text(strip=True).replace("　", " ") if name_el else None
+            # 選手名はプロフィールリンクのうちテキストを持つもの
+            # (最初のリンクは写真のため空)
+            name = None
+            for a in tbody.select('a[href*="racersearch/profile"]'):
+                t = a.get_text(strip=True)
+                if t:
+                    name = re.sub(r"[\s　]+", " ", t)
+                    break
             entries.append({
                 "lane": lane,
                 "racer_id": int(rid.group(1)) if rid else None,
@@ -215,15 +227,17 @@ class RealDataFetcher:
             if t and lane not in info["exhibition_times"]:
                 info["exhibition_times"][lane] = float(t.group(1))
 
-        # スタート展示のST: 「.15」のような表記
-        for row in soup.select(".table1_boatImage1, .table1_boatImage1Time"):
-            text = row.get_text(" ", strip=True)
-            m = re.search(r"([1-6])\s.*?(?:^|\s)(F?\.\d{2})", text)
-            if m:
-                lane = int(m.group(1))
-                st_txt = m.group(2)
-                st = float(st_txt.replace("F", "")) * (-1 if "F" in st_txt else 1)
-                info["start_times"].setdefault(lane, st)
+        # スタート展示のST: 枠番(boatImage1Number)とタイム(boatImage1Time)の対
+        numbers = soup.select(".table1_boatImage1Number")
+        times = soup.select(".table1_boatImage1Time")
+        for num_el, time_el in zip(numbers, times):
+            num_txt = num_el.get_text(strip=True)
+            st_txt = time_el.get_text(strip=True)
+            m_lane = re.fullmatch(r"[1-6]", num_txt)
+            m_st = re.fullmatch(r"(F?)(\.\d{2})", st_txt)
+            if m_lane and m_st:
+                st = float(m_st.group(2)) * (-1 if m_st.group(1) else 1)
+                info["start_times"].setdefault(int(num_txt), st)
         return info
 
     @staticmethod
@@ -233,7 +247,9 @@ class RealDataFetcher:
         result: dict = {"finish": {}, "start_times": {}}
         for tbody in soup.select("table tbody"):
             for tr in tbody.select("tr"):
-                cells = [td.get_text(" ", strip=True) for td in tr.select("td")]
+                # 着順は全角数字(「１」等)で表記されるため NFKC で正規化する
+                cells = [unicodedata.normalize("NFKC", td.get_text(" ", strip=True))
+                         for td in tr.select("td")]
                 if len(cells) < 2:
                     continue
                 # 着順テーブル: [着, 枠, 選手名, ...]
@@ -329,13 +345,24 @@ class RealDataFetcher:
     def fetch_day(self, date: str, place: str | int,
                   include_results: bool = True,
                   race_numbers: list[int] | None = None) -> pd.DataFrame:
-        """1開催日・1場の全レース(既定1〜12R)を取得する。"""
+        """1開催日・1場の全レース(既定1〜12R)を取得する。
+
+        序盤のレースが連続して解析できない場合は非開催日と判断し、
+        残りのレースへのアクセスを打ち切る。
+        """
         frames = []
+        consecutive_failures = 0
         for rno in race_numbers or range(1, 13):
             try:
                 frames.append(self.fetch_race(date, place, rno, include_results))
+                consecutive_failures = 0
             except (ValueError, ConnectionError, requests.HTTPError) as e:
                 logger.warning("%s %sR の取得をスキップ: %s", date, rno, e)
+                consecutive_failures += 1
+                if not frames and consecutive_failures >= 2:
+                    logger.info("%s %s: 非開催日と判断して残りをスキップします",
+                                date, place)
+                    break
         return pd.concat(frames, ignore_index=True) if frames \
             else pd.DataFrame()
 

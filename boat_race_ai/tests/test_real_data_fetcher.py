@@ -25,8 +25,9 @@ def _racelist_html():
         <tbody>
           <tr>
             <td class="is-boatColor{lane}">{lane}</td>
-            <td><div>{rid} / {grade}</div>
-                <div><a href="/racer">{name}</a></div>
+            <td><div><a href="/owpc/pc/data/racersearch/profile?toban={rid}"></a></div>
+                <div>{rid} / {grade}</div>
+                <div><a href="/owpc/pc/data/racersearch/profile?toban={rid}">{name}</a></div>
                 <div>東京/東京 {age}歳/{weight}kg</div></td>
           </tr>
         </tbody>"""
@@ -41,16 +42,25 @@ def _beforeinfo_html():
         <tbody>
           <tr><td class="is-boatColor{lane}">{lane}</td><td>{t:.2f}</td></tr>
         </tbody>"""
+    sts = [".07", ".04", ".08", ".05", ".04", "F.01"]
+    st_rows = "".join(
+        f'<span class="table1_boatImage1Number">{lane}</span>'
+        f'<span class="table1_boatImage1Time">{st}</span>'
+        for lane, st in enumerate(sts, start=1)
+    )
     return f"""<html><body>
       <div class="weather1">天候 曇 風速 3.0m 水温 18.5℃ 波高 2cm</div>
       <table>{rows}</table>
+      <div>{st_rows}</div>
     </body></html>"""
 
 
 def _raceresult_html():
+    # 着順は実サイトと同様に全角数字で表記する
     finish = {1: 1, 2: 4, 3: 2, 4: 6, 5: 5, 6: 3}
     rows = "".join(
-        f"<tr><td>{pos}</td><td>{lane}</td><td>選手{lane}</td></tr>"
+        f"<tr><td>{''.join(chr(0xFF10 + int(c)) for c in str(pos))}</td>"
+        f"<td>{lane}</td><td>選手{lane}</td></tr>"
         for lane, pos in sorted(finish.items(), key=lambda kv: kv[1])
     )
     return f"<html><body><table><tbody>{rows}</tbody></table></body></html>"
@@ -131,6 +141,8 @@ def test_parse_beforeinfo():
     assert info["wave_height"] == 2.0
     assert info["exhibition_times"][1] == 6.71
     assert len(info["exhibition_times"]) == 6
+    assert info["start_times"][1] == 0.07
+    assert info["start_times"][6] == -0.01  # フライングは負値
 
 
 def test_parse_raceresult():
@@ -218,3 +230,69 @@ def test_retry_with_backoff(tmp_path):
     assert len(df) == 6
     # 指数バックオフ: 2秒 → 4秒
     assert sleeps[:2] == [2.0, 4.0]
+
+
+def test_fetch_day_skips_rest_on_non_race_day(tmp_path):
+    """序盤2レースの出走表が解析できない日は残りを取得しない。"""
+    empty_session = FakeSession()
+    empty_session.get = lambda url, timeout=None: FakeResponse(
+        "User-agent: *\nAllow: /" if url.endswith("robots.txt")
+        else "<html><body>本日の開催はありません</body></html>")
+    requested = []
+    orig_get = empty_session.get
+    empty_session.get = lambda url, timeout=None: (
+        requested.append(url), orig_get(url))[1]
+    empty_session.headers = {}
+    f = RealDataFetcher(cache_dir=str(tmp_path / "raw"),
+                        min_interval_seconds=0.0, session=empty_session)
+    df = f.fetch_day("2026-06-12", "桐生")
+    assert df.empty
+    racelist_urls = [u for u in requested if "/racelist" in u]
+    assert len(racelist_urls) == 2  # 1R・2Rで打ち切り
+
+
+# ----------------------------------------------------------------------
+# 実サイトから採取したページに対する回帰テスト
+# (.github/workflows/boatrace-sample-pages.yml で採取)
+# ----------------------------------------------------------------------
+from pathlib import Path
+
+REAL_PAGES = Path(__file__).parent / "fixtures" / "real_pages" / "20260610_01_1"
+needs_real_pages = pytest.mark.skipif(
+    not REAL_PAGES.exists(), reason="実ページフィクスチャがありません")
+
+
+def _real(page: str) -> str:
+    return (REAL_PAGES / f"{page}.html").read_text(encoding="utf-8")
+
+
+@needs_real_pages
+def test_parse_real_racelist():
+    entries = RealDataFetcher.parse_racelist(_real("racelist"))
+    assert [e["lane"] for e in entries] == [1, 2, 3, 4, 5, 6]
+    assert all(e["name"] for e in entries)
+    assert all(e["racer_id"] and 1000 <= e["racer_id"] <= 9999 for e in entries)
+    assert entries[0]["racer_id"] == 3072
+    assert entries[5]["grade"] == "A1"
+
+
+@needs_real_pages
+def test_parse_real_beforeinfo():
+    info = RealDataFetcher.parse_beforeinfo(_real("beforeinfo"))
+    assert info["weather"] == "曇"
+    assert len(info["exhibition_times"]) == 6
+    assert len(info["start_times"]) == 6
+    assert info["start_times"][6] == -0.01  # F.01 → 負値
+
+
+@needs_real_pages
+def test_parse_real_raceresult():
+    res = RealDataFetcher.parse_raceresult(_real("raceresult"))
+    assert res["finish"] == {6: 1, 1: 2, 4: 3, 2: 4, 3: 5, 5: 6}
+
+
+@needs_real_pages
+def test_parse_real_oddstf():
+    odds = RealDataFetcher.parse_oddstf(_real("oddstf"))
+    assert len(odds) == 6
+    assert odds[1] == 1.3
