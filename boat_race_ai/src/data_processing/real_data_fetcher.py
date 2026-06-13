@@ -51,6 +51,10 @@ def resolve_place(place: str | int) -> int:
     raise ValueError(f"不明なレース場です: {place}")
 
 
+def _normalize_text(text: str) -> str:
+    return unicodedata.normalize("NFKC", text)
+
+
 class RealDataFetcher:
     """boatrace.jp の出走表・直前情報・結果・オッズを取得する。"""
 
@@ -244,11 +248,13 @@ class RealDataFetcher:
     def parse_raceresult(html: str) -> dict:
         """結果ページから着順とST(実測)を抽出する。"""
         soup = BeautifulSoup(html, "lxml")
-        result: dict = {"finish": {}, "start_times": {}}
+        result: dict = {"finish": {}, "start_times": {},
+                        "result_status": "missing",
+                        "unavailable_reason": "missing"}
         for tbody in soup.select("table tbody"):
             for tr in tbody.select("tr"):
                 # 着順は全角数字(「１」等)で表記されるため NFKC で正規化する
-                cells = [unicodedata.normalize("NFKC", td.get_text(" ", strip=True))
+                cells = [_normalize_text(td.get_text(" ", strip=True))
                          for td in tr.select("td")]
                 if len(cells) < 2:
                     continue
@@ -265,7 +271,25 @@ class RealDataFetcher:
             st_txt = m.group(2)
             st = float(st_txt.replace("F", "")) * (-1 if "F" in st_txt else 1)
             result["start_times"].setdefault(lane, st)
+        status, reason = RealDataFetcher.classify_result_html(html, result["finish"])
+        result["result_status"] = status
+        result["unavailable_reason"] = reason
         return result
+
+    @staticmethod
+    def classify_result_html(html: str, finish: dict[int, int] | None = None) -> tuple[str, str]:
+        """結果HTMLの状態を分類する。final 以外は日次レポートへ理由を渡す。"""
+        finish = finish or {}
+        if finish:
+            return "final", ""
+        text = _normalize_text(BeautifulSoup(html, "lxml").get_text(" ", strip=True))
+        if any(word in text for word in ("中止", "順延", "打切", "打ち切", "不成立")):
+            return "cancelled_or_postponed", "cancelled_or_postponed"
+        if any(word in text for word in ("発売中", "締切前", "投票受付", "オッズ")):
+            return "unavailable", "unavailable"
+        if any(word in text for word in ("データがありません", "本日の開催はありません", "開催はありません")):
+            return "no_race_day", "no_race_day"
+        return "parse_error", "parse_error"
 
     @staticmethod
     def parse_oddstf(html: str) -> dict[int, float]:
@@ -286,6 +310,25 @@ class RealDataFetcher:
     # ------------------------------------------------------------------
     # 高レベルAPI
     # ------------------------------------------------------------------
+    def discover_course_ids(self, date: str) -> list[int]:
+        """指定日の開催場を出走表ページから重複なしで検出する。"""
+        hd = date.replace("-", "")
+        observed: list[int] = []
+        for jcd in sorted(PLACE_NAMES):
+            found = False
+            for rno in (1, 2):
+                try:
+                    html = self._get("racelist", hd, jcd, rno)
+                    if self.parse_racelist(html):
+                        found = True
+                        break
+                except (ValueError, ConnectionError, PermissionError, requests.HTTPError) as e:
+                    logger.debug("%s %s %sR の開催検出をスキップ: %s",
+                                 date, PLACE_NAMES[jcd], rno, e)
+            if found:
+                observed.append(jcd)
+        return observed
+
     def fetch_race(self, date: str, place: str | int, race_number: int,
                    include_results: bool = True) -> pd.DataFrame:
         """1レース分のデータを取得し、共通スキーマの DataFrame を返す。
@@ -341,6 +384,75 @@ class RealDataFetcher:
                 "win_odds": odds.get(lane),
             })
         return pd.DataFrame(rows)
+
+    def fetch_results_for_predictions(self, date: str,
+                                      predictions: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
+        """保存済み予想に含まれるレースについて結果だけを取得する。"""
+        columns = [
+            "race_id", "race_date", "course_id", "race_number", "lane",
+            "finish_position", "win", "start_time",
+            "result_status", "unavailable_reason",
+        ]
+        if predictions.empty:
+            return pd.DataFrame(columns=columns), []
+
+        rows: list[dict] = []
+        errors: list[dict] = []
+        races = (
+            predictions[["race_id", "course_id", "race_number"]]
+            .drop_duplicates()
+            .sort_values(["course_id", "race_number"])
+        )
+        hd = date.replace("-", "")
+        for race in races.itertuples(index=False):
+            race_id = str(race.race_id)
+            jcd = int(race.course_id)
+            rno = int(race.race_number)
+            race_preds = predictions[predictions["race_id"].astype(str) == race_id]
+            finish: dict[int, int] = {}
+            result_st: dict[int, float] = {}
+            status = "missing"
+            reason = "missing"
+            try:
+                parsed = self.parse_raceresult(self._get("raceresult", hd, jcd, rno))
+                finish = parsed["finish"]
+                result_st = parsed["start_times"]
+                status = parsed.get("result_status", "parse_error")
+                reason = parsed.get("unavailable_reason", "parse_error")
+            except (ValueError, ConnectionError, PermissionError, requests.HTTPError) as e:
+                errors.append({
+                    "race_id": race_id,
+                    "course_id": jcd,
+                    "race_number": rno,
+                    "reason": reason,
+                    "message": str(e),
+                })
+
+            if status != "final":
+                errors.append({
+                    "race_id": race_id,
+                    "course_id": jcd,
+                    "race_number": rno,
+                    "reason": reason,
+                    "message": status,
+                })
+
+            for pred in race_preds.itertuples(index=False):
+                lane = int(pred.lane)
+                pos = finish.get(lane)
+                rows.append({
+                    "race_id": race_id,
+                    "race_date": date,
+                    "course_id": jcd,
+                    "race_number": rno,
+                    "lane": lane,
+                    "finish_position": pos,
+                    "win": None if pos is None else int(pos == 1),
+                    "start_time": result_st.get(lane),
+                    "result_status": status,
+                    "unavailable_reason": "" if status == "final" else reason,
+                })
+        return pd.DataFrame(rows, columns=columns), errors
 
     def fetch_day(self, date: str, place: str | int,
                   include_results: bool = True,

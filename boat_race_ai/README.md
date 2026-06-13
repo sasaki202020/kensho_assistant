@@ -45,6 +45,35 @@ python predict_today.py --date 2026-06-12 --place 桐生 --race 1   # 1Rのみ
 各艇の勝率・予想着順・単勝期待値をコンソール表示し、
 `data/predictions/` にCSV保存する。
 
+### 4. 日次運用(標準入口)
+
+毎日使う場合は `daily_run.py` を入口にする。朝は全開催場の予想を保存し、
+夜は保存済み予想を壊さずに結果だけを取得して答え合わせする。
+
+```bash
+python daily_run.py --date 2026-06-13 --phase morning
+python daily_run.py --date 2026-06-13 --phase night
+python daily_run.py --date 2026-06-13 --phase full
+```
+
+個別に実行する場合:
+
+```bash
+python daily_predict.py --date 2026-06-13
+python daily_settle.py --date 2026-06-13
+```
+
+- 出力先は `output/daily/YYYY-MM-DD/`
+- 朝: `predictions.csv`, `predictions.json`, `morning_run.json`, `coverage.json`
+- 夜: `results.csv`, `settlement.csv`, `daily_report.json`, `daily_report.md`
+- 累積: `output/daily/rolling_summary.csv`
+- 既存の `predictions.csv` は原則上書きしない。再生成が必要な場合だけ
+  `--overwrite` を指定する。
+- `daily_settle.py` は保存済み予想だけを読み、予想を再生成しない。
+- `value_filter` は収益化検証用の shadow 評価であり、本番推奨買い目ではない。
+- 未取得・未公開・中止・パース不能は推測補完せず、`coverage.json` と
+  `daily_report.json/md` に理由付きで記録する。
+
 ## 設計方針(リーク防止)
 
 - 選手の過去成績系特徴量はすべて `groupby(racer_id) → shift(1)` を通し、
@@ -112,7 +141,7 @@ boat_race_ai/
 - **スケジュール実行はデフォルトブランチ(main)のワークフローのみ有効。**
   開発ブランチにある間は手動実行(Actions タブ → 競艇AI 日次予想 →
   Run workflow でブランチを選択)で動かす。
-- 対象レース場の既定は `桐生 住之江`。変更は手動実行の入力か、
-  ワークフロー内 `PLACES` の既定値を編集する。
+- 対象レース場の既定はワークフロー側の設定に従う。ローカルの日次運用では
+  `daily_predict.py` が当日開催場を検出する。
 - スクレイピングは2秒間隔・キャッシュ付きで公式サイトに配慮しているが、
   対象場を増やすと実行時間が伸びる(1場・1日あたり数分が目安)。

@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from unittest.mock import patch
 
+import pandas as pd
 import pytest
 
 from src.data_processing.real_data_fetcher import (
@@ -148,6 +149,22 @@ def test_parse_beforeinfo():
 def test_parse_raceresult():
     res = RealDataFetcher.parse_raceresult(_raceresult_html())
     assert res["finish"] == {1: 1, 2: 4, 3: 2, 4: 6, 5: 5, 6: 3}
+    assert res["result_status"] == "final"
+    assert res["unavailable_reason"] == ""
+
+
+def test_parse_raceresult_unavailable_status():
+    res = RealDataFetcher.parse_raceresult("<html><body>発売中 オッズ</body></html>")
+    assert res["finish"] == {}
+    assert res["result_status"] == "unavailable"
+    assert res["unavailable_reason"] == "unavailable"
+
+
+def test_parse_raceresult_cancelled_status():
+    res = RealDataFetcher.parse_raceresult("<html><body>荒天のため中止</body></html>")
+    assert res["finish"] == {}
+    assert res["result_status"] == "cancelled_or_postponed"
+    assert res["unavailable_reason"] == "cancelled_or_postponed"
 
 
 def test_parse_oddstf():
@@ -177,6 +194,20 @@ def test_fetch_race_without_results(fetcher):
     # 出走表・直前情報・オッズは取得済み
     assert df["exhibition_time"].notna().all()
     assert df["win_odds"].notna().all()
+
+
+def test_fetch_results_for_predictions(fetcher):
+    predictions = pd.DataFrame({
+        "race_id": ["202606120101"] * 6,
+        "course_id": [1] * 6,
+        "race_number": [1] * 6,
+        "lane": [1, 2, 3, 4, 5, 6],
+    })
+    results, errors = fetcher.fetch_results_for_predictions("2026-06-12", predictions)
+    assert errors == []
+    assert len(results) == 6
+    assert set(results["result_status"]) == {"final"}
+    assert results[results["lane"] == 1]["win"].iloc[0] == 1
 
 
 def test_cache_prevents_refetch(fetcher):
@@ -249,6 +280,22 @@ def test_fetch_day_skips_rest_on_non_race_day(tmp_path):
     assert df.empty
     racelist_urls = [u for u in requested if "/racelist" in u]
     assert len(racelist_urls) == 2  # 1R・2Rで打ち切り
+
+
+def test_discover_course_ids_returns_unique_race_days(tmp_path):
+    class SelectiveSession(FakeSession):
+        def get(self, url, timeout=None):
+            self.requested_urls.append(url)
+            if url.endswith("robots.txt"):
+                return FakeResponse(self.robots_txt)
+            if "/racelist" in url and ("jcd=01" in url or "jcd=12" in url):
+                return FakeResponse(_racelist_html())
+            return FakeResponse("<html><body>本日の開催はありません</body></html>")
+
+    session = SelectiveSession()
+    f = RealDataFetcher(cache_dir=str(tmp_path / "raw"),
+                        min_interval_seconds=0.0, session=session)
+    assert f.discover_course_ids("2026-06-12") == [1, 12]
 
 
 # ----------------------------------------------------------------------
