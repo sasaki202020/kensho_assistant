@@ -1,0 +1,1 @@
+"""Boat race AI package."""

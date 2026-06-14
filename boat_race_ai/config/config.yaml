@@ -1,0 +1,31 @@
+paths:
+  raw_dir: data/raw
+  db_path: data/boat_race.db
+  model_path: output/model_bundle.joblib
+  report_dir: output/reports
+  prediction_dir: output/predictions
+
+dummy:
+  seed: 20260613
+  quick_races: 48
+  normal_races: 180
+  start_date: 2026-06-01
+
+real:
+  render_wait_ms: 2500
+  request_timeout_ms: 30000
+  min_request_interval_sec: 2.0
+  max_courses_quick: 1
+  max_courses_normal: 1
+  history_days_quick: 1
+  history_days_normal: 2
+  include_beforeinfo_quick: false
+  include_beforeinfo_normal: true
+
+model:
+  random_state: 42
+  test_ratio: 0.2
+  valid_ratio: 0.2
+  xgb_estimators: 100
+  lgbm_estimators: 140
+  rf_estimators: 180
