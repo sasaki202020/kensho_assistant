@@ -116,9 +116,38 @@ python web_app.py --smoke-test
 
 ---
 
-## 現状（2026-06-13 時点）
+## 現状（2026-06-14 時点）
 
 - `submitted_count_auto = 0` 維持確認済み
 - `PREPARED → later-queue → harness run` 導線は既存実装あり、動作確認済み
 - `ai-agent-lab` 側差分は本流に取り込まない方針で合意済み
+- auto-submit の土台（`RealSubmitAdapter`）は意図的な未実装スタブ。`_adapter()` が
+  `{mock, dry_run, review}` 以外でしか返さず、その範囲外は `normalize_run_mode` が
+  弾くため二重ガードで到達不能。実送信コードは未記述（「土台だけ」の状態）
+- 検索画面の安全境界（自動送信は無効 / 送信（無効））を常時表示に修正済み
+- web コピー検査テストを seed 化して hermetic 化（`data/` 非依存）
+
+### 「選ぶ→応募するまで」の検証結果（dry_run, 合成フォーム）
+
+実エンジン `AutoApplyEngine("dry_run")` を knshow 風の実フォーム（氏名・住所・
+メール・確認用メール・性別・希望賞品 + 規約同意 + メルマガ + 自由記述）に対して
+実行し、以下を確認:
+
+- 安全な個人情報フィールドを 10 件入力
+- `status = REVIEW_FILL_READY`（人間レビューへ誘導）
+- `consent_required` / `newsletter_opt_in` / `free_text_present` /
+  `required_checkbox_unchecked` を人間確認項目として正しく検出
+- `submit_attempted = False` / `auto_submitted = False`、submit ボタンは検出するが
+  クリックしない。送信完了画面に遷移しない
+
+→ 開発側の導線は完成。残るのは **実サイト（knshow.com）でのログイン後 1 件通し確認**
+   と、そこで判明する **本番フォーム selector の最終微調整** のみ（人間の手元が必要）。
+
+### 次にやる 1 ステップ（運用確認）
+
+1. Windows で `python web_app.py` → `http://127.0.0.1:8787`
+2. `/search` で 1 件選んで承認 → `/approved/session` で「Chromeで応募準備」
+3. Chrome 上で入力補助の結果を確認（selector がズレていたらそこだけ調整）
+4. 送信は人間が手動で行い、`手動送信済み` を押す
+
 - 次の担当者はこのファイルを読んだ後、`README.md` → `docs/PRODUCT_SPEC.md` の順で読むと全体像が掴める
