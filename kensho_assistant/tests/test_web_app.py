@@ -38,7 +38,37 @@ def test_web_app_health_reports_localhost() -> None:
     assert data["status"] == "ok"
 
 
-def test_web_app_dashboard_search_review_security_copy() -> None:
+def test_web_app_dashboard_search_review_security_copy(monkeypatch) -> None:
+    # Seed one campaign so data-dependent action buttons (URL解決 / inspect-form)
+    # render deterministically; data/ is gitignored, so a clean checkout has none.
+    seeded_campaign = {
+        "campaign_id": "seed-campaign",
+        "campaign_name": "テスト懸賞",
+        "provider": "テスト提供元",
+        "deadline": "2026-12-31",
+        "winner_count": "10",
+        "category": "食品",
+        "entry_url": "https://example.com/entry",
+        "knshow_url": "https://www.knshow.com/test",
+        "resolved_entry_url": "https://example.com/entry",
+        "resolve_status": "RESOLVED",
+        "status": "SAFE_TO_FILL",
+        "form_readiness_status": "READY_FOR_FILL",
+        "form_readiness_score": "0.8",
+        "readiness_score": "0.8",
+    }
+    monkeypatch.setattr("kensho_assistant.web.app.load_campaigns", lambda *a, **k: [dict(seeded_campaign)])
+    seeded_queue_row = {
+        "campaign_id": "seed-campaign",
+        "campaign_name": "テスト懸賞",
+        "provider": "テスト提供元",
+        "deadline": "2026-12-31",
+        "queue_status": "PREPARED",
+        "approved_by_user": "true",
+        "resolved_entry_url": "https://example.com/entry",
+        "form_readiness_status": "READY_FOR_FILL",
+    }
+    monkeypatch.setattr("kensho_assistant.web.app.load_apply_queue", lambda *a, **k: [dict(seeded_queue_row)])
     app = create_app()
     with TestClient(app) as client:
         dashboard = client.get("/").text
