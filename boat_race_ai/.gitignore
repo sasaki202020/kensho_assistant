@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.tmp*/
+
+data/
+*.db
+
+output/*
+!output/model_bundle.joblib
+
+boat_race_ai/
