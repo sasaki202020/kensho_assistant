@@ -206,6 +206,15 @@ def _result_win_odds_by_lane(doc: lxml_html.HtmlElement) -> dict[int, float]:
     return {}
 
 
+def _clean_invalid_odds(frame: pd.DataFrame) -> pd.DataFrame:
+    for column in ["win_odds", "place_odds_low", "place_odds_high"]:
+        if column not in frame.columns:
+            continue
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        frame.loc[frame[column] <= 0, column] = pd.NA
+    return frame
+
+
 def _parse_number_list(text: str, count: int = 3) -> list[float | None]:
     numbers = re.findall(r"[-+]?(?:\d+\.\d+|\.\d+|\d+)", text or "")
     values = [parse_float(value, default=None) for value in numbers[:count]]
@@ -346,6 +355,7 @@ class RealDataFetcher:
             cached = pd.read_csv(cache_path)
             if "race_date" in cached.columns:
                 cached["race_date"] = pd.to_datetime(cached["race_date"], errors="coerce")
+            cached = _clean_invalid_odds(cached)
             return cached
 
         base = self.parse_racelist_html(
@@ -474,6 +484,7 @@ class RealDataFetcher:
                         cached = reparsed
             if "race_date" in cached.columns:
                 cached["race_date"] = pd.to_datetime(cached["race_date"], errors="coerce")
+            cached = _clean_invalid_odds(cached)
             status.update({"status": "settled", "unavailable_reason": "", "message": "cached result"})
             return cached, status
         html = self._load_html(
@@ -790,9 +801,12 @@ class RealDataFetcher:
             lane = parse_int(row[0], default=None)
             if lane is None:
                 continue
+            win_odds = parse_float(row[2], default=None)
+            if win_odds is not None and win_odds <= 0:
+                win_odds = None
             odds_map.setdefault(lane, {}).update(
                 {
-                    "win_odds": parse_float(row[2], default=None),
+                    "win_odds": win_odds,
                 }
             )
         for row in place_rows:
@@ -802,6 +816,10 @@ class RealDataFetcher:
             if lane is None:
                 continue
             low, high = _parse_number_pair(row[2])
+            if low is not None and low <= 0:
+                low = None
+            if high is not None and high <= 0:
+                high = None
             odds_map.setdefault(lane, {}).update(
                 {
                     "place_odds_low": low,
@@ -809,4 +827,4 @@ class RealDataFetcher:
                 }
             )
         records = [{**meta, "lane": lane, **values} for lane, values in odds_map.items()]
-        return pd.DataFrame(records)
+        return _clean_invalid_odds(pd.DataFrame(records))

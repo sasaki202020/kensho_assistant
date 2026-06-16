@@ -189,6 +189,30 @@ def test_real_data_parser_handles_core_pages() -> None:
     assert odds.loc[0, "place_odds_low"] == 2.1
 
 
+def test_odds_parser_treats_zero_as_missing() -> None:
+    html = """
+    <html>
+      <body>
+        <h2>テスト杯</h2>
+        <h3>一般戦 1800m</h3>
+        <table>
+          <thead><tr><th>単勝オッズ</th></tr></thead>
+          <tbody><tr><td>1</td><td>テスト1</td><td>0.0</td></tr></tbody>
+        </table>
+        <table>
+          <thead><tr><th>複勝オッズ</th></tr></thead>
+          <tbody><tr><td>1</td><td>テスト1</td><td>0.0-0.0</td></tr></tbody>
+        </table>
+      </body>
+    </html>
+    """
+    odds = RealDataFetcher.parse_odds_html(html, "20260616", "07", 1)
+
+    assert pd.isna(odds.loc[0, "win_odds"])
+    assert pd.isna(odds.loc[0, "place_odds_low"])
+    assert pd.isna(odds.loc[0, "place_odds_high"])
+
+
 def test_resolve_course_id() -> None:
     fetcher = RealDataFetcher(raw_dir="data/raw")
     assert fetcher.resolve_course_id("桐生") == "01"

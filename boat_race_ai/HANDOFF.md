@@ -40,6 +40,17 @@ Daily strategy results for 2026-06-14:
 - `top2_win`: hit rate 75.4%, ROI 76.44%, bets 284
 - `value_filter`: bets 0 because pre-race expected value was unavailable
 
+## 2026-06-16 Morning Status
+
+- Morning predictions were generated after a long official-site fetch.
+- Coverage: 12 courses / 144 races / 864 rows.
+- Complete races: 144 / 144.
+- Missing racer names: 0.
+- Missing grades: 0.
+- Missing win odds: 371 rows.
+- `win_odds=0.0` from official odds pages is treated as unavailable, not as a real odds value.
+- Next action at 14:42 JST: wait for official odds refresh after 18:00.
+
 ## Important Fixes In This Handoff
 
 - Result parser extracts winner single-win payout from official result pages as `win_odds = payout_yen / 100`.
@@ -47,6 +58,7 @@ Daily strategy results for 2026-06-14:
 - Settlement can use result-side winner payout only when saved prediction odds are missing.
 - `value_filter` now uses saved pre-race `expected_value` only. It must not recompute value from post-race result payout odds.
 - Profitability analysis counts losing settled bets even when losing-row odds are missing, while payout remains zero.
+- Official odds values of `0.0` are normalized to missing because they represent unavailable odds, not valid odds.
 
 ## Validation
 

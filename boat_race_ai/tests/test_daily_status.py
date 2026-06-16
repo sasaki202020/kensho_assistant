@@ -42,6 +42,34 @@ def test_daily_status_waits_for_odds_refresh_window_when_predictions_miss_odds(t
     assert (daily_dir / "daily_status.json").exists()
 
 
+def test_daily_status_treats_zero_odds_as_missing(tmp_path: Path) -> None:
+    daily_dir = tmp_path / "output" / "daily" / "2026-06-14"
+    daily_dir.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "race_id": "20260614_01_01",
+                "course_id": "01",
+                "race_number": 1,
+                "lane": 1,
+                "pred_prob": 0.2,
+                "pred_rank": 1,
+                "win_odds": 0.0,
+                "expected_value": 0.0,
+            }
+        ]
+    ).to_csv(daily_dir / "predictions.csv", index=False)
+
+    status = build_daily_status(
+        "2026-06-14",
+        project_root=tmp_path,
+        now=datetime(2026, 6, 14, 6, 0),
+    )
+
+    assert status["predictions"]["missing_win_odds_rows"] == 1
+    assert status["next_action"] == "wait_for_odds_refresh"
+
+
 def test_daily_status_points_to_odds_refresh_after_window(tmp_path: Path) -> None:
     daily_dir = tmp_path / "output" / "daily" / "2026-06-14"
     daily_dir.mkdir(parents=True)

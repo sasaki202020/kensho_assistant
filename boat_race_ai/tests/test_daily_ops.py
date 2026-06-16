@@ -253,6 +253,23 @@ def test_daily_morning_does_not_output_imputed_odds(tmp_path: Path, monkeypatch)
     assert predictions["expected_value"].isna().all()
 
 
+def test_daily_morning_treats_zero_odds_as_missing(tmp_path: Path, monkeypatch) -> None:
+    config = _write_config(tmp_path)
+    _patch_bundle(monkeypatch)
+
+    daily_ops.run_morning(
+        "2026-06-13",
+        config_path=config,
+        project_root=tmp_path,
+        fetcher_factory=FakeFetcher,
+    )
+    predictions = pd.read_csv(tmp_path / "output" / "daily" / "2026-06-13" / "predictions.csv")
+    predictions["win_odds"] = 0.0
+    coverage = daily_ops.coverage_for(predictions, ["07"])
+
+    assert coverage["missing_win_odds_rows"] == len(predictions)
+
+
 def test_refresh_daily_odds_updates_only_odds_fields(tmp_path: Path, monkeypatch) -> None:
     config = _write_config(tmp_path)
     _patch_imputing_bundle(monkeypatch)

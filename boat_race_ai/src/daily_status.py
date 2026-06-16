@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .daily_ops import DailyPaths, normalize_date, write_json
+from .daily_ops import DailyPaths, normalize_date, valid_win_odds, write_json
 
 ODDS_REFRESH_AFTER = time(18, 0)
 NIGHT_SETTLEMENT_AFTER = time(21, 30)
@@ -25,7 +25,7 @@ def _prediction_status(path: Path) -> dict:
     if not path.exists():
         return {"exists": False}
     frame = pd.read_csv(path)
-    win_odds = pd.to_numeric(frame.get("win_odds"), errors="coerce")
+    win_odds = valid_win_odds(frame.get("win_odds"))
     expected_value = pd.to_numeric(frame.get("expected_value"), errors="coerce")
     pred_prob = pd.to_numeric(frame.get("pred_prob"), errors="coerce")
     return {

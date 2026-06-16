@@ -130,6 +130,11 @@ def errors_by_reason(errors: list[dict]) -> dict[str, int]:
     return counts
 
 
+def valid_win_odds(values: object) -> pd.Series:
+    odds = pd.to_numeric(values, errors="coerce")
+    return odds.where(odds > 0)
+
+
 def coverage_for(frame: pd.DataFrame, course_ids: list[str], errors: list[dict] | None = None) -> dict:
     errors = errors or []
     expected_races = len(course_ids) * 12
@@ -154,7 +159,7 @@ def coverage_for(frame: pd.DataFrame, course_ids: list[str], errors: list[dict] 
     complete_races = int((race_sizes == 6).sum())
     name_series = frame.get("name", pd.Series(index=frame.index, dtype=object)).astype(str).str.strip()
     grade_series = frame.get("grade", pd.Series(index=frame.index, dtype=object)).astype(str).str.strip()
-    odds_series = pd.to_numeric(frame.get("win_odds", pd.Series(index=frame.index, dtype=float)), errors="coerce")
+    odds_series = valid_win_odds(frame.get("win_odds", pd.Series(index=frame.index, dtype=float)))
     missing_name_rows = int((name_series == "").sum())
     missing_grade_rows = int((grade_series == "").sum())
     missing_win_odds_rows = int(odds_series.isna().sum())
@@ -193,7 +198,7 @@ def prepare_prediction_frame(bundle: dict, history: pd.DataFrame, target_frame: 
         raise RuntimeError("Target rows could not be prepared for prediction.")
     predicted = bundle["model"].predict_frame(target_rows)
     predicted = predicted.merge(odds_source, on=["race_id", "lane"], how="left")
-    predicted["win_odds"] = predicted["raw_win_odds"]
+    predicted["win_odds"] = valid_win_odds(predicted["raw_win_odds"])
     predicted = predicted.drop(columns=["raw_win_odds"])
     predicted["expected_value"] = pd.to_numeric(predicted["pred_prob"], errors="coerce") * pd.to_numeric(predicted["win_odds"], errors="coerce")
     return predicted.sort_values(["course_id", "race_number", "pred_prob"], ascending=[True, True, False]).reset_index(drop=True)
@@ -375,13 +380,13 @@ def refresh_daily_odds(
 
     if "win_odds" not in predictions.columns:
         predictions["win_odds"] = pd.NA
-    predictions["win_odds"] = pd.to_numeric(predictions["win_odds"], errors="coerce")
+    predictions["win_odds"] = valid_win_odds(predictions["win_odds"])
     if attempted_races:
         attempted_mask = predictions["race_id"].astype(str).isin(attempted_races)
         predictions.loc[attempted_mask, "win_odds"] = pd.NA
     if odds_frames:
         odds_all = pd.concat(odds_frames, ignore_index=True)
-        odds_all["win_odds"] = pd.to_numeric(odds_all["win_odds"], errors="coerce")
+        odds_all["win_odds"] = valid_win_odds(odds_all["win_odds"])
         odds_all = odds_all.dropna(subset=["win_odds"]).drop_duplicates(["race_id", "lane"], keep="last")
         predictions = predictions.merge(odds_all, on=["race_id", "lane"], how="left", suffixes=("", "_official"))
         official_mask = predictions["win_odds_official"].notna()
@@ -396,7 +401,7 @@ def refresh_daily_odds(
     else:
         pd.DataFrame(columns=["race_id", "lane", "win_odds"]).to_csv(paths.odds_refresh_csv, index=False, encoding="utf-8-sig")
 
-    available_rows = int(pd.to_numeric(predictions["win_odds"], errors="coerce").notna().sum())
+    available_rows = int(valid_win_odds(predictions["win_odds"]).notna().sum())
     payload = {
         "status": "ok" if available_rows == len(predictions) else "partial",
         "operation_status": "odds_refreshed" if available_rows else "odds_unavailable",
@@ -404,7 +409,7 @@ def refresh_daily_odds(
         "rows": int(len(predictions)),
         "races": int(predictions["race_id"].astype(str).nunique()),
         "odds_available_rows": available_rows,
-        "missing_win_odds_rows": int(pd.to_numeric(predictions["win_odds"], errors="coerce").isna().sum()),
+        "missing_win_odds_rows": int(valid_win_odds(predictions["win_odds"]).isna().sum()),
         "odds_refresh_csv": str(paths.odds_refresh_csv),
         "predictions_csv": str(paths.predictions_csv),
         "errors_by_reason": errors_by_reason(errors),
