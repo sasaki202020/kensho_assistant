@@ -1,156 +1,243 @@
-"""sell_before_check_ai のテスト。
+from __future__ import annotations
 
-py -3 -m pytest tests/test_sell_before_check_ai.py -q
-"""
-
-import json
+import base64
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
-from sell_before_check_ai.app import app
-from sell_before_check_ai.logic import CHECK_TYPES, evaluate, load_rules
-
-client = TestClient(app)
-
-LEVEL_LABELS = ["問題なさそう", "確認推奨", "即決注意", "相談推奨"]
-
-
-def test_rules_define_exactly_four_levels():
-    rules = load_rules()
-    assert [lv["label"] for lv in rules["levels"]] == LEVEL_LABELS
+from field_assessment_ai.app import create_app as create_business_app
+from field_assessment_ai.config import AppSettings as BusinessSettings
+from sell_before_check_ai.app import create_app as create_consumer_app
+from sell_before_check_ai.config import AppSettings as ConsumerSettings
+from sell_before_check_ai.mobile_preview import ensure_mobile_preview_screenshot_dir
 
 
-def test_evaluate_ok_level_for_plain_text():
-    verdict = evaluate("古いテレビを処分したいと思っています。", "item", [])
-    assert verdict["level_label"] == "問題なさそう"
-    assert verdict["score"] == 0
-    assert verdict["stored"] is False
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAA=="
+)
 
 
-def test_evaluate_check_level_for_single_mild_keyword():
-    verdict = evaluate("高価買取のチラシが入っていた", "flyer", [])
-    assert verdict["level_label"] == "確認推奨"
+def make_consumer_client(tmp_path: Path) -> tuple[TestClient, ConsumerSettings]:
+    settings = ConsumerSettings(runtime_root=tmp_path / "runtime")
+    app = create_consumer_app(settings)
+    return TestClient(app), settings
 
 
-def test_evaluate_caution_level_for_rush_keywords():
-    verdict = evaluate("本日限り! 今だけのチャンス!", "flyer", [])
-    assert verdict["level_label"] == "即決注意"
+def make_business_client(tmp_path: Path) -> tuple[TestClient, BusinessSettings]:
+    settings = BusinessSettings(runtime_root=tmp_path / "runtime")
+    app = create_business_app(settings)
+    return TestClient(app), settings
 
 
-def test_evaluate_consult_level_for_stacked_signals():
-    verdict = evaluate("本日限り、キャンセル不可と言われた", "quote", ["visit", "rush"])
-    assert verdict["level_label"] == "相談推奨"
-    assert verdict["score"] >= 5
+def test_consumer_crud_generation_and_reports(tmp_path: Path) -> None:
+    client, settings = make_consumer_client(tmp_path)
+    with client:
+        health = client.get("/api/v0/consumer/health")
+        assert health.status_code == 200
+
+        flyer = client.post(
+            "/api/v0/consumer/flyer-checks",
+            json={
+                "company_name": "サンプル訪問買取",
+                "phone_number": "000-1111-2222",
+                "flyer_text": "着物高価買取 / 出張査定無料 / 即日現金化",
+                "outcall_fee_text": "出張費無料",
+                "cancellation_fee_text": "キャンセル料無料",
+                "high_price_text": "高価買取",
+                "same_day_cash_text": "即日現金化",
+                "inducement_text": "貴金属も査定",
+            },
+        ).json()
+        assert flyer["judgement_result"] == "確認推奨"
+
+        flyer_upload = client.post(
+            "/api/v0/consumer/images/upload",
+            data={"check_type": "flyer", "check_id": flyer["id"]},
+            files={"file": ("flyer.png", PNG_BYTES, "image/png")},
+        ).json()
+        assert flyer_upload["public_url"].startswith("/uploads/consumer/flyer/")
+
+        item = client.post(
+            "/api/v0/consumer/item-checks",
+            json={
+                "item_category": "ミシン",
+                "item_name": "JUKI ミシン",
+                "brand": "JUKI",
+                "condition_note": "動作未確認",
+                "accessories": "フットコントローラーなし",
+                "offered_price": 1000,
+                "market_memo": "型番不明",
+            },
+        ).json()
+        assert item["judgement_result"] == "即決注意"
+
+        quote = client.post(
+            "/api/v0/consumer/quote-checks",
+            json={
+                "offered_price": 9800,
+                "package_price": 9800,
+                "same_day_extra_charge": 80000,
+                "additional_charge_conditions": "当日追加請求あり",
+                "estimate_sheet_present": False,
+                "memo": "軽トラックパック9,800円",
+            },
+        ).json()
+        assert quote["judgement_result"] == "相談推奨"
+
+        risk = client.post(
+            "/api/v0/consumer/risk-judgements/generate",
+            json={"check_type": "quote", "check_id": quote["id"]},
+        ).json()
+        assert risk["judgement"]["refusal_phrase"]
+        assert risk["market_links"]["mercari"].startswith("https://")
+
+        official = client.get("/api/v0/consumer/official-info").json()
+        assert official
+        assert any(info["category"] == "消費者ホットライン188" for info in official)
+
+        report = client.get(f"/api/v0/consumer/reports/quote/{quote['id']}").json()
+        assert report["report"]["format"] == "json"
+        assert report["content_json"]["judgement"] == "相談推奨"
+        assert report["content_json"]["hotline_notice"]
+        assert report["content_json"]["refusal_phrase"]
+
+    assert settings.database_path.exists()
 
 
-def test_evaluate_expanded_keywords_hit():
-    # v0.3.0 で拡充したキーワードが判定に反映されること
-    assert evaluate("本日中なら特別価格です", "quote", [])["score"] >= 4
-    assert evaluate("古銭と記念硬貨と腕時計を売りたい", "item", [])["score"] >= 3
-    assert evaluate("出張費無料・査定額アップ", "flyer", [])["score"] >= 2
+def test_business_api_still_works_after_consumer_addition(tmp_path: Path) -> None:
+    client, _settings = make_business_client(tmp_path)
+    with client:
+        health = client.get("/api/v0/health")
+        assert health.status_code == 200
+
+        job = client.post("/api/v0/jobs", json={"title": "案件C"}).json()
+        item = client.post("/api/v0/items", json={"job_id": job["id"], "name": "ゲーム機", "category": "ゲーム"}).json()
+        assert item["job_id"] == job["id"]
 
 
-def test_evaluate_keywords_respect_check_type_targets():
-    # 「一式」は見積もり向けキーワードであり、チラシ判定では加点しない
-    assert evaluate("一式", "quote", [])["score"] > 0
-    assert evaluate("一式", "flyer", [])["score"] == 0
+def test_consumer_home_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "売る前チェックAI" in response.text
+        assert "その場で売る前に、まず写真でチェック。" in response.text
+        assert "チラシをチェック" in response.text
+        assert "商品をチェック" in response.text
+        assert "見積もりをチェック" in response.text
+        assert "1分で確認できます" in response.text
 
 
-def test_evaluate_never_returns_label_outside_four_levels():
-    samples = ["", "貴金属 着物 形見", "本日限り キャンセル不可 その場で現金 一式"]
-    for check_type in CHECK_TYPES:
-        for text in samples:
-            verdict = evaluate(text, check_type, ["visit", "rush", "extra_item"])
-            assert verdict["level_label"] in LEVEL_LABELS
+def test_consumer_form_pages_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        flyer = client.get("/flyer-check")
+        assert flyer.status_code == 200
+        assert "チラシチェック" in flyer.text
+        assert "チラシ文言" in flyer.text
+        assert "出張費無料の記載あり" in flyer.text
+
+        item = client.get("/item-check")
+        assert item.status_code == 200
+        assert "商品チェック" in item.text
+        assert "商品カテゴリ" in item.text
+        assert "確認ポイント" in item.text
+        assert "追加で撮るべき写真" in item.text
+
+        quote = client.get("/quote-check")
+        assert quote.status_code == 200
+        assert "見積もりチェック" in quote.text
+        assert "広告表示額" in quote.text
+        assert "追加料金条件" in quote.text
 
 
-def test_home_page_links_to_all_checks():
-    res = client.get("/")
-    assert res.status_code == 200
-    for path in ["/flyer-check", "/item-check", "/quote-check",
-                 "/refusal-examples", "/market-links", "/hotline-188"]:
-        assert path in res.text
+def test_consumer_dashboard_still_available(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/dashboard")
+        assert response.status_code == 200
+        assert "新規チェックを登録" in response.text
+        assert "スマホ導線レビュー" in response.text
 
 
-@pytest.mark.parametrize("path,title", [
-    ("/flyer-check", "チラシチェック"),
-    ("/item-check", "商品チェック"),
-    ("/quote-check", "見積もりチェック"),
-])
-def test_check_pages_render(path, title):
-    res = client.get(path)
-    assert res.status_code == 200
-    assert title in res.text
+def test_consumer_result_page_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/result")
+        assert response.status_code == 200
+        assert "今やること" in response.text
+        assert "断り文例" in response.text
+        assert "相場リンク" in response.text
+        assert "188相談案内" in response.text
+
+        flyer = client.post(
+            "/api/v0/consumer/flyer-checks",
+            json={
+                "company_name": "サンプル訪問買取",
+                "phone_number": "000-1111-2222",
+                "flyer_text": "着物高価買取 / 出張査定無料 / 即日現金化",
+            },
+        ).json()
+        result = client.get(f"/result?check_type=flyer&check_id={flyer['id']}")
+        assert result.status_code == 200
+        assert "今やること" in result.text
+        assert "断り文例" in result.text
+        assert "188相談案内" in result.text
 
 
-def test_result_post_renders_verdict_and_aids():
-    res = client.post("/result", data={
-        "check_type": "flyer",
-        "text": "本日限り! どんなものでも高価買取!",
-        "flags": ["visit"],
-    })
-    assert res.status_code == 200
-    assert "診断結果" in res.text
-    assert any(label in res.text for label in LEVEL_LABELS)
-    assert "断り文例" in res.text
-    assert "188" in res.text
-    assert "保証" in res.text  # 免責文言
+def test_mobile_preview_live_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/mobile-preview")
+        assert response.status_code == 200
+        assert "このまま売るのは少し待ってください" in response.text
+        assert "本番想定のライブ表示" in response.text
+        assert "危険度" in response.text
+        assert "チラシをチェック" in response.text
+        assert "診断結果" in response.text
+        assert "断り文例をコピー" in response.text
+        assert "家族に共有" in response.text
+        assert 'aria-label="診断シナリオ"' not in response.text
 
 
-def test_result_get_shows_sample():
-    res = client.get("/result")
-    assert res.status_code == 200
-    assert "サンプル" in res.text
+def test_mobile_preview_view_shell_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/mobile-preview?view=home")
+        assert response.status_code == 200
+        assert "<iframe" in response.text
+        assert 'src="/"' in response.text
+        assert "iPhone縦" in response.text
 
 
-@pytest.mark.parametrize("view", ["home", "flyer", "item", "quote", "result"])
-def test_mobile_preview_views(view):
-    res = client.get(f"/mobile-preview?view={view}")
-    assert res.status_code == 200
-    assert "iframe" in res.text
+def test_mobile_preview_scenario_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/mobile-preview?scenario=kikinzoku")
+        assert response.status_code == 200
+        assert 'aria-label="診断シナリオ"' in response.text
+        assert "貴金属査定" in response.text
+        assert "即決はせず、相場と複数査定で比べてください" in response.text
+        assert "即決を求められても、その場で売らない" in response.text
+        assert "188を見る" in response.text
+        assert "断り文例をコピー" in response.text
+        assert 'data-scenario="kikinzoku"' in response.text
 
 
-def test_info_pages_render():
-    assert "188" in client.get("/hotline-188").text
-    assert "免責" in client.get("/disclaimer").text
-    assert "プライバシー" in client.get("/privacy").text
-    assert "削除" in client.get("/settings").text
-    assert "コピー" in client.get("/refusal-examples").text
-    assert "相場" in client.get("/market-links").text
+def test_mobile_preview_recovery_quote_render(tmp_path: Path) -> None:
+    client, _settings = make_consumer_client(tmp_path)
+    with client:
+        response = client.get("/mobile-preview?scenario=recovery_quote")
+        assert response.status_code == 200
+        assert 'aria-label="診断シナリオ"' in response.text
+        assert "追加料金の条件がそろうまで、契約は待ってください" in response.text
+        assert "追加料金の条件があいまい" in response.text
+        assert "見積書と明細を紙かメールで残す" in response.text
+        assert "188を見る" in response.text
+        assert 'data-scenario="recovery_quote"' in response.text
 
 
-def test_api_check_returns_verdict_json():
-    res = client.post("/api/check", json={
-        "check_type": "quote",
-        "text": "買取一式 30000円 キャンセル不可",
-        "flags": ["no_doc"],
-    })
-    assert res.status_code == 200
-    body = res.json()
-    assert body["level_label"] in LEVEL_LABELS
-    assert body["stored"] is False
-    assert body["hits"]
-
-
-def test_api_health():
-    res = client.get("/api/health")
-    assert res.status_code == 200
-    assert res.json()["status"] == "ok"
-
-
-def test_no_prohibited_accusatory_wording_in_rules():
-    # 特定業者を断定する表現を判定文言に含めない
-    raw = json.dumps(load_rules(), ensure_ascii=False)
-    for ng in ["悪徳", "詐欺業者", "違法業者"]:
-        assert ng not in raw
-
-
-def test_ios_rules_copy_is_in_sync():
-    # iOSアプリ(Capacitor www)に同梱するルールがPython側と一致していること
-    www_rules = Path(__file__).parent.parent / "ios_app" / "www" / "rules.js"
-    assert www_rules.exists(), "scripts/sync_ios_assets.py を実行してください"
-    text = www_rules.read_text(encoding="utf-8")
-    payload = text[text.index("{"): text.rindex("}") + 1]
-    assert json.loads(payload) == load_rules()
+def test_mobile_preview_screenshot_dir_created(tmp_path: Path) -> None:
+    screenshot_dir = ensure_mobile_preview_screenshot_dir(tmp_path / "runtime" / "screenshots")
+    assert screenshot_dir.exists()
+    assert screenshot_dir.is_dir()
