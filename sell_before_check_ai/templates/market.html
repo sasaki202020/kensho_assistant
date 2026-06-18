@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | 相場リンク{% endblock %}
+{% block content %}
+<h1 class="page-title">相場リンク</h1>
+<p class="lead">売る前に、公開されている相場情報を自分の目で確認しましょう。このアプリが価格を取得・保証することはありません。</p>
+<ul class="link-list">
+  {% for m in market_links %}
+  <li>
+    <a href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{{ m.title }}</a>
+    <br><small>{{ m.desc }}</small>
+  </li>
+  {% endfor %}
+</ul>
+<section class="note-box">
+  <p>相場はあくまで目安です。品物の状態・純度・付属品などで実際の買取額は変わります。複数の業者で見積もりを取り、比較してから決めましょう。</p>
+</section>
+{% endblock %}

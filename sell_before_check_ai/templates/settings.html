@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | 設定{% endblock %}
+{% block content %}
+<h1 class="page-title">設定・データ削除</h1>
+
+<section class="settings-group">
+  <h2 class="sec-title">チェック履歴</h2>
+  <label class="flag-item">
+    <input type="checkbox" id="save-history">
+    <span>判定結果をこの端末に保存する</span>
+  </label>
+  <p id="history-count" class="muted">保存された履歴: 0件</p>
+  <button class="btn-danger" id="clear-history">保存データをすべて削除</button>
+  <p class="muted">履歴はこの端末（ブラウザ）の中だけに保存され、外部には送信されません。</p>
+</section>
+
+<section class="settings-group">
+  <h2 class="sec-title">情報</h2>
+  <ul class="link-list">
+    <li><a href="/disclaimer">免責・注意事項</a></li>
+    <li><a href="/privacy">プライバシーポリシー</a></li>
+    <li><a href="/hotline-188">188相談案内</a></li>
+  </ul>
+  <p class="muted">バージョン: v{{ version }}</p>
+</section>
+
+<script>
+(function () {
+  var KEY_OPT = 'sbc_save_history';
+  var KEY_HIST = 'sbc_history';
+  var opt = document.getElementById('save-history');
+  var count = document.getElementById('history-count');
+  function refresh() {
+    var items = [];
+    try { items = JSON.parse(localStorage.getItem(KEY_HIST) || '[]'); } catch (e) {}
+    count.textContent = '保存された履歴: ' + items.length + '件';
+    opt.checked = localStorage.getItem(KEY_OPT) === '1';
+  }
+  opt.addEventListener('change', function () {
+    localStorage.setItem(KEY_OPT, opt.checked ? '1' : '0');
+  });
+  document.getElementById('clear-history').addEventListener('click', function () {
+    localStorage.removeItem(KEY_HIST);
+    refresh();
+    alert('保存データを削除しました。');
+  });
+  refresh();
+})();
+</script>
+{% endblock %}

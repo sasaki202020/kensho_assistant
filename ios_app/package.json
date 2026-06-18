@@ -1,0 +1,20 @@
+{
+  "name": "sell-before-check",
+  "version": "0.2.0",
+  "private": true,
+  "description": "売る前チェック - 買取チラシ・品物・見積もりの注意点をその場で確認できるiOSアプリ",
+  "scripts": {
+    "sync-assets": "python3 ../scripts/sync_ios_assets.py",
+    "ios:add": "npx cap add ios",
+    "ios:sync": "npm run sync-assets && npx cap sync ios",
+    "ios:open": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/assets": "^3.0.5"
+  }
+}

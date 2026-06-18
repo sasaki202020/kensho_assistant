@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | {{ page.title }}{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ page.title }}</h1>
+<p class="lead">{{ page.lead }}</p>
+
+<form class="check-form" method="post" action="/result">
+  <input type="hidden" name="check_type" value="{{ check_type }}">
+  <label class="field-label" for="text">内容を入力</label>
+  <textarea id="text" name="text" rows="6" placeholder="{{ page.placeholder }}"></textarea>
+
+  <fieldset class="flags">
+    <legend>あてはまるものがあればチェック</legend>
+    {% for f in flags %}
+    <label class="flag-item">
+      <input type="checkbox" name="flags" value="{{ f.id }}">
+      <span>{{ f.label }}</span>
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <button type="submit" class="btn-primary">チェックする</button>
+</form>
+
+<section class="note-box">
+  <p>入力内容はこの端末内で判定され、保存・送信されません。</p>
+</section>
+{% endblock %}

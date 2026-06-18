@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}売る前チェック | 断り文例{% endblock %}
+{% block content %}
+<h1 class="page-title">断り文例コピー</h1>
+<p class="lead">そのまま読み上げたり、コピーして使える断りフレーズです。きっぱり・短く・理由を言いすぎないのがコツです。</p>
+<ul class="copy-list">
+  {% for r in refusal_templates %}
+  <li>
+    <p class="copy-title">{{ r.title }}</p>
+    <p class="copy-text" id="copy-{{ r.id }}">{{ r.text }}</p>
+    <button class="btn-copy" data-target="copy-{{ r.id }}">コピー</button>
+  </li>
+  {% endfor %}
+</ul>
+<section class="note-box">
+  <p>断ったのに居座られる・帰ってくれない場合は、一人で対応せず周囲に助けを求め、消費者ホットライン188や警察相談専用電話 #9110 に相談しましょう。</p>
+</section>
+<script>
+document.querySelectorAll('.btn-copy').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var el = document.getElementById(btn.dataset.target);
+    navigator.clipboard.writeText(el.textContent.trim()).then(function () {
+      btn.textContent = 'コピーしました';
+      setTimeout(function () { btn.textContent = 'コピー'; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}

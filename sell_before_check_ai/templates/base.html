@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0f6e5d" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#11705e" media="(prefers-color-scheme: dark)">
+<title>{% block title %}売る前チェック{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="/">売る前チェック</a>
+  <span class="ver">v{{ version }}</span>
+</header>
+<main class="app-main">
+{% block content %}{% endblock %}
+</main>
+<nav class="tabbar" aria-label="主要メニュー">
+  <a href="/" class="{{ 'on' if active == 'home' else '' }}"><span class="ico">🏠</span>ホーム</a>
+  <a href="/flyer-check" class="{{ 'on' if active == 'flyer' else '' }}"><span class="ico">📰</span>チラシ</a>
+  <a href="/item-check" class="{{ 'on' if active == 'item' else '' }}"><span class="ico">📦</span>商品</a>
+  <a href="/quote-check" class="{{ 'on' if active == 'quote' else '' }}"><span class="ico">🧾</span>見積もり</a>
+  <a href="/settings" class="{{ 'on' if active == 'settings' else '' }}"><span class="ico">⚙️</span>設定</a>
+</nav>
+<footer class="app-footer">
+  <p>判定は参考情報です。査定額・真贋・法律判断を保証しません。</p>
+  <p><a href="/disclaimer">免責・注意事項</a> ・ <a href="/privacy">プライバシー</a> ・ <a href="/hotline-188">188相談案内</a></p>
+</footer>
+</body>
+</html>
