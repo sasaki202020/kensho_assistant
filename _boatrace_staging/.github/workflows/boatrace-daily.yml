@@ -1,0 +1,144 @@
+name: 競艇AI 日次予想
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'main.py'
+      - 'tests/**'
+      - '.github/workflows/boatrace-daily.yml'
+  schedule:
+    - cron: '0 22 * * *'   # JST 07:00(レース当日朝)
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '予想対象日 YYYY-MM-DD(省略時はJSTの今日)'
+        required: false
+      places:
+        description: '対象レース場(スペース区切り、場名または場コード)'
+        required: false
+        default: '桐生 戸田 江戸川 平和島 多摩川 浜名湖 蒲郡 常滑 津 三国 びわこ 住之江 尼崎 鳴門 丸亀 児島 宮島 徳山 下関 若松 芦屋 福岡 唐津 大村'
+      lookback_days:
+        description: '結果データを遡って取得する日数'
+        required: false
+        default: '1'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: boatrace-daily-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # push時のスモークテスト: 依存導入・テスト・ダミーデータでの一括実行を検証
+  smoke:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: 依存パッケージ導入
+        run: pip install -r requirements.txt
+      - name: テスト実行
+        run: python -m pytest -q
+      - name: ダミーデータで一括実行
+        run: python main.py --quick
+
+  # スケジュール / 手動実行: 実データで 結果取得 → 再学習 → 当日予想 → CSVコミット
+  predict:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PLACES: ${{ inputs.places || '桐生 住之江' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: 依存パッケージ導入
+        run: pip install -r requirements.txt
+
+      # DB・学習済みモデルはリポジトリに含めず、Actionsキャッシュで日次引き継ぎ
+      - name: DB・モデルのキャッシュ復元
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/boat_race.db
+            data/models
+          key: boatrace-data-${{ github.run_id }}
+          restore-keys: |
+            boatrace-data-
+
+      - name: 日付計算(JST)
+        id: dates
+        run: |
+          TODAY='${{ inputs.date }}'
+          [ -z "$TODAY" ] && TODAY=$(TZ=Asia/Tokyo date +%F)
+          LOOKBACK='${{ inputs.lookback_days }}'
+          [ -z "$LOOKBACK" ] && LOOKBACK=1
+          if [ ! -f data/boat_race.db ]; then
+            echo 'DBキャッシュなし: 過去14日分をブートストラップ取得します'
+            LOOKBACK=14
+          fi
+          START=$(date -d "$TODAY - $LOOKBACK days" +%F)
+          END=$(date -d "$TODAY - 1 day" +%F)
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "start=$START" >> "$GITHUB_OUTPUT"
+          echo "end=$END"     >> "$GITHUB_OUTPUT"
+          echo "取得期間: $START 〜 $END / 予想対象: $TODAY / 場: $PLACES"
+
+      - name: 前日までの結果取得 + 再学習
+        continue-on-error: true
+        run: >
+          python main.py --source real --fetch
+          --start '${{ steps.dates.outputs.start }}'
+          --end   '${{ steps.dates.outputs.end }}'
+          --places $PLACES
+
+      - name: 当日予想
+        run: |
+          TODAY='${{ steps.dates.outputs.today }}'
+          ok=0
+          for place in $PLACES; do
+            if python predict_today.py --date "$TODAY" --place "$place"; then
+              ok=$((ok+1))
+            else
+              echo "::warning::${place} の予想をスキップしました(開催なし、または取得失敗)"
+            fi
+          done
+          if [ "$ok" -eq 0 ]; then
+            echo "::notice::本日($TODAY)は指定場($PLACES)の開催なし。ワークフローを正常終了します。"
+          fi
+
+      - name: 予想CSVをリポジトリへコミット
+        working-directory: ${{ github.workspace }}
+        run: |
+          TODAY='${{ steps.dates.outputs.today }}'
+          mkdir -p predictions
+          cp data/predictions/prediction_${TODAY//-/}_*.csv predictions/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add predictions
+          if git diff --cached --quiet; then
+            echo 'コミット対象の変更なし'
+          else
+            git commit -m "予想結果を追加: ${TODAY} (${PLACES})"
+            git pull --rebase origin "${{ github.ref_name }}"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
+
+      - name: 予想CSVをアーティファクト保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: predictions-${{ steps.dates.outputs.today }}
+          path: data/predictions/*.csv
+          if-no-files-found: warn
