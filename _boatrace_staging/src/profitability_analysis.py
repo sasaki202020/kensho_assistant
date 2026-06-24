@@ -1,7 +1,7 @@
 """Shadow profitability analysis for daily prediction artifacts.
 
 This module is intentionally observational. It does not place bets, change
-production BUY rules, or promote a strategy from a single good-looking slice.
+research BUY rules, or promote a strategy from a single good-looking slice.
 """
 from __future__ import annotations
 
@@ -208,7 +208,7 @@ def recommend_actions(strategy_summary: list[dict], slices: pd.DataFrame,
         "reason": (
             "No strategy and slice both satisfy minimum sample, cross-day, and ROI gates."
             if not live_allowed else
-            "A candidate passed numeric gates, but still requires manual review before production use."
+            "A candidate passed numeric gates, but still requires manual review before paper-trade use."
         ),
         "candidate_slices": candidates,
         "required_gates": {
@@ -260,7 +260,7 @@ def build_markdown_report(payload: dict) -> str:
     lines = [
         "# Profitability Analysis",
         "",
-        "This report is observational and does not change production BUY rules.",
+        "This report is observational. It is for research and paper-trade purposes only.",
         "",
         f"- decision: {payload['recommendation']['decision']}",
         f"- live_betting_allowed: {payload['recommendation']['live_betting_allowed']}",
