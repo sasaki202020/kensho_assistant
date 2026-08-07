@@ -39,6 +39,30 @@ def test_assisted_session_action_roundtrip(tmp_path, monkeypatch) -> None:
     assert cleared["requested_action"] == ""
 
 
+def test_duplicate_operation_id_does_not_replace_pending_action(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.ASSISTED_SESSION_STATE_JSON", tmp_path / "session.json")
+    request_assisted_session_action(
+        "submitted_next",
+        queue_id="candidate-1",
+        note="first",
+        session_id="session-1",
+        candidate_id="candidate-1",
+        operation_id="operation-1",
+    )
+    request_assisted_session_action(
+        "submitted_next",
+        queue_id="candidate-1",
+        note="duplicate",
+        session_id="session-1",
+        candidate_id="candidate-1",
+        operation_id="operation-1",
+    )
+
+    state = load_assisted_session_state()
+    assert state["requested_note"] == "first"
+    assert state["requested_operation_id"] == "operation-1"
+
+
 def test_assisted_session_corrupt_state_is_detected(tmp_path, monkeypatch) -> None:
     state_path = tmp_path / "session.json"
     state_path.write_text("{broken", encoding="utf-8")
@@ -152,6 +176,7 @@ def test_session_runner_processes_only_approved_prepared_rows(monkeypatch, tmp_p
     monkeypatch.setattr("kensho_assistant.app.assisted_session.request_assisted_session_action", lambda action, queue_id="", note="": Path("session.json"))
     monkeypatch.setattr("kensho_assistant.app.assisted_session.classify_completion_snapshot", lambda current_url, title, body_text, baseline_url="": {"state": "AWAITING_USER_SUBMIT", "manual_submit_observed": False, "completion_confirmed": False, "reason": ""})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.AutoApplyEngine", lambda mode: FakeEngine(mode))
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.mark_manual_submitted", lambda queue_id: True)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.load_profile", lambda: {"first_name": "太郎"})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.target_url_for_campaign", lambda campaign: campaign["resolved_entry_url"])
     monkeypatch.setattr("kensho_assistant.app.assisted_session.open_url_in_chrome", lambda playwright, url, browser_name="chrome": (FakeContext(FakePage()), FakePage(), browser_name))
@@ -349,6 +374,7 @@ def test_session_runner_resumes_from_existing_state(monkeypatch, tmp_path) -> No
         ],
     )
     monkeypatch.setattr("kensho_assistant.app.assisted_session.AutoApplyEngine", lambda mode: FakeEngine(mode))
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.mark_manual_submitted", lambda queue_id: True)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.load_profile", lambda: {"first_name": "太郎"})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.target_url_for_campaign", lambda campaign: campaign["resolved_entry_url"])
     monkeypatch.setattr("kensho_assistant.app.assisted_session.open_url_in_chrome", lambda playwright, url, browser_name="chrome": (FakeContext(), FakePage(), browser_name))

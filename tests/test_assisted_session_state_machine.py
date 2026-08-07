@@ -6,6 +6,7 @@ from kensho_assistant.app.session_state_machine import (
     InvalidSessionTransition,
     SessionStateMachine,
 )
+from kensho_assistant.app.assisted_session import _begin_candidate_workflow
 
 
 def test_state_machine_requires_human_action_before_completion() -> None:
@@ -106,3 +107,21 @@ def test_skip_after_form_analysis_is_recorded_without_fill() -> None:
         state = machine.transition(state, event, session_id="session-1", candidate_id="candidate-1")
     state = machine.transition(state, "skipped", session_id="session-1", candidate_id="candidate-1")
     assert state["workflow_state"] == "SKIPPED"
+
+
+def test_terminal_candidate_is_released_once_before_next_lock() -> None:
+    state = {
+        "workflow_state": "HELD",
+        "active_candidate_id": "candidate-1",
+        "candidate_id": "candidate-1",
+        "session_id": "session-1",
+    }
+
+    next_state = _begin_candidate_workflow(
+        state,
+        session_id="session-1",
+        candidate_id="candidate-2",
+    )
+
+    assert next_state["workflow_state"] == "CANDIDATE_LOCKED"
+    assert next_state["active_candidate_id"] == "candidate-2"

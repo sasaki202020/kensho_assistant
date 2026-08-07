@@ -14,6 +14,12 @@ def _bridge() -> CapabilityBridge:
     return CapabilityBridge(ttl_seconds=60)
 
 
+@pytest.mark.parametrize("ttl", [0, 61])
+def test_capability_ttl_cannot_exceed_safety_boundary(ttl: int) -> None:
+    with pytest.raises(ValueError, match="invalid_ttl"):
+        CapabilityBridge(ttl_seconds=ttl)
+
+
 def test_capability_is_bound_and_consumed_once() -> None:
     bridge = _bridge()
     issued = bridge.issue(
@@ -169,6 +175,51 @@ def test_loopback_http_endpoint_supports_extension_preflight() -> None:
         response = connection.getresponse()
         assert response.status == 204
         assert response.getheader("Access-Control-Allow-Origin") == "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
+        connection.close()
+    finally:
+        bridge.stop()
+
+
+def test_loopback_http_endpoint_is_post_only_and_uses_separate_port() -> None:
+    bridge = _bridge()
+    host, port = bridge.start()
+    try:
+        assert host == "127.0.0.1"
+        assert port != 8787
+        connection = HTTPConnection(host, port, timeout=2)
+        connection.request("GET", "/v1/capability/consume")
+        response = connection.getresponse()
+        assert response.status == 405
+        assert "PII_TEST" not in response.read().decode("utf-8", errors="replace")
+        connection.close()
+    finally:
+        bridge.stop()
+
+
+def test_direct_request_without_capability_is_rejected_without_pii_echo() -> None:
+    bridge = _bridge()
+    host, port = bridge.start()
+    try:
+        connection = HTTPConnection(host, port, timeout=2)
+        connection.request(
+            "POST",
+            "/v1/capability/consume",
+            body=json.dumps(
+                {
+                    "token": "PII_TEST_TOKEN",
+                    "session_id": "PII_TEST_SESSION",
+                    "candidate_id": "PII_TEST_CANDIDATE",
+                    "origin": "https://example.test",
+                    "fingerprint": "PII_TEST_FINGERPRINT",
+                }
+            ),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = response.read().decode("utf-8")
+        assert response.status == 403
+        assert body == '{"ok":false,"error":"invalid_capability"}'
+        assert "PII_TEST" not in body
         connection.close()
     finally:
         bridge.stop()

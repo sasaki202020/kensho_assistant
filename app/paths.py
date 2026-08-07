@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Mapping
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +98,28 @@ PROFILE_JSON = CONFIG_DIR / "profile.json"
 PROFILE_EXAMPLE_JSON = CONFIG_DIR / "profile.example.json"
 RULES_YAML = CONFIG_DIR / "rules.yaml"
 PRODUCT_YAML = CONFIG_DIR / "product.yaml"
+
+
+def resolve_profile_path(env: Mapping[str, str] | None = None) -> Path:
+    """Resolve encrypted profile storage outside the repository."""
+    values = os.environ if env is None else env
+    configured = str(values.get("KENSHO_PROFILE_PATH", "")).strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+    else:
+        local_app_data = str(values.get("LOCALAPPDATA", "")).strip()
+        if not local_app_data:
+            raise RuntimeError("profile storage is not configured")
+        candidate = Path(local_app_data) / "kensho_assistant" / "profile.enc"
+
+    if not candidate.is_absolute():
+        raise RuntimeError("profile storage must use an absolute path")
+
+    resolved = candidate.resolve(strict=False)
+    repository_root = PACKAGE_ROOT.resolve(strict=False)
+    if resolved == repository_root or repository_root in resolved.parents:
+        raise RuntimeError("profile storage must be outside the repository")
+    return resolved
 
 
 def ensure_runtime_dirs() -> None:

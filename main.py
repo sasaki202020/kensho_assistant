@@ -304,7 +304,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 def _load_profile_or_fail() -> dict[str, str]:
     profile = load_profile()
     if not profile:
-        raise SystemExit(f"{PROFILE_JSON} is missing")
+        raise SystemExit("encrypted profile is missing")
     missing = profile_missing_fields(profile)
     if missing:
         raise SystemExit(f"profile incomplete: {', '.join(missing)}")
@@ -313,8 +313,7 @@ def _load_profile_or_fail() -> dict[str, str]:
 
 def cmd_profile_check(args: argparse.Namespace) -> int:
     _, missing = profile_check(encrypted=args.encrypted)
-    store = PROFILE_ENC if args.encrypted or PROFILE_ENC.exists() else PROFILE_JSON
-    print(f"profile store: {store}")
+    print("profile store: external profile.enc")
     print(f"complete: {not missing}")
     print(f"missing fields: {', '.join(missing) if missing else 'none'}")
     return 0
@@ -1871,8 +1870,6 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     ensure_runtime_dirs()
-    profile_source = "profile.enc" if PROFILE_ENC.exists() else "profile.json"
-    profile_store = PROFILE_ENC if PROFILE_ENC.exists() else PROFILE_JSON
     try:
         load_profile()
         profile_status = "ok"

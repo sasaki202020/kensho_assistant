@@ -41,6 +41,74 @@ def test_overlay_exposes_stable_codex_actions_and_origin_permission_controls() -
     assert 'data-kensho-status' in overlay
 
 
+def test_different_extension_instance_blocks_all_fill_controls_without_profile_request(
+    browser_page,
+) -> None:
+    browser_page.goto((FIXTURES / "standard_form.html").as_uri())
+    _load_scripts(browser_page, "content/submit-guard.js")
+    browser_page.evaluate(
+        """() => {
+          const oldHost = document.createElement("div");
+          oldHost.id = "kensho-assistant-overlay-host";
+          oldHost.setAttribute("data-kensho-extension-root", "true");
+          oldHost.setAttribute("data-kensho-extension-id", "old-extension-id");
+          oldHost.setAttribute("data-kensho-extension-version", "0.1.0");
+          const shadow = oldHost.attachShadow({mode: "open"});
+          shadow.innerHTML = `
+            <button id="analyze" data-kensho-action="analyze">解析</button>
+            <button id="fill" data-kensho-action="fill">入力</button>`;
+          document.documentElement.appendChild(oldHost);
+          window.profileRequestCount = 0;
+          window.duplicateMessages = [];
+          window.chrome = {
+            runtime: {
+              id: "new-extension-id",
+              getManifest() { return {version: "0.2.0"}; },
+              sendMessage(message, callback) {
+                if ([
+                  "GET_PROFILE_PREVIEW",
+                  "CONSUME_SESSION_PROFILE",
+                  "CONSUME_BRIDGE_PROFILE",
+                  "REQUEST_BRIDGE_CAPABILITY"
+                ].includes(message.type)) {
+                  window.profileRequestCount += 1;
+                }
+                window.duplicateMessages.push(message.type);
+                callback({ok: true, duplicate: true});
+              }
+            }
+          };
+        }"""
+    )
+
+    _load_scripts(browser_page, "content/overlay.js")
+
+    result = browser_page.evaluate(
+        """() => {
+          const host = document.querySelector('[data-kensho-extension-root="true"]');
+          return {
+            duplicate: document.documentElement.getAttribute(
+              "data-kensho-duplicate-extension"
+            ),
+            hostDuplicate: host.getAttribute("data-kensho-duplicate-extension"),
+            analyzeDisabled: host.shadowRoot.querySelector("#analyze").disabled,
+            fillDisabled: host.shadowRoot.querySelector("#fill").disabled,
+            profileRequestCount: window.profileRequestCount,
+            duplicateMessages: window.duplicateMessages,
+            guard: window.__KENSHO_SUBMIT_GUARD__.state()
+          };
+        }"""
+    )
+
+    assert result["duplicate"] == "true"
+    assert result["hostDuplicate"] == "true"
+    assert result["analyzeDisabled"] is True
+    assert result["fillDisabled"] is True
+    assert result["profileRequestCount"] == 0
+    assert "DUPLICATE_EXTENSION_BLOCKED" in result["duplicateMessages"]
+    assert result["guard"]["locked"] is True
+
+
 def test_options_page_can_reload_the_unpacked_extension() -> None:
     html = (EXTENSION / "options" / "options.html").read_text(encoding="utf-8")
     script = (EXTENSION / "options" / "options.js").read_text(encoding="utf-8")
@@ -658,6 +726,16 @@ def test_extension_sources_do_not_persist_or_log_pii() -> None:
     assert "TRUSTED_AND_UNTRUSTED_CONTEXTS" not in source
     assert '"TRUSTED_CONTEXTS"' in source
     assert "submitted_count_auto" in source
+
+
+def test_content_scripts_cannot_call_the_loopback_bridge_directly() -> None:
+    content_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (EXTENSION / "content").glob("*.js")
+    )
+
+    assert "127.0.0.1" not in content_source
+    assert "fetch(" not in content_source
 
 
 def test_sensitive_honeypot_and_consent_fields_are_manual_review_only(

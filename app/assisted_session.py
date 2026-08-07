@@ -424,12 +424,18 @@ def request_assisted_session_action(
 ) -> Path:
     with _STATE_LOCK:
         state = load_assisted_session_state()
+        normalized_operation_id = str(operation_id or "").strip()
+        if normalized_operation_id and (
+            str(state.get("requested_operation_id", "") or "") == normalized_operation_id
+            or str(state.get("last_handled_operation_id", "") or "") == normalized_operation_id
+        ):
+            return ASSISTED_SESSION_STATE_JSON
         state["requested_action"] = str(action or "").strip().lower()
         state["requested_queue_id"] = str(queue_id or "").strip()
         state["requested_note"] = redact_personal_info(str(note or "").strip())
         state["requested_session_id"] = str(session_id or "").strip()
         state["requested_candidate_id"] = str(candidate_id or "").strip()
-        state["requested_operation_id"] = str(operation_id or "").strip()
+        state["requested_operation_id"] = normalized_operation_id
         state["requested_hold_reason"] = str(hold_reason or "").strip()
         state["updated_at"] = _now_iso()
         return save_assisted_session_state(state)
@@ -519,7 +525,7 @@ def _begin_candidate_workflow(
         if workflow_state not in TERMINAL_WORKFLOW_STATES:
             raise InvalidSessionTransition("active_candidate_locked")
         result = _SESSION_STATE_MACHINE.release_candidate(result, active)
-    if active:
+    elif active:
         result = _SESSION_STATE_MACHINE.release_candidate(result, active)
     result["workflow_state"] = "IDLE"
     result["session_id"] = str(session_id or "").strip()
@@ -622,6 +628,21 @@ def _session_action_key(session_id: str, queue_id: str, action: str, operation_i
             str(hold_reason or "").strip().lower(),
         ]
     )
+
+
+def _record_handled_action(
+    state: dict[str, object],
+    *,
+    action: str,
+    queue_id: str,
+    snapshot: Mapping[str, object],
+) -> dict[str, object]:
+    operation_id = str(snapshot.get("operation_id", "") or "").strip()
+    if operation_id:
+        state["last_handled_operation_id"] = operation_id
+        state["last_handled_action"] = str(action or "").strip().lower()
+        state["last_handled_queue_id"] = str(queue_id or "").strip()
+    return state
 
 
 def _is_valid_target_url(url: str) -> bool:
@@ -1237,6 +1258,12 @@ def run_assisted_application_session(
                         poll_interval_sec=poll_interval_sec,
                     )
                     if decision == "mapping_confirmed":
+                        session_state = _record_handled_action(
+                            session_state,
+                            action=decision,
+                            queue_id=campaign_id,
+                            snapshot=snapshot,
+                        )
                         try:
                             session_state = _workflow_event(
                                 session_state,
@@ -1310,16 +1337,40 @@ def run_assisted_application_session(
                         )
                 if record_status == "SKIPPED":
                     reason = str(record.get("skip_reason", "") or record.get("needs_review_reasons", "") or "SKIPPED")
-                    mark_skipped(campaign_id)
                     try:
-                        session_state = _workflow_event(
-                            session_state,
-                            "skipped",
-                            session_id=session_id,
-                            candidate_id=campaign_id,
-                        )
+                        transitioned_state = session_state
+                        if str(session_state.get("workflow_state", "") or "").upper() != "SKIPPED":
+                            transitioned_state = _workflow_event(
+                                session_state,
+                                "skipped",
+                                session_id=session_id,
+                                candidate_id=campaign_id,
+                            )
                     except InvalidSessionTransition:
-                        session_state.update(workflow_state="FAILED_SAFE")
+                        session_state.update(
+                            status="STOPPED",
+                            workflow_state="FAILED_SAFE",
+                            final_status="STOPPED",
+                            last_reason="invalid_session_transition",
+                            submitted_count_auto=0,
+                        )
+                        save_assisted_session_state(session_state)
+                        failed += 1
+                        stop_requested = True
+                        break
+                    if not mark_skipped(campaign_id):
+                        session_state.update(
+                            status="STOPPED",
+                            workflow_state="FAILED_SAFE",
+                            final_status="STOPPED",
+                            last_reason="candidate_update_failed",
+                            submitted_count_auto=0,
+                        )
+                        save_assisted_session_state(session_state)
+                        failed += 1
+                        stop_requested = True
+                        break
+                    session_state = transitioned_state
                     failed += 1
                     done += 1
                     candidate_finished_at = _now_iso()
@@ -1352,6 +1403,12 @@ def run_assisted_application_session(
                         poll_interval_sec=poll_interval_sec,
                     )
                 candidate_finished_at = _now_iso()
+                session_state = _record_handled_action(
+                    session_state,
+                    action=decision,
+                    queue_id=campaign_id,
+                    snapshot=snapshot,
+                )
 
                 if decision == "stop":
                     stop_requested = True
@@ -1382,18 +1439,40 @@ def run_assisted_application_session(
                     break
 
                 if decision == "hold":
-                    hold_count += 1
-                    done += 1
-                    mark_hold(campaign_id)
                     try:
-                        session_state = _workflow_event(
+                        transitioned_state = _workflow_event(
                             session_state,
                             "held",
                             session_id=session_id,
                             candidate_id=campaign_id,
                         )
                     except InvalidSessionTransition:
-                        session_state.update(workflow_state="FAILED_SAFE")
+                        session_state.update(
+                            status="STOPPED",
+                            workflow_state="FAILED_SAFE",
+                            final_status="STOPPED",
+                            last_reason="invalid_session_transition",
+                            submitted_count_auto=0,
+                        )
+                        save_assisted_session_state(session_state)
+                        failed += 1
+                        stop_requested = True
+                        break
+                    if not mark_hold(campaign_id):
+                        session_state.update(
+                            status="STOPPED",
+                            workflow_state="FAILED_SAFE",
+                            final_status="STOPPED",
+                            last_reason="candidate_update_failed",
+                            submitted_count_auto=0,
+                        )
+                        save_assisted_session_state(session_state)
+                        failed += 1
+                        stop_requested = True
+                        break
+                    session_state = transitioned_state
+                    hold_count += 1
+                    done += 1
                     session_state.update(
                         status="ADVANCING",
                         status_label=SESSION_STATUS_LABELS["ADVANCING"],
@@ -1413,23 +1492,45 @@ def run_assisted_application_session(
                     save_assisted_session_state(session_state)
                     continue
 
-                done += 1
-                mark_manual_submitted(campaign_id)
                 try:
-                    session_state = _workflow_event(
+                    transitioned_state = _workflow_event(
                         session_state,
                         "user_reported_submitted",
                         session_id=session_id,
                         candidate_id=campaign_id,
                     )
-                    session_state = _workflow_event(
-                        session_state,
+                    transitioned_state = _workflow_event(
+                        transitioned_state,
                         "completed",
                         session_id=session_id,
                         candidate_id=campaign_id,
                     )
                 except InvalidSessionTransition:
-                    session_state.update(workflow_state="FAILED_SAFE")
+                    session_state.update(
+                        status="STOPPED",
+                        workflow_state="FAILED_SAFE",
+                        final_status="STOPPED",
+                        last_reason="invalid_session_transition",
+                        submitted_count_auto=0,
+                    )
+                    save_assisted_session_state(session_state)
+                    failed += 1
+                    stop_requested = True
+                    break
+                if not mark_manual_submitted(campaign_id):
+                    session_state.update(
+                        status="STOPPED",
+                        workflow_state="FAILED_SAFE",
+                        final_status="STOPPED",
+                        last_reason="candidate_update_failed",
+                        submitted_count_auto=0,
+                    )
+                    save_assisted_session_state(session_state)
+                    failed += 1
+                    stop_requested = True
+                    break
+                session_state = transitioned_state
+                done += 1
                 session_state.update(
                     status="ADVANCING",
                     status_label=SESSION_STATUS_LABELS["ADVANCING"],

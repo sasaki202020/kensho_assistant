@@ -158,6 +158,15 @@ class CapabilityBridge:
                     self.send_header("Access-Control-Allow-Headers", "Content-Type")
                     self.end_headers()
 
+                def do_GET(self) -> None:  # noqa: N802
+                    encoded = b'{"ok":false,"error":"method_not_allowed"}'
+                    self.send_response(405)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(encoded)
+
                 def do_POST(self) -> None:  # noqa: N802
                     if self.path != BRIDGE_PATH:
                         self.send_error(404)

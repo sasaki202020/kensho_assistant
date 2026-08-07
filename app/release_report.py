@@ -69,7 +69,7 @@ def build_release_report(
         "auto_scan_status": auto_scan_status,
         "pytest_status": "run separately",
         "doctor_status": "run separately",
-        "profile_store": PROFILE_ENC.name if PROFILE_ENC.exists() else "profile.json",
+        "profile_store": "profile.enc",
         "privacy_check_status": "manual log scan required",
         "known_limitations": [
         "この版でも本番送信を推奨しない",

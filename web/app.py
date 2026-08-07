@@ -449,7 +449,13 @@ def _session_current_row(session_state: dict[str, object], approved_rows: list[d
     return {}, True
 
 
-def _session_action_allowed(session_state: dict[str, object], queue_id: str, session_id: str) -> bool:
+def _session_action_allowed(
+    session_state: dict[str, object],
+    queue_id: str,
+    session_id: str,
+    *,
+    required_workflow_states: set[str] | None = None,
+) -> bool:
     if not _session_state_is_active(session_state):
         return False
     if not _session_state_is_fresh(session_state):
@@ -457,6 +463,10 @@ def _session_action_allowed(session_state: dict[str, object], queue_id: str, ses
     state_session_id = str(session_state.get("session_id", "") or "").strip()
     if state_session_id and session_id and state_session_id != session_id:
         return False
+    if required_workflow_states:
+        workflow_state = str(session_state.get("workflow_state", "") or "").upper()
+        if workflow_state not in required_workflow_states:
+            return False
     current_campaign_id = str(session_state.get("current_campaign_id", "") or "").strip()
     return bool(current_campaign_id and current_campaign_id == str(queue_id or "").strip())
 
@@ -2976,7 +2986,12 @@ def create_app() -> FastAPI:
         operation_id: str = Form(default=""),
     ) -> RedirectResponse:
         session_state = load_assisted_session_state()
-        if _session_action_allowed(session_state, queue_id, session_id):
+        if _session_action_allowed(
+            session_state,
+            queue_id,
+            session_id,
+            required_workflow_states={"HUMAN_ACTION_REQUIRED"},
+        ):
             request_assisted_session_action(
                 "submitted_next",
                 queue_id=queue_id,
@@ -2996,7 +3011,12 @@ def create_app() -> FastAPI:
         operation_id: str = Form(default=""),
     ) -> RedirectResponse:
         session_state = load_assisted_session_state()
-        if _session_action_allowed(session_state, queue_id, session_id):
+        if _session_action_allowed(
+            session_state,
+            queue_id,
+            session_id,
+            required_workflow_states={"MAPPING_REVIEW_REQUIRED"},
+        ):
             request_assisted_session_action(
                 "mapping_confirmed",
                 queue_id=queue_id,
@@ -3008,8 +3028,20 @@ def create_app() -> FastAPI:
         return RedirectResponse(url=_safe_internal_next_url(next_url, "/queue/session"), status_code=303)
 
     @app.post("/queue/session/{queue_id}/submitted-next")
-    def queue_session_submitted_next(queue_id: str, next_url: str = Form(default="/queue/session")) -> RedirectResponse:
-        return queue_session_manual_submitted(queue_id, next_url=next_url)
+    def queue_session_submitted_next(
+        queue_id: str,
+        next_url: str = Form(default="/queue/session"),
+        session_id: str = Form(default=""),
+        candidate_id: str = Form(default=""),
+        operation_id: str = Form(default=""),
+    ) -> RedirectResponse:
+        return queue_session_manual_submitted(
+            queue_id,
+            next_url=next_url,
+            session_id=session_id,
+            candidate_id=candidate_id,
+            operation_id=operation_id,
+        )
 
     @app.post("/queue/session/{queue_id}/skip")
     def queue_session_skip(queue_id: str, next_url: str = Form(default="/queue/session")) -> RedirectResponse:

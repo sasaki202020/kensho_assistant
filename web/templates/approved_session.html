@@ -55,6 +55,7 @@
         <button class="btn primary" type="submit">項目対応を確認して入力へ進む</button>
       </form>
       {% endif %}
+      {% if assisted_session_state and assisted_session_state.workflow_state == "HUMAN_ACTION_REQUIRED" %}
       <form method="post" action="/queue/session/{{ current.campaign_id }}/submitted-next">
         <input type="hidden" name="next_url" value="/approved/session">
         <input type="hidden" name="session_id" value="{{ assisted_session_state.session_id }}">
@@ -62,6 +63,7 @@
         <input type="hidden" name="operation_id" value="{{ session_action_tokens.submitted_next }}">
         <button class="btn" type="submit">送信済み・次へ</button>
       </form>
+      {% endif %}
       <form method="post" action="/queue/session/{{ current.campaign_id }}/hold">
         <input type="hidden" name="next_url" value="/approved/session">
         <input type="hidden" name="session_id" value="{{ assisted_session_state.session_id }}">
@@ -277,10 +279,6 @@
         <input type="hidden" name="next_url" value="/approved/session">
         <input type="hidden" name="age_fill_user_approved" value="true">
         <button class="btn" type="submit">年齢入力を許可してChromeで応募準備</button>
-      </form>
-      <form method="post" action="/queue/{{ current.campaign_id }}/manual-submitted">
-        <input type="hidden" name="next_url" value="/approved/session">
-        <button class="btn" type="submit">手動送信済みにする</button>
       </form>
       <form method="post" action="/queue/{{ current.campaign_id }}/hold">
         <input type="hidden" name="next_url" value="/approved/session">

@@ -239,3 +239,122 @@ def test_ambiguous_field_is_visible_and_uses_human_selected_profile_key(browser_
     assert result["after"]["items"][0]["maskedValue"] == "p***@example.invalid"
     assert result["filled"]["status"] == "POST_FILL_VERIFICATION_PASSED"
     assert browser_page.locator("#email").input_value() == "pii-test@example.invalid"
+
+
+def test_unrelated_disabled_state_is_restored_during_rollback(browser_page) -> None:
+    browser_page.goto((FIXTURES / "mapping_safety_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/redaction.js",
+        "shared/normalization.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+    )
+
+    result = browser_page.evaluate(
+        """async () => {
+          const analysis = window.KenshoExtension.FormDetector.scan(document);
+          const email = analysis.fields.find(field => field.fieldType === "email");
+          const preview = window.KenshoExtension.FormFiller.previewMasked(
+            {...analysis, fields: [email]},
+            {email: "p***@example.invalid"},
+            {
+              templateApproved: true,
+              mappingDecisions: {
+                [email.fieldId]: {action: "approve", profileKey: "email"}
+              }
+            }
+          );
+          document.querySelector("#email").addEventListener("input", () => {
+            document.querySelector("#guardian-name").disabled = true;
+          });
+          return window.KenshoExtension.FormFiller.fillAndVerify(
+            preview,
+            {email: "pii-test@example.invalid"},
+            analysis,
+            {
+              templateApproved: true,
+              mappingDecisions: {
+                [email.fieldId]: {action: "approve", profileKey: "email"}
+              }
+            }
+          );
+        }"""
+    )
+
+    assert result["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
+    assert result["rollbackComplete"] is True
+    assert browser_page.locator("#email").input_value() == ""
+    assert browser_page.locator("#guardian-name").is_disabled() is False
+
+
+def test_unrestorable_unrelated_state_blocks_all_future_fill(browser_page) -> None:
+    browser_page.goto((FIXTURES / "mapping_safety_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/redaction.js",
+        "shared/normalization.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+    )
+
+    result = browser_page.evaluate(
+        """async () => {
+          const analysis = window.KenshoExtension.FormDetector.scan(document);
+          const email = analysis.fields.find(field => field.fieldType === "email");
+          const preview = window.KenshoExtension.FormFiller.previewMasked(
+            {...analysis, fields: [email]},
+            {email: "p***@example.invalid"},
+            {
+              templateApproved: true,
+              mappingDecisions: {
+                [email.fieldId]: {action: "approve", profileKey: "email"}
+              }
+            }
+          );
+          const guardian = document.querySelector("#guardian-name");
+          let forcedDisabled = false;
+          Object.defineProperty(guardian, "disabled", {
+            configurable: true,
+            get: () => forcedDisabled,
+            set: value => { if (value) forcedDisabled = true; }
+          });
+          document.querySelector("#email").addEventListener("input", () => {
+            guardian.disabled = true;
+          });
+          const first = await window.KenshoExtension.FormFiller.fillAndVerify(
+            preview,
+            {email: "pii-test@example.invalid"},
+            analysis,
+            {
+              templateApproved: true,
+              mappingDecisions: {
+                [email.fieldId]: {action: "approve", profileKey: "email"}
+              }
+            }
+          );
+          const second = await window.KenshoExtension.FormFiller.fillAndVerify(
+            preview,
+            {email: "pii-test@example.invalid"},
+            analysis,
+            {
+              templateApproved: true,
+              mappingDecisions: {
+                [email.fieldId]: {action: "approve", profileKey: "email"}
+              }
+            }
+          );
+          return {first, second};
+        }"""
+    )
+
+    assert result["first"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
+    assert result["first"]["rollbackComplete"] is False
+    assert result["second"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
+    assert result["second"]["filledCount"] == 0

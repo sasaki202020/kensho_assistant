@@ -2,20 +2,22 @@
 
 ## 前提
 
-- 対象リポジトリ: `C:\Users\goo10\OneDrive\ドキュメント\New project\kensho_assistant`
+- 対象リポジトリ: `C:\Users\goo10\Projects\kensho_assistant`
 - pilotは固定した5サイトを各3回、合計15試行する。
 - 自動送信、CAPTCHA処理、ログイン、規約同意は行わない。
 - 3回の検証では応募を送信しない。重複応募を避けるため、最終送信はpilot外で本人が1回だけ行う。
 - Playwright traceとスクリーンショット保存は無効のまま使用する。
+- `5site-candidates-v1.json`が`UNVERIFIED_SOURCE_NOT_IMPORTED`を含む間は実サイトpilotを開始しない。
+- Phase Aの架空プロフィール非送信確認と、Phase Bの本人プロフィールによる手動送信は別セッション・別run IDで扱う。
 
 ## 1. 自宅PCで起動
 
 PowerShellで親ディレクトリへ移動し、事前監査後にWebアプリを起動する。
 
 ```powershell
-Set-Location 'C:\Users\goo10\OneDrive\ドキュメント\New project'
-py -3 -m kensho_assistant.pilot.preflight
-py -3 -m kensho_assistant.run_web
+Set-Location 'C:\Users\goo10\Projects'
+py -3.12 -m kensho_assistant.pilot.preflight
+py -3.12 -m kensho_assistant.run_web
 ```
 
 `READY_FOR_5_SITE_PILOT`以外なら起動後のpilot操作へ進まない。
@@ -36,7 +38,7 @@ Chrome Remote Desktopアプリで自宅PCがオンラインと表示され、本
 ## 4. build fingerprint確認
 
 ```powershell
-py -3 -m kensho_assistant.pilot.build_fingerprint `
+py -3.12 -m kensho_assistant.pilot.build_fingerprint `
   --manifest kensho_assistant\data\pilot\manifests\5site-pilot-v1.json `
   --candidates kensho_assistant\data\pilot\manifests\5site-candidates-v1.json
 ```
@@ -57,14 +59,14 @@ git -C kensho_assistant status --short
 マニフェストを検証してからpilotを開始する。
 
 ```powershell
-py -3 -m kensho_assistant.main pilot-manifest validate `
+py -3.12 -m kensho_assistant.main pilot-manifest validate `
   --manifest kensho_assistant\data\pilot\manifests\5site-pilot-v1.json
-py -3 -m kensho_assistant.main pilot-run `
+py -3.12 -m kensho_assistant.main pilot-run `
   --manifest kensho_assistant\data\pilot\manifests\5site-pilot-v1.json `
   --browser chrome
 ```
 
-`--keep-open`は使用しない。各試行では新しいbrowser contextを使用し、終了時に閉じる。
+`--keep-open`は使用しない。各試行では新しいbrowser contextを使用し、終了時に閉じる。このCLI経路は5サイト測定用であり、Phase AのChrome拡張非送信確認とは別に扱う。
 
 ## 7. 入力結果の確認
 
@@ -97,8 +99,8 @@ pilotでは使用しない。実応募を本人が完了した場合だけ通常
 15試行後に次を確認する。
 
 ```powershell
-py -3 -m kensho_assistant.pilot.preflight
-py -3 -m kensho_assistant.main trial-report `
+py -3.12 -m kensho_assistant.pilot.preflight
+py -3.12 -m kensho_assistant.main trial-report `
   --manifest-id 5site-pilot-v1 `
   --require-trials 15 `
   --require-sites 5
@@ -128,3 +130,11 @@ py -3 -m kensho_assistant.main trial-report `
 ## 14. 次の試行へ進む条件
 
 現在の試行が安全に終了し、送信なし、PII保存なし、状態変更なし、browser context終了を確認した場合だけ次へ進む。受付状態が未確認、終了済み、候補不一致の場合は結果を置き換えず、そのまま記録する。
+
+## Phase AとPhase B
+
+1. Phase Aは架空プロフィール専用の新規セッションで1サイトだけ解析、欄対応確認、入力後検証、全ロールバックを行い、送信せず終了する。
+2. Phase A合格後だけ、本人がリポジトリ外へ新しい暗号化プロフィールを登録する。
+3. Phase Bは別セッションで安全項目だけを入力し、`HUMAN_ACTION_REQUIRED`で停止する。
+4. 規約、CAPTCHA、ログイン、最終送信は本人だけが行う。
+5. 本人が送信成功を確認した後だけ「送信済み・次へ」を1回押す。

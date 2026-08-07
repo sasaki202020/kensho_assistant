@@ -295,12 +295,28 @@
 
   function rollbackAndVerify(snapshot) {
     const result = rollback();
+    let restoreFailed = false;
+    for (const before of snapshot || []) {
+      const element = before.element;
+      try {
+        const setter = nativeValueSetter(element);
+        if (setter) setter.call(element, before.value);
+        else element.value = before.value;
+        if ("checked" in element) element.checked = before.checked;
+        if ("disabled" in element) element.disabled = before.disabled;
+        if ("readOnly" in element) element.readOnly = before.readOnly;
+      } catch (_error) {
+        restoreFailed = true;
+      }
+    }
     const incomplete = (snapshot || []).some(
       (before) =>
         before.element.value !== before.value ||
-        Boolean(before.element.checked) !== before.checked
+        Boolean(before.element.checked) !== before.checked ||
+        Boolean(before.element.disabled) !== before.disabled ||
+        Boolean(before.element.readOnly) !== before.readOnly
     );
-    result.rollbackComplete = !incomplete;
+    result.rollbackComplete = !restoreFailed && !incomplete;
     return result;
   }
 

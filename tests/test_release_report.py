@@ -71,6 +71,20 @@ def test_release_report_mentions_profile_store_and_human_confirmation(tmp_path: 
     assert "auto_scan" in rendered
 
 
+def test_release_report_never_claims_plaintext_profile_fallback(tmp_path: Path, monkeypatch):
+    campaigns = tmp_path / "campaigns.csv"
+    entries = tmp_path / "entries.csv"
+    inspections = tmp_path / "form_inspections.jsonl"
+    write_csv_rows(campaigns, [], CAMPAIGN_HEADERS)
+    write_csv_rows(entries, [], ENTRY_HEADERS)
+    inspections.write_text("", encoding="utf-8")
+    monkeypatch.setattr("kensho_assistant.app.release_report.PROFILE_ENC", tmp_path / "missing.enc")
+
+    report = build_release_report(campaigns, entries, inspections, version=APP_VERSION)
+
+    assert report["profile_store"] == "profile.enc"
+
+
 def test_review_command_prints_review_only(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_campaign_rows", lambda: [{"campaign_id": "review", "campaign_name": "test"}])
     monkeypatch.setattr(

@@ -46,6 +46,26 @@ const FORBIDDEN_PROFILE_KEYS = /password|passcode|token|secret|cookie|otp|auth/i
 let reconciliationQueue = Promise.resolve();
 const TEMPLATE_STORAGE_PREFIX = "kenshoFormTemplate:";
 
+function extensionIdentity(runtime = globalThis.chrome?.runtime) {
+  return {
+    extensionId: String(runtime?.id || "extension-id-unavailable"),
+    version: String(runtime?.getManifest?.()?.version || "0.0.0"),
+  };
+}
+
+function isDuplicateExtensionIdentity(current, incoming) {
+  if (!incoming?.extensionId || !incoming?.version) return true;
+  return (
+    incoming.extensionId !== current.extensionId ||
+    incoming.version !== current.version
+  );
+}
+
+async function clearSensitiveSessionState() {
+  await chrome.storage.session.remove(SESSION_PROFILE_KEY);
+  await chrome.storage.session.remove(BRIDGE_CAPABILITY_KEY);
+}
+
 function validateProfile(profile) {
   if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
     throw new Error("invalid_profile");
@@ -371,9 +391,16 @@ async function setBridgeCapability(message, sender) {
   return {stored: true};
 }
 
-async function requestBridgeCapability(senderUrl, fingerprint) {
+async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = []) {
   const location = templateLocationForUrl(senderUrl || "");
   if (!location) throw new Error("invalid_bridge_binding");
+  const requestedProfileKeys = [...new Set(profileKeys.map((key) => String(key || "").trim()))];
+  if (
+    !requestedProfileKeys.length ||
+    requestedProfileKeys.some((key) => !ALLOWED_PROFILE_KEYS.has(key))
+  ) {
+    throw new Error("invalid_profile_keys");
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 1000);
   let statusResponse;
@@ -402,7 +429,7 @@ async function requestBridgeCapability(senderUrl, fingerprint) {
         candidate_id: String(state.active_candidate_id || state.candidate_id || ""),
         origin: location.origin,
         fingerprint: String(fingerprint || ""),
-        profile_keys: [...ALLOWED_PROFILE_KEYS],
+        profile_keys: requestedProfileKeys,
       }),
     });
   } finally {
@@ -476,6 +503,22 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
+      if (message?.type === "GET_EXTENSION_ID") {
+        sendResponse({ok: true, ...extensionIdentity()});
+        return;
+      }
+      if (message?.type === "EXTENSION_INSTANCE_HELLO") {
+        const identity = extensionIdentity();
+        const duplicate = isDuplicateExtensionIdentity(identity, message);
+        if (duplicate) await clearSensitiveSessionState();
+        sendResponse({ok: true, ...identity, duplicate});
+        return;
+      }
+      if (message?.type === "DUPLICATE_EXTENSION_BLOCKED") {
+        await clearSensitiveSessionState();
+        sendResponse({ok: true, duplicate: true});
+        return;
+      }
       if (message?.type === "SET_SESSION_PROFILE") {
         const profile = validateProfile(message.profile);
         await chrome.storage.session.set({ [SESSION_PROFILE_KEY]: profile });
@@ -500,7 +543,14 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         return;
       }
       if (message?.type === "REQUEST_BRIDGE_CAPABILITY") {
-        sendResponse({ok: true, ...(await requestBridgeCapability(sender?.url || sender?.tab?.url || "", message.fingerprint || ""))});
+        sendResponse({
+          ok: true,
+          ...(await requestBridgeCapability(
+            sender?.url || sender?.tab?.url || "",
+            message.fingerprint || "",
+            Array.isArray(message.profileKeys) ? message.profileKeys : []
+          )),
+        });
         return;
       }
       if (message?.type === "GET_BRIDGE_CAPABILITY_STATUS") {
@@ -609,5 +659,8 @@ if (typeof module !== "undefined" && module.exports) {
     BRIDGE_CAPABILITY_KEY,
     ALLOWED_PROFILE_KEYS,
     WORKER_EPOCH,
+    extensionIdentity,
+    isDuplicateExtensionIdentity,
+    clearSensitiveSessionState,
   };
 }

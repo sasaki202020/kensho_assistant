@@ -1,6 +1,31 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+test("extension identity messages are stable and PII-free", () => {
+  const messages = require("../shared/messages.js");
+  delete global.chrome;
+  delete require.cache[require.resolve("../service-worker.js")];
+  const {isDuplicateExtensionIdentity} = require("../service-worker.js");
+
+  assert.equal(messages.GET_EXTENSION_ID, "GET_EXTENSION_ID");
+  assert.equal(messages.EXTENSION_INSTANCE_HELLO, "EXTENSION_INSTANCE_HELLO");
+  assert.equal(messages.DUPLICATE_EXTENSION_BLOCKED, "DUPLICATE_EXTENSION_BLOCKED");
+  assert.equal(
+    isDuplicateExtensionIdentity(
+      {extensionId: "new-id", version: "0.2.0"},
+      {extensionId: "new-id", version: "0.2.0"}
+    ),
+    false
+  );
+  assert.equal(
+    isDuplicateExtensionIdentity(
+      {extensionId: "new-id", version: "0.2.0"},
+      {extensionId: "old-id", version: "0.2.0"}
+    ),
+    true
+  );
+});
+
 test("field matcher favors autocomplete and rejects ambiguous fields", () => {
   const { matchField } = require("../content/field-matcher.js");
 
@@ -471,6 +496,57 @@ test("worker epoch changes after service worker restart", () => {
   const second = require("../service-worker.js").WORKER_EPOCH;
 
   assert.notEqual(first, second);
+});
+
+test("bridge capability requests include only confirmed profile keys", async () => {
+  delete global.chrome;
+  delete require.cache[require.resolve("../service-worker.js")];
+  const {requestBridgeCapability} = require("../service-worker.js");
+  const stored = {};
+  let capabilityBody = null;
+  global.chrome = {
+    runtime: {id: "extension-id"},
+    storage: {
+      session: {
+        set: async (value) => Object.assign(stored, value),
+      },
+    },
+  };
+  global.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/api/session/status")) {
+      return {
+        ok: true,
+        json: async () => ({
+          session_id: "session-1",
+          active_candidate_id: "candidate-1",
+        }),
+      };
+    }
+    capabilityBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        token: "one-shot-token",
+        host: "127.0.0.1",
+        port: 45678,
+        origin: "https://example.invalid",
+        session_id: "session-1",
+        candidate_id: "candidate-1",
+        fingerprint: "fingerprint-1",
+      }),
+    };
+  };
+
+  await requestBridgeCapability(
+    "https://example.invalid/apply",
+    "fingerprint-1",
+    ["email", "postal_code"]
+  );
+
+  assert.deepEqual(capabilityBody.profile_keys, ["email", "postal_code"]);
+  assert.equal(JSON.stringify(capabilityBody).includes("phone"), false);
+  delete global.fetch;
+  delete global.chrome;
 });
 
 test("Japanese normalization formats kana, postal code, phone, and split birthday", () => {

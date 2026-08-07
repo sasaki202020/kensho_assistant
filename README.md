@@ -7,15 +7,31 @@
 
 - 最終送信、CAPTCHA、ログイン、規約同意は自動化しません。
 - `submitted_count_auto`は常にゼロです。
-- プロフィールは暗号化された既存機構で読み込みます。
+- プロフィールは暗号化された既存機構で読み込み、Git外の`%LOCALAPPDATA%\kensho_assistant\profile.enc`に保存します。
 - 実名、住所、電話番号、メールアドレスをログへ保存しません。
 - 画面上でプロフィールを示す必要がある場合も伏せ字で表示します。
 - pilot証跡は通常履歴と分離し、候補状態を変更しません。
 
+`KENSHO_PROFILE_PATH`を設定すると、別の絶対パスを使用できます。ただし、リポジトリ配下のパスは安全のため拒否します。実プロフィールは基準テストへ使用せず、独立ビルドの検証後に本人が登録します。
+
+## 独立版の実行場所
+
+この版のGitルートは`C:\Users\goo10\Projects\kensho_assistant`です。Pythonモジュールは親ディレクトリから実行します。
+
+```powershell
+Set-Location 'C:\Users\goo10\Projects'
+py -3.12 -m kensho_assistant.pilot.preflight
+py -3.12 -m kensho_assistant.run_web --smoke-test
+py -3.12 -m kensho_assistant.run_web
+```
+
+旧OneDrive版や親Gitを実行・変更しません。実サイト確認は固定commit、fingerprint、拡張機能ID、P1事前監査を確認した後、[非送信Phase A手順](docs/EXTENSION_REAL_SITE_TEST_RUNBOOK.md)に従います。
+
 ## P1事前監査
 
 ```powershell
-py -3 -m kensho_assistant.pilot.preflight
+Set-Location 'C:\Users\goo10\Projects'
+py -3.12 -m kensho_assistant.pilot.preflight
 ```
 
 `READY_FOR_5_SITE_PILOT`以外の場合、実サイトpilotを開始しません。

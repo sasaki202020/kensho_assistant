@@ -1,12 +1,71 @@
 (function initializeOverlay(root) {
   "use strict";
 
-  if (document.getElementById("kensho-assistant-overlay-host")) return;
+  const INSTANCE_EVENT = "kensho-extension-instance-hello";
+  const extensionId = String(root.chrome?.runtime?.id || "extension-id-unavailable");
+  const extensionVersion = String(
+    root.chrome?.runtime?.getManifest?.()?.version || "0.2.0"
+  );
+
+  function disableInstance(instanceHost) {
+    if (!instanceHost) return;
+    instanceHost.setAttribute("data-kensho-duplicate-extension", "true");
+    instanceHost.setAttribute("data-kensho-status", "blocked");
+    for (const button of instanceHost.shadowRoot?.querySelectorAll(
+      "button[data-kensho-action]"
+    ) || []) {
+      button.disabled = true;
+    }
+    const instanceStatus = instanceHost.shadowRoot?.getElementById("status");
+    if (instanceStatus) {
+      instanceStatus.textContent = "拡張機能の二重起動を検出・安全停止・送信ロック中";
+      instanceStatus.classList.add("warning");
+    }
+  }
+
+  function notifyDuplicate(otherExtensionId, otherVersion) {
+    try {
+      root.chrome?.runtime?.sendMessage?.(
+        {
+          type: "DUPLICATE_EXTENSION_BLOCKED",
+          extensionId,
+          version: extensionVersion,
+          otherExtensionId: String(otherExtensionId || "unknown"),
+          otherVersion: String(otherVersion || "unknown"),
+        },
+        () => void root.chrome?.runtime?.lastError
+      );
+    } catch (_error) {
+      // The DOM remains fail-closed even if the worker is unavailable.
+    }
+  }
+
+  function announceInstance() {
+    document.dispatchEvent(
+      new CustomEvent(INSTANCE_EVENT, {
+        detail: JSON.stringify({extensionId, version: extensionVersion}),
+      })
+    );
+  }
+
+  const existingHost = document.getElementById("kensho-assistant-overlay-host");
+  if (existingHost) {
+    const existingId = existingHost.getAttribute("data-kensho-extension-id") || "unknown";
+    const existingVersion =
+      existingHost.getAttribute("data-kensho-extension-version") || "unknown";
+    if (existingId === extensionId && existingVersion === extensionVersion) return;
+    document.documentElement.setAttribute("data-kensho-duplicate-extension", "true");
+    disableInstance(existingHost);
+    announceInstance();
+    notifyDuplicate(existingId, existingVersion);
+    return;
+  }
 
   const host = document.createElement("div");
   host.id = "kensho-assistant-overlay-host";
   host.setAttribute("data-kensho-extension-root", "true");
-  host.setAttribute("data-kensho-extension-version", "0.2.0");
+  host.setAttribute("data-kensho-extension-id", extensionId);
+  host.setAttribute("data-kensho-extension-version", extensionVersion);
   host.setAttribute("data-kensho-status", "ready");
   host.style.cssText = "all:initial;position:fixed;right:16px;bottom:16px;z-index:2147483647";
   const shadow = host.attachShadow({ mode: "open" });
@@ -97,6 +156,26 @@
     });
   }
 
+  document.addEventListener(INSTANCE_EVENT, (event) => {
+    let other = null;
+    try {
+      other = JSON.parse(String(event.detail || ""));
+    } catch (_error) {
+      other = null;
+    }
+    if (
+      !other ||
+      (other.extensionId === extensionId && other.version === extensionVersion)
+    ) {
+      return;
+    }
+    stopped = true;
+    document.documentElement.setAttribute("data-kensho-duplicate-extension", "true");
+    disableInstance(host);
+    notifyDuplicate(other.extensionId, other.version);
+  });
+  announceInstance();
+
   function requestGuardState() {
     document.dispatchEvent(new CustomEvent("kensho-guard-status-request"));
   }
@@ -151,6 +230,19 @@
           (item) => !item.requiresHumanMapping || Boolean(mappingDecisions[item.fieldId])
         )
     );
+  }
+
+  function confirmedProfileKeys() {
+    if (!previewResult) return [];
+    const keys = [];
+    for (const item of previewResult.items || []) {
+      const decision = mappingDecisions[item.fieldId];
+      if (decision?.action === "skip") continue;
+      const key = decision?.profileKey || item.profileKey || item.fieldType;
+      if (!key || key === "unknown" || keys.includes(key)) continue;
+      keys.push(key);
+    }
+    return keys;
   }
 
   function renderPreview(result) {
@@ -404,6 +496,7 @@
       const requested = await sendMessage({
         type: "REQUEST_BRIDGE_CAPABILITY",
         fingerprint: analysis.formFingerprint,
+        profileKeys: confirmedProfileKeys(),
       });
       if (requested?.ok) {
         bridgeStatus = await sendMessage({type: "GET_BRIDGE_CAPABILITY_STATUS"});

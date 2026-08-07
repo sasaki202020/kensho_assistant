@@ -7,7 +7,7 @@ from typing import Mapping
 
 from dotenv import dotenv_values
 
-from .paths import CONFIG_DIR, PROFILE_EXAMPLE_JSON, PROFILE_JSON
+from .paths import PROFILE_EXAMPLE_JSON, PROFILE_JSON, resolve_profile_path
 
 try:
     from cryptography.fernet import Fernet
@@ -15,7 +15,6 @@ except Exception:  # pragma: no cover - handled by runtime checks
     Fernet = None
 
 
-PROFILE_ENC = CONFIG_DIR / "profile.enc"
 DOTENV_PATH = Path.cwd() / ".env"
 
 REQUIRED_PROFILE_KEYS = [
@@ -43,6 +42,9 @@ def _load_env_values() -> dict[str, str]:
     values = {key: value for key, value in dotenv_values(DOTENV_PATH).items() if value is not None} if DOTENV_PATH.exists() else {}
     values.update({key: value for key, value in os.environ.items() if value is not None})
     return values
+
+
+PROFILE_ENC = resolve_profile_path(_load_env_values())
 
 
 def _require_env_key() -> bytes:
@@ -81,13 +83,9 @@ def _decrypt_bytes(payload: bytes) -> bytes:
 
 
 def profile_source_path(encrypted: bool | None = None) -> Path:
-    if encrypted is True:
-        return PROFILE_ENC
     if encrypted is False:
         return PROFILE_JSON
-    if PROFILE_ENC.exists():
-        return PROFILE_ENC
-    return PROFILE_JSON
+    return PROFILE_ENC
 
 
 def load_profile(path: str | Path | None = None, encrypted: bool | None = None) -> dict[str, str]:
@@ -182,6 +180,7 @@ def rotate_profile_key(delete_plain: bool = False) -> Path:
     if new_key is None:
         raise SystemExit("cryptography is required for profile encryption")
     encrypted = Fernet(new_key).encrypt(json.dumps(profile, ensure_ascii=False).encode("utf-8"))
+    PROFILE_ENC.parent.mkdir(parents=True, exist_ok=True)
     PROFILE_ENC.write_bytes(encrypted)
     _write_env_key(new_key.decode("utf-8"))
     if delete_plain and PROFILE_JSON.exists():

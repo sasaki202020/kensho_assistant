@@ -129,6 +129,7 @@ def test_web_app_dashboard_search_review_security_copy(monkeypatch) -> None:
         "deadline": "2099-12-31",
     }]
     monkeypatch.setattr("kensho_assistant.web.app.load_apply_queue", lambda *args, **kwargs: queue_fixture)
+    monkeypatch.setattr("kensho_assistant.web.app.load_campaigns", lambda *args, **kwargs: queue_fixture)
     app = create_app()
     with TestClient(app) as client:
         dashboard = client.get("/").text
@@ -745,6 +746,7 @@ def test_web_app_manual_submitted_records_session_command(monkeypatch) -> None:
         "kensho_assistant.web.app.load_assisted_session_state",
         lambda: {
             "status": "AWAITING_USER_SUBMIT",
+            "workflow_state": "HUMAN_ACTION_REQUIRED",
             "state_health": "ok",
             "session_id": "sess-1",
             "current_campaign_id": "test",
@@ -765,6 +767,157 @@ def test_web_app_manual_submitted_records_session_command(monkeypatch) -> None:
     assert calls["session_id"] == "sess-1"
     assert calls["candidate_id"] == "test"
     assert calls["operation_id"] == "op-1"
+
+
+def test_web_app_submitted_next_preserves_session_and_operation_id(monkeypatch) -> None:
+    calls = {}
+
+    def fake_request(action, queue_id="", note="", session_id="", candidate_id="", operation_id="", hold_reason=""):
+        calls.update(
+            action=action,
+            queue_id=queue_id,
+            session_id=session_id,
+            candidate_id=candidate_id,
+            operation_id=operation_id,
+        )
+        return Path("session.json")
+
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {
+            "status": "AWAITING_USER_SUBMIT",
+            "workflow_state": "HUMAN_ACTION_REQUIRED",
+            "state_health": "ok",
+            "session_id": "session-1",
+            "current_campaign_id": "candidate-1",
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        },
+    )
+    monkeypatch.setattr("kensho_assistant.web.app.request_assisted_session_action", fake_request)
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.post(
+            "/queue/session/candidate-1/submitted-next",
+            data={
+                "next_url": "/approved/session",
+                "session_id": "session-1",
+                "candidate_id": "candidate-1",
+                "operation_id": "operation-1",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert calls == {
+        "action": "submitted_next",
+        "queue_id": "candidate-1",
+        "session_id": "session-1",
+        "candidate_id": "candidate-1",
+        "operation_id": "operation-1",
+    }
+
+
+def test_web_app_rejects_manual_submitted_before_human_action_required(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {
+            "status": "AWAITING_USER_SUBMIT",
+            "workflow_state": "MAPPING_REVIEW_REQUIRED",
+            "state_health": "ok",
+            "session_id": "session-1",
+            "current_campaign_id": "candidate-1",
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        },
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.request_assisted_session_action",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.post(
+            "/queue/session/candidate-1/manual-submitted",
+            data={
+                "session_id": "session-1",
+                "candidate_id": "candidate-1",
+                "operation_id": "operation-1",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert calls == []
+
+
+def test_extension_capability_requires_mapping_before_profile_load(monkeypatch) -> None:
+    profile_loads = []
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {
+            "workflow_state": "MAPPING_REVIEW_REQUIRED",
+            "session_id": "session-1",
+            "active_candidate_id": "candidate-1",
+        },
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_profile",
+        lambda: profile_loads.append(True) or {},
+    )
+    app = create_app()
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        response = client.post(
+            "/api/session/extension-capability",
+            json={
+                "session_id": "session-1",
+                "candidate_id": "candidate-1",
+                "origin": "https://example.invalid",
+                "fingerprint": "fingerprint-1",
+                "profile_keys": ["email"],
+            },
+        )
+
+    assert response.status_code == 409
+    assert profile_loads == []
+
+
+def test_extension_capability_passes_only_requested_profile_keys(monkeypatch) -> None:
+    issued = {}
+    fictional_profile = {
+        "email": "fictional@example.invalid",
+        "phone": "00000000000",
+    }
+
+    def fake_issue(**kwargs):
+        issued.update(kwargs)
+        return {"host": "127.0.0.1", "port": 45678, "submitted_count_auto": 0}
+
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {
+            "workflow_state": "MAPPING_CONFIRMED",
+            "session_id": "session-1",
+            "active_candidate_id": "candidate-1",
+        },
+    )
+    monkeypatch.setattr("kensho_assistant.web.app.load_profile", lambda: fictional_profile)
+    monkeypatch.setattr("kensho_assistant.web.app.issue_extension_capability", fake_issue)
+    app = create_app()
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        response = client.post(
+            "/api/session/extension-capability",
+            json={
+                "session_id": "session-1",
+                "candidate_id": "candidate-1",
+                "origin": "https://example.invalid",
+                "fingerprint": "fingerprint-1",
+                "profile_keys": ["email"],
+            },
+        )
+
+    assert response.status_code == 200
+    assert issued["profile_keys"] == ["email"]
+    assert issued["profile"] is fictional_profile
 
 
 def test_web_app_manual_submitted_ignores_stale_session_id(monkeypatch) -> None:
