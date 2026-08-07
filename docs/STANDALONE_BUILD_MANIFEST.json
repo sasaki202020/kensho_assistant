@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "project": "kensho_assistant",
+  "app_version": "v0.4.3",
+  "extension_version": "0.2.0",
+  "python_version": "3.12.10",
+  "git_branch": "codex/standalone-completion",
+  "source_commit": "745798761b8bc502260f193c41980fdf58c384b4",
+  "build_fingerprint_sha256": "ee149a684b2233603537eb9434d9bcfbf86f3971ad44e538ba3ac1b4cc0cad41",
+  "fingerprint_repeatable": true,
+  "gate": "STANDALONE_BASELINE_PASS",
+  "source_sha256": {
+    "requirements.txt": "bfc97899787f952843e6ee2587390e11c704aa32bbeaec94336d850b93252a31",
+    "app/assisted_session.py": "c67c3a74e1af92b4c4b05695480bc2aec12cce7585f1f46650f3414636e4a017",
+    "app/extension_bridge.py": "24382f8030f2ae9edaf29bcf42b5f041c149d6471bb010ecf4474092260ae62a",
+    "app/paths.py": "02b1ea323197004fdfe3229acfc759737dbe185d0f73a32c745052b2eb58b689",
+    "app/profile_manager.py": "8cb42db4a89ee5a101818f10377f3600c48d378856e5607094b63b7d8dd738cf",
+    "app/session_state_machine.py": "2976750b6ed22f4bc562f45a97a0d6b0e133e7960b8b35a793c16e8d1cb26b2e",
+    "web/app.py": "9ca76deac1f8b962a474663b96bf2f9e7f77d925d45724dd02499e60764cce8e",
+    "extension/manifest.json": "64e813dcdd98b2c9c92dd838f22f6f6c1fd261a34bb4293b9ff9a1c6f0633d18",
+    "extension/service-worker.js": "99524f5bad537b2b9ec6525630778bf18da6f5a0cc53aeff9b66b3fd033ddcec",
+    "extension/content/submit-guard.js": "5c9e990f38aab6e90c948e41080403223117041ab9077de201aa1d4d7f925457",
+    "extension/content/isolated-guard.js": "d394fecd4f21b94f8f68cc11d743b495608fab29e4c649f9b1f664fa0a1a8c89",
+    "extension/content/form-filler.js": "81731df9ecaae9a8b2f0678dfa887ad488ac86aa7f72e962553a0a4fe0ed3cb0",
+    "extension/content/overlay.js": "e978b1cfc9d0a0b502b42df9c83eeb5f0aca1c8db0c9ef4bdf0cf34aacdb0c5c",
+    "data/pilot/manifests/5site-pilot-v1.json": "01730e35f470c5a2dac7f4805fcc37362ee71d0f2702ec5746c44748f408862d",
+    "data/pilot/manifests/5site-candidates-v1.json": "dbe2f2ab93d8bd7dbd2b6c3fc728d5ab894d4d12ebdfeef283915d51a243ecce"
+  },
+  "verification": {
+    "python_tests_passed": 419,
+    "python_tests_failed": 0,
+    "extension_unit_tests_passed": 26,
+    "compileall": "PASS",
+    "extension_local_smoke": "PASS",
+    "web_smoke": "PASS",
+    "p1_preflight": "READY_FOR_5_SITE_PILOT",
+    "git_diff_check": "PASS"
+  },
+  "safety": {
+    "submitted_count_auto": 0,
+    "auto_submit_detected": 0,
+    "pii_persisted": 0,
+    "candidate_state_diff": 0,
+    "normal_history_diff": 0,
+    "playwright_trace": "DISABLED",
+    "screenshot_storage": "DISABLED",
+    "external_site_access": 0,
+    "git_push": false
+  },
+  "real_site_gates": {
+    "REAL_SITE_NON_SUBMIT_PASS": "NOT_RUN",
+    "SINGLE_ASSISTED_SUBMISSION_PASS": "NOT_RUN"
+  }
+}
