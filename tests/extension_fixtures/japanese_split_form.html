@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>日本向け分割フォーム</title>
+<form>
+  <label>姓カナ <input name="last_name_kana"></label>
+  <label>名かな <input name="first_name_kana"></label>
+  <fieldset>
+    <legend>電話番号</legend>
+    <input name="phone1" type="tel" aria-label="電話番号1">
+    <input name="phone2" type="tel" aria-label="電話番号2">
+    <input name="phone3" type="tel" aria-label="電話番号3">
+  </fieldset>
+  <fieldset>
+    <legend>郵便番号</legend>
+    <input name="zip1" aria-label="郵便番号1">
+    <input name="zip2" aria-label="郵便番号2">
+  </fieldset>
+  <label>年 <select name="birth_year" autocomplete="bday-year"><option>1990</option></select></label>
+  <label>月 <select name="birth_month" autocomplete="bday-month"><option value="04">4</option></select></label>
+  <label>日 <select name="birth_day" autocomplete="bday-day"><option value="01">1</option></select></label>
+  <button type="submit">送信</button>
+</form>

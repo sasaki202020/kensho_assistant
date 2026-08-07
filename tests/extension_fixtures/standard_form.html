@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>標準応募フォーム</title>
+<form id="entry-form">
+  <label>姓 <input name="last_name" autocomplete="family-name"></label>
+  <label>名 <input name="first_name" autocomplete="given-name"></label>
+  <label>メールアドレス <input name="email" type="email" autocomplete="email"></label>
+  <label>電話番号 <input name="phone" type="tel" autocomplete="tel"></label>
+  <label>郵便番号 <input name="postal_code" autocomplete="postal-code"></label>
+  <label>都道府県
+    <select name="prefecture" autocomplete="address-level1">
+      <option value="">選択してください</option>
+      <option value="福岡県">福岡県</option>
+    </select>
+  </label>
+  <label>市区町村 <input name="city" autocomplete="address-level2"></label>
+  <label>番地 <input name="street" autocomplete="address-line1"></label>
+  <label>建物名 <input name="building" autocomplete="address-line2"></label>
+  <label>ご意見・ご感想 <textarea name="comment"></textarea></label>
+  <label>確認用の独自必須項目 <input name="custom_required_answer" required></label>
+  <label><input id="terms" type="checkbox" name="terms"> 利用規約に同意する</label>
+  <button id="submit-button" type="submit">応募する</button>
+</form>

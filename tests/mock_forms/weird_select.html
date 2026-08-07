@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>Weird Select Mock Form</title></head>
+<body>
+  <form action="submitted.html" method="get">
+    <label>住所
+      <select name="addr_pref" required aria-label="都道府県選択">
+        <option value="">選択してください</option>
+        <option>東京都</option>
+        <option>神奈川県</option>
+      </select>
+    </label>
+    <label>希望賞品
+      <select id="prize-select" name="wish_prize" required>
+        <option value="">選択してください</option>
+        <option value="a">A賞</option>
+        <option value="b">B賞</option>
+      </select>
+    </label>
+    <label>応募回数
+      <select name="entry_count">
+        <option value="">選択してください</option>
+        <option>1</option>
+        <option>2</option>
+      </select>
+    </label>
+    <button type="submit">応募する</button>
+  </form>
+</body>
+</html>

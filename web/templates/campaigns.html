@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>キャンペーン一覧</h2>
+    <span class="pill blue">{{ campaigns|length }}件</span>
+  </div>
+  <p class="muted">一覧テーブルで状態を確認し、右側の詳細パネルから URL 解決 / inspect-form / review に進めます。</p>
+</section>
+
+<section class="search-layout">
+  <div class="card">
+    <div class="section-head">
+      <h3>一覧テーブル</h3>
+      <span class="pill blue">status チップ / readiness スコア</span>
+    </div>
+    <div class="table-wrap">
+      <table class="campaign-table">
+        <thead>
+          <tr>
+            <th>キャンペーン</th>
+            <th>status</th>
+            <th>readiness</th>
+            <th>締切</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in campaigns %}
+          <tr class="{% if selected_campaign_id and row.campaign_id == selected_campaign_id %}selected{% endif %}">
+            <td>
+              <div class="item-title">{{ row.campaign_name }}</div>
+              <div class="item-sub">{{ row.provider or "未取得" }} / {{ row.resolved_entry_url or row.entry_url or row.knshow_url or "未取得" }}</div>
+            </td>
+            <td>
+              <span class="pill {{ 'green' if row.form_readiness_status == 'READY_FOR_FILL' else 'orange' if row.form_readiness_status == 'REVIEW_ONLY' else 'purple' if row.form_readiness_status == 'SEARCH_ONLY' else 'red' if row.form_readiness_status == 'LOW_CONFIDENCE' else 'gray' }}">
+                {{ display_status_label(row.form_readiness_status or row.resolve_status or row.status or "未収集") }}
+              </span>
+            </td>
+            <td>{{ row.readiness_score or row.form_readiness_score or "未取得" }}</td>
+            <td>{{ row.deadline or "未取得" }}</td>
+            <td>
+              <div class="actions compact">
+                <a class="btn" href="/campaigns?selected={{ row.campaign_id }}">詳細</a>
+                <form method="post" action="/action/resolve_urls"><input type="hidden" name="next_url" value="/campaigns?selected={{ row.campaign_id }}"><button class="btn" type="submit">URL解決</button></form>
+                <form method="post" action="/action/inspect_form"><input type="hidden" name="next_url" value="/campaigns?selected={{ row.campaign_id }}"><button class="btn" type="submit">inspect-form</button></form>
+                <a class="btn primary" href="/review">review</a>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">一覧がありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head">
+        <h2>右側詳細パネル</h2>
+      </div>
+      {% if detail %}
+      <div class="detail-grid">
+        <div>キャンペーン名</div><div>{{ detail.campaign_name }}</div>
+        <div>提供元</div><div>{{ detail.provider or "未取得" }}</div>
+        <div>賞品</div><div>{{ detail.prize or "未取得" }}</div>
+        <div>締切</div><div>{{ detail.deadline or "未取得" }}</div>
+        <div>status</div><div>{{ display_status_label(detail.form_readiness_status or detail.resolve_status or detail.status or "未収集") }}</div>
+        <div>readiness スコア</div><div>{{ detail.readiness_score or detail.form_readiness_score or "未取得" }}</div>
+        <div>解決済みURL</div><div class="break">{{ detail.resolved_entry_url or "未解決" }}</div>
+        <div>要確認理由</div><div>{{ detail.form_readiness_reason or detail.resolve_reason or "要確認" }}</div>
+      </div>
+      <div class="actions vertical">
+        <a class="btn primary" href="{{ detail.resolved_entry_url or detail.entry_url or detail.knshow_url or '#' }}" target="_blank" rel="noreferrer">URLを見る</a>
+        <form method="post" action="/action/resolve_urls"><input type="hidden" name="next_url" value="/campaigns?selected={{ detail.campaign_id }}"><button class="btn" type="submit">URL解決</button></form>
+        <form method="post" action="/action/inspect_form"><input type="hidden" name="next_url" value="/campaigns?selected={{ detail.campaign_id }}"><button class="btn" type="submit">inspect-form</button></form>
+        <a class="btn" href="/review">review</a>
+      </div>
+      {% else %}
+      <div class="muted">詳細を選ぶと右側に表示します。</div>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+{% endblock %}

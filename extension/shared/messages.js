@@ -1,0 +1,24 @@
+(function initializeMessages(root) {
+  "use strict";
+
+  const messages = Object.freeze({
+    SET_SESSION_PROFILE: "SET_SESSION_PROFILE",
+    GET_PROFILE_PREVIEW: "GET_PROFILE_PREVIEW",
+    CONSUME_SESSION_PROFILE: "CONSUME_SESSION_PROFILE",
+    CONSUME_BRIDGE_PROFILE: "CONSUME_BRIDGE_PROFILE",
+    REQUEST_BRIDGE_CAPABILITY: "REQUEST_BRIDGE_CAPABILITY",
+    SET_BRIDGE_CAPABILITY: "SET_BRIDGE_CAPABILITY",
+    GET_BRIDGE_CAPABILITY_STATUS: "GET_BRIDGE_CAPABILITY_STATUS",
+    CLEAR_SESSION_PROFILE: "CLEAR_SESSION_PROFILE",
+    GET_FORM_TEMPLATE: "GET_FORM_TEMPLATE",
+    SAVE_FORM_TEMPLATE: "SAVE_FORM_TEMPLATE",
+    GET_SESSION_STATUS: "GET_SESSION_STATUS",
+  });
+
+  root.KenshoExtension = root.KenshoExtension || {};
+  root.KenshoExtension.Messages = messages;
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = messages;
+  }
+})(typeof globalThis !== "undefined" ? globalThis : this);

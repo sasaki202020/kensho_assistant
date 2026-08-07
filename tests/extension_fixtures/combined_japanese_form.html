@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>日本語結合フィールドフォーム</title>
+</head>
+<body>
+  <form id="entry-form" action="/submitted" method="post">
+    <label>お名前 必須<input id="name" autocomplete="name" required></label>
+    <label>フリガナ<input id="kana" name="applicant[kana]"></label>
+    <label>郵便番号 必須<input id="zip" name="applicant[zip]" required></label>
+    <input autocomplete="address-level1" placeholder="都道府県" required>
+    <input autocomplete="address-level2" placeholder="市区町村" required>
+    <input autocomplete="address-line1" placeholder="番地" required>
+    <input autocomplete="address-line2" placeholder="ビル名等">
+    <fieldset>
+      <legend>性別 必須</legend>
+      <label><input type="radio" name="applicant[gender]" value="1" required>男性</label>
+      <label><input type="radio" name="applicant[gender]" value="2" required>女性</label>
+      <label><input type="radio" name="applicant[gender]" value="3" required>その他</label>
+      <label><input type="radio" name="applicant[gender]" value="4" required>回答しない</label>
+    </fieldset>
+    <label>年齢 必須<input id="age" name="applicant[age]" required></label>
+    <label>電話番号 必須<input id="tel" name="applicant[tel]" required></label>
+    <label>メールアドレス<input id="email" name="applicant[email]"></label>
+    <fieldset>
+      <legend>希望プレゼント 必須</legend>
+      <label><input type="radio" name="applicant[prize]" value="a" required>商品A</label>
+      <label><input type="radio" name="applicant[prize]" value="b" required>商品B</label>
+    </fieldset>
+    <label>紙面の感想<textarea name="applicant[comment]"></textarea></label>
+    <div class="g-recaptcha">CAPTCHA</div>
+    <button id="submit-button" type="submit">応募する</button>
+  </form>
+</body>
+</html>

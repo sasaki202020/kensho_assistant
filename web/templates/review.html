@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="review-hero">
+  <div>
+    <div class="eyebrow">確認</div>
+    <h2>確認が必要な懸賞が{{ review_rows|length }}件あります。</h2>
+    <p>1件ずつ見て、応募準備するか、あとで見るか、却下するかを選びます。</p>
+  </div>
+</section>
+
+{% set row = review_rows[0] if review_rows else none %}
+{% if row %}
+<section class="single-review-card">
+  <div class="single-review-main">
+    <div class="review-prize">{{ row.prize or row.campaign_name }}</div>
+      <h2>{{ row.campaign_name }}</h2>
+      <div class="simple-info">
+      <div><span>締切</span><strong>{{ display_deadline(row.deadline, 44) }}</strong></div>
+      <div><span>提供元</span><strong>{{ display_provider(row.provider, 44) }}</strong></div>
+      <div><span>危険度</span><strong>{{ risk_level_label(row.risk_level) }}</strong></div>
+      <div><span>応募条件</span><strong>{{ truncate_text(row.one_line_reason or "人間確認が必要", 44) }}</strong></div>
+    </div>
+    <div class="safe-stop-inline">同意・年齢・メルマガ・クイズは自動入力しません。送信前で止まります。</div>
+  </div>
+
+  {% if row.quiz_required %}
+  <div class="quiz-box">
+    <div class="pill orange">クイズあり</div>
+    <div class="muted">{{ row.quiz_summary or "クイズ回答はユーザー確認が必要です。" }}</div>
+  </div>
+  {% endif %}
+
+  <div class="review-primary-actions">
+    <form method="post" action="/queue/{{ row.campaign_id }}/approve">
+      <input type="hidden" name="next_url" value="/approved/session">
+      <input type="hidden" name="approved_note" value="review から承認">
+      <button class="btn primary btn-xl" type="submit" onclick="return confirm('応募条件・締切・個人情報の取り扱いを確認しましたか？ アプリは自動送信しません。')">応募準備する</button>
+    </form>
+    <form method="post" action="/queue/{{ row.campaign_id }}/hold">
+      <input type="hidden" name="next_url" value="/review">
+      <button class="btn btn-xl" type="submit">あとで見る</button>
+    </form>
+    <form method="post" action="/queue/{{ row.campaign_id }}/skip">
+      <input type="hidden" name="next_url" value="/review">
+      <button class="btn btn-xl" type="submit">却下</button>
+    </form>
+  </div>
+
+  <details class="details-lite">
+    <summary>詳しく見る</summary>
+    <div class="review-grid">
+      <div>手動確認</div><div>{{ row.manual_review_required_fields or "年齢 / 同意チェック / 利用規約 / 任意項目" }}</div>
+      <div>自動入力しない</div><div>{{ row.blocked_auto_fill_fields or "年齢・同意・メルマガ・任意項目" }}</div>
+      <div>スキップ理由</div><div>{{ row.one_line_reason or "人間確認が必要" }}</div>
+      <div>次のおすすめ</div><div>{{ row.next_action or "応募ページで確認してください" }}</div>
+    </div>
+  </details>
+</section>
+{% else %}
+<section class="home-action-card">
+  <div class="home-action-copy">
+    <div class="eyebrow">確認</div>
+    <h2>確認待ちはありません。</h2>
+    <p>次は今日の候補を見て、応募できそうな懸賞を探してください。</p>
+  </div>
+  <a class="btn primary btn-xl" href="/today">今日の候補を見る</a>
+</section>
+{% endif %}
+{% endblock %}

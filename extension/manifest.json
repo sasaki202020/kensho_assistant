@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "懸賞入力補助",
+  "version": "0.2.0",
+  "description": "応募フォームを解析・入力し、最終送信前で安全に停止します。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "このタブで懸賞入力補助を開始"
+  },
+  "options_page": "options/options.html"
+}

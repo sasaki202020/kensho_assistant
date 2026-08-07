@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="home-action-card">
+  <div class="home-action-copy">
+    <div class="eyebrow">候補</div>
+    <h2>今日の候補を見る</h2>
+    <p>応募できそうな懸賞を確認します。送信は行わず、必要なものだけ確認画面へ進みます。</p>
+  </div>
+  <a class="btn primary btn-xl" href="/review">確認する</a>
+</section>
+
+<section class="candidate-list">
+  {% for row in today_candidates %}
+  <article class="single-review-card">
+    <div class="single-review-main">
+      <div class="review-prize">{{ row.prize or row.campaign_name }}</div>
+      <h2>{{ row.campaign_name }}</h2>
+      <div class="simple-info">
+        <div><span>締切</span><strong>{{ display_deadline(row.deadline) }}</strong></div>
+        <div><span>提供元</span><strong>{{ display_provider(row.provider) }}</strong></div>
+        <div><span>状態</span><strong>{{ display_readiness_label(row.form_readiness_status) }}</strong></div>
+      </div>
+      <div class="safe-stop-inline">応募前に必ず確認画面で止まります。自動送信はしません。</div>
+    </div>
+    <div class="review-primary-actions two-actions">
+      <a class="btn primary btn-xl" href="/review">確認する</a>
+      <a class="btn btn-xl" href="/entries">履歴を見る</a>
+    </div>
+  </article>
+  {% else %}
+  <section class="safe-stop-card">
+    <div>
+      <div class="safe-stop-title">今日の候補はまだありません</div>
+      <div class="safe-stop-copy">まずホームに戻って、要確認が増えたら確認画面へ進んでください。</div>
+    </div>
+    <a class="btn primary" href="/">ホームへ戻る</a>
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}

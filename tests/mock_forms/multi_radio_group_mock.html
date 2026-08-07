@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>Multi Radio Group Mock</title></head>
+<body>
+  <form action="submitted.html" method="get">
+    <fieldset>
+      <legend>性別</legend>
+      <label><input type="radio" name="gender" value="male" required>男性</label>
+      <label><input type="radio" name="gender" value="female" required>女性</label>
+    </fieldset>
+    <fieldset>
+      <legend>年代</legend>
+      <label><input type="radio" name="age_group" value="20代" required>20代</label>
+      <label><input type="radio" name="age_group" value="30代" required>30代</label>
+      <label><input type="radio" name="age_group" value="40代" required>40代</label>
+    </fieldset>
+    <fieldset>
+      <legend>応募動機</legend>
+      <label><input type="radio" name="motivation" value="口コミ" required>口コミ</label>
+      <label><input type="radio" name="motivation" value="友人の紹介" required>友人の紹介</label>
+      <label><input type="radio" name="motivation" value="SNS" required>SNS</label>
+    </fieldset>
+    <fieldset>
+      <legend>メルマガ可否</legend>
+      <label><input type="radio" name="newsletter" value="受け取る" required>受け取る</label>
+      <label><input type="radio" name="newsletter" value="受け取らない" required>受け取らない</label>
+    </fieldset>
+    <button type="submit">送信する</button>
+  </form>
+</body>
+</html>

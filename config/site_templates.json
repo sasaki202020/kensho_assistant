@@ -1,0 +1,123 @@
+{
+  "templates": [
+    {
+      "id": "fs_fukuoka_present",
+      "label": "福岡県農林水産物プレゼント",
+      "site_name": "福岡県農林水産物プレゼント",
+      "domains": ["fs-fukuoka.com"],
+      "path_contains": ["/enjoy/present"],
+      "known_form_labels": ["お名前", "郵便番号", "都道府県", "市区町村", "住所", "電話番号", "メールアドレス", "性別", "生年月日", "年代", "職業"],
+      "known_required_fields": ["full_name", "postal_code", "prefecture", "city", "address1", "phone", "email", "gender", "birth_year", "birth_month", "birth_day", "age_group", "occupation"],
+      "known_radio_groups": ["gender", "marital_status", "children"],
+      "known_select_options": {
+        "prefecture": ["福岡県", "佐賀県", "熊本県", "大分県", "長崎県", "宮崎県", "鹿児島県"],
+        "age_group": ["20代", "30代", "40代", "50代"],
+        "occupation": ["会社員", "自営業", "学生", "主婦", "無職"]
+      },
+      "confirmation_button_texts": ["確認画面へ", "入力内容を確認する"],
+      "submit_button_texts": ["送信", "応募する", "申し込む"],
+      "skip_rules": ["CAPTCHA", "ログイン", "応募終了"],
+      "force_fill_fields": ["full_name", "postal_code", "prefecture", "city", "address1", "phone", "email", "gender", "birth_year", "birth_month", "birth_day", "age_group", "occupation"],
+      "manual_review_terms": ["年齢", "クイズ", "同意", "御意見", "御感想"],
+      "safety_notes": ["年齢確認とクイズは人間確認に回す", "自由記述は候補文を保存する"],
+      "last_verified_at": "2026-06-04",
+      "notes": ["年齢確認とクイズは人間確認に回す", "自由記述は候補文を保存する"]
+    },
+    {
+      "id": "tenkaippin_smashing",
+      "label": "天下一品 特製どんぶり",
+      "site_name": "天下一品 キャンペーン",
+      "domains": ["app-form.net"],
+      "path_contains": ["/tenkaippin/smashing"],
+      "known_form_labels": ["お名前", "郵便番号", "都道府県", "住所", "電話番号", "メールアドレス", "年齢", "クイズ", "同意"],
+      "known_required_fields": ["full_name", "postal_code", "prefecture", "city", "address1", "phone", "email", "gender"],
+      "known_radio_groups": ["gender", "age", "consent"],
+      "known_select_options": {
+        "prefecture": ["東京都", "大阪府", "福岡県"],
+        "gender": ["男性", "女性", "回答しない"]
+      },
+      "confirmation_button_texts": ["確認画面へ", "内容確認", "入力内容を確認"],
+      "submit_button_texts": ["送信", "応募する", "内容を送信する"],
+      "skip_rules": ["応募終了", "ログイン", "CAPTCHA"],
+      "force_fill_fields": ["full_name", "postal_code", "prefecture", "city", "address1", "phone", "email", "gender"],
+      "manual_review_terms": ["年齢", "同意", "クイズ"],
+      "safety_notes": ["同意チェックと年齢確認は人間確認に回す", "確認画面の内容を必ず人間が見る"],
+      "last_verified_at": "2026-06-04",
+      "notes": ["同意チェックと年齢確認は人間確認に回す", "確認画面の内容を必ず人間が見る"]
+    },
+    {
+      "id": "cp_form_sample",
+      "label": "CPフォーム応募サンプル",
+      "site_name": "CPフォーム",
+      "domains": ["cp-form.jp"],
+      "path_contains": ["/campaign", "/present", "/entry"],
+      "known_form_labels": ["お名前", "フリガナ", "郵便番号", "都道府県", "住所", "電話番号", "メールアドレス", "年代", "職業", "プレゼント選択"],
+      "known_required_fields": ["full_name", "full_name_kana", "postal_code", "prefecture", "city", "address1", "phone", "email", "age_group", "occupation", "prize_choice"],
+      "known_radio_groups": ["gender", "marital_status", "children"],
+      "known_select_options": {
+        "prefecture": ["北海道", "東京都", "愛知県", "大阪府", "福岡県"],
+        "age_group": ["20代", "30代", "40代"],
+        "prize_choice": ["A賞", "B賞", "C賞"]
+      },
+      "confirmation_button_texts": ["確認画面へ", "応募内容を確認する"],
+      "submit_button_texts": ["送信", "応募する", "応募を完了する"],
+      "skip_rules": ["CAPTCHA", "ログイン", "SNS応募", "LINE応募"],
+      "force_fill_fields": ["full_name", "full_name_kana", "postal_code", "prefecture", "city", "address1", "phone", "email", "age_group", "occupation", "prize_choice"],
+      "manual_review_terms": ["同意", "クイズ", "自由記述", "メルマガ"],
+      "safety_notes": ["選択式アンケートは候補が複数なら人間確認に回す", "unknown 項目は推測しない"],
+      "last_verified_at": "2026-06-04",
+      "notes": ["選択式アンケートは候補が複数なら人間確認に回す", "unknown 項目は推測しない"]
+    },
+    {
+      "id": "formrun_campaign",
+      "label": "form.run キャンペーン",
+      "site_name": "form.run",
+      "domains": ["form.run"],
+      "path_contains": ["/lp", "/forms", "/campaign"],
+      "known_form_labels": ["お名前", "郵便番号", "都道府県", "メールアドレス", "年代", "応募口数", "ご意見", "ご感想"],
+      "known_required_fields": ["full_name", "postal_code", "prefecture", "email", "age_group", "entry_count"],
+      "known_radio_groups": ["age_group", "entry_count", "newsletter"],
+      "known_select_options": {
+        "prefecture": ["東京都", "神奈川県", "大阪府"],
+        "entry_count": ["1", "2", "3"],
+        "age_group": ["20代", "30代", "40代"]
+      },
+      "confirmation_button_texts": ["確認へ進む", "内容を確認する"],
+      "submit_button_texts": ["送信", "応募する", "回答を送信"],
+      "skip_rules": ["ログイン", "CAPTCHA", "会員登録"],
+      "force_fill_fields": ["full_name", "postal_code", "prefecture", "email", "age_group", "entry_count"],
+      "manual_review_terms": ["同意", "クイズ", "自由記述", "メルマガ"],
+      "safety_notes": ["確認画面がある場合は必ず人間が最終確認する", "応募口数は標準値のみ埋める"],
+      "last_verified_at": "2026-06-04",
+      "notes": ["確認画面がある場合は必ず人間が最終確認する", "応募口数は標準値のみ埋める"]
+    },
+    {
+      "id": "google_forms_campaign",
+      "label": "Googleフォーム応募サンプル",
+      "site_name": "Google Forms",
+      "domains": ["docs.google.com"],
+      "path_contains": ["/forms/"],
+      "known_form_labels": ["お名前", "メールアドレス", "都道府県", "クイズ", "同意", "コメント"],
+      "known_required_fields": ["full_name", "email", "prefecture"],
+      "known_radio_groups": ["consent", "quiz_answer"],
+      "known_select_options": {
+        "prefecture": ["東京都", "大阪府", "福岡県"],
+        "quiz_answer": ["A", "B", "C"]
+      },
+      "confirmation_button_texts": ["次へ", "確認", "内容を確認"],
+      "submit_button_texts": ["送信", "回答を送信", "フォームを送信"],
+      "skip_rules": ["ログイン", "権限が必要", "CAPTCHA"],
+      "force_fill_fields": ["full_name", "email", "prefecture"],
+      "manual_review_terms": ["同意", "クイズ", "コメント"],
+      "safety_notes": ["Googleフォームは確認画面の遷移を必ず確認する", "自由記述は候補文のみ保存する"],
+      "last_verified_at": "2026-06-04",
+      "notes": ["Googleフォームは確認画面の遷移を必ず確認する", "自由記述は候補文のみ保存する"]
+    },
+    {
+      "id": "generic",
+      "label": "汎用フォーム",
+      "site_name": "generic",
+      "notes": ["固有テンプレート未登録のフォームは汎用ルールで診断する"]
+    }
+  ]
+}

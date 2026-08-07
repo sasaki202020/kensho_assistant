@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>懸賞を探す</h2>
+    <span class="pill blue">候補選択</span>
+  </div>
+  <p class="muted">懸賞生活から応募候補を探し、安全に診断する懸賞を選びます。</p>
+  <div class="guide-card">
+    <div class="guide-title">応募キューの入口として、欲しい賞品から探す</div>
+    <div class="guide-note">食品・飲料・商品券・家電など、まず賞品の種類から絞り込めます。</div>
+    <div class="chips compact">
+      {% for item in prize_links %}
+      <a class="chip {% if category == item.label %}active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <form class="search-form" method="get" action="/search">
+    <input type="text" name="q" value="{{ q }}" placeholder="ビール、Amazonギフト券、食品、QUOカード">
+    <input type="hidden" name="category" value="{{ category }}">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <button class="btn primary" type="submit">検索</button>
+  </form>
+  <div class="actions compact">
+    <form method="post" action="/action/auto_scan"><input type="hidden" name="next_url" value="/search"><button class="btn primary" type="submit">自動スキャンを実行</button></form>
+    <form method="post" action="/action/build_queue"><input type="hidden" name="next_url" value="/search"><button class="btn" type="submit">応募キューを作成</button></form>
+    <form method="post" action="/action/review"><input type="hidden" name="next_url" value="/review"><button class="btn" type="submit">要確認を見る</button></form>
+    <a class="btn" href="/today">今日の候補</a>
+  </div>
+  <div class="chips">
+    {% for item in category_links %}
+    <a class="chip {% if category == item.label %}active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+    {% endfor %}
+  </div>
+  <div class="filter-grid">
+    <div class="filter-col">
+      <div class="filter-title">安全フィルター</div>
+      <div class="filter-item">Webフォームのみ</div>
+      <div class="filter-item">要確認候補を含める</div>
+      <div class="filter-item">締切前のみ</div>
+      <div class="filter-item">個人情報少なめを優先</div>
+    </div>
+    <div class="filter-col">
+      <div class="filter-title">除外フィルター</div>
+      <div class="filter-item">X懸賞を除外</div>
+      <div class="filter-item">Instagram懸賞を除外</div>
+      <div class="filter-item">LINE懸賞を除外</div>
+      <div class="filter-item">アプリ応募を除外</div>
+      <div class="filter-item">会員登録必須を除外</div>
+      <div class="filter-item">レシート応募を除外</div>
+      <div class="filter-item">購入条件ありを除外</div>
+      <div class="filter-item">CAPTCHAありを除外</div>
+      <div class="filter-item">年齢確認ありを除外</div>
+    </div>
+  </div>
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in results %}
+    <article class="card result-card {{ row.risk_class }}">
+      <div class="result-top">
+        <div class="thumb">#</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.campaign_name }}</div>
+          <div class="item-sub">{{ row.provider }} / 締切 {{ row.deadline or "未取得" }} / 当選 {{ row.winner_count or "未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill blue">{{ row.category or "カテゴリ未取得" }}</span>
+            <span class="pill {{ 'green' if row.form_readiness_status == 'READY_FOR_FILL' else 'orange' if row.form_readiness_status == 'REVIEW_ONLY' else 'purple' if row.form_readiness_status == 'SEARCH_ONLY' else 'red' if row.form_readiness_status == 'LOW_CONFIDENCE' else 'gray' }}">{{ display_status_label(row.form_readiness_status or row.resolve_status or "未収集") }}</span>
+          </div>
+          <div class="muted">{{ row.one_line_reason or "安全に診断して候補化します" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">リスク</span><span>{{ row.resolve_reason or row.form_readiness_reason or "要確認" }}</span></div>
+        <div><span class="label">次のアクション</span><span>{{ "応募準備" if row.form_readiness_status in ["REVIEW_ONLY", "READY_FOR_FILL"] else "URL解決" }}</span></div>
+      </div>
+      <div class="actions">
+        <form method="post" action="/campaigns/{{ row.campaign_id }}/select"><input type="hidden" name="next_url" value="/search"><button class="btn primary" type="submit">候補に追加</button></form>
+        <form method="post" action="/queue/{{ row.campaign_id }}/approve"><input type="hidden" name="next_url" value="/approved"><input type="hidden" name="approved_note" value="search から承認"><button class="btn" type="submit" onclick="return confirm('この懸賞を応募対象にします。応募条件・締切・個人情報の取り扱いを確認しましたか？ アプリは自動送信しません。最後の送信はあなた自身が行います。')">応募候補に承認</button></form>
+        <form method="post" action="/campaigns/{{ row.campaign_id }}/exclude"><input type="hidden" name="next_url" value="/search"><button class="btn" type="submit">除外する</button></form>
+        <form method="post" action="/action/resolve_urls"><input type="hidden" name="next_url" value="/search"><button class="btn" type="submit">URL解決</button></form>
+        <form method="post" action="/action/inspect_form"><input type="hidden" name="next_url" value="/search"><button class="btn" type="submit">フォーム診断</button></form>
+        <a class="btn" href="{{ row.resolved_entry_url or row.entry_url or row.knshow_url or '#' }}" target="_blank" rel="noreferrer">詳細を見る</a>
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">候補がありません。</div>
+    {% endfor %}
+  </div>
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head">
+        <h2>詳細</h2>
+      </div>
+      {% if detail %}
+      <div class="detail-grid">
+        <div>キャンペーン名</div><div>{{ detail.campaign_name }}</div>
+        <div>提供元</div><div>{{ detail.provider }}</div>
+        <div>当選人数</div><div>{{ detail.winner_count or "未取得" }}</div>
+        <div>締切</div><div>{{ detail.deadline or "未取得" }}</div>
+        <div>応募タイプ</div><div>{{ detail.entry_type_raw or "未取得" }}</div>
+        <div>URL</div><div class="break">{{ detail.entry_url or detail.knshow_url or "未取得" }}</div>
+        <div>解決済みURL</div><div class="break">{{ detail.resolved_entry_url or "未解決" }}</div>
+        <div>安全判定</div><div>{{ display_status_label(detail.form_readiness_status or detail.resolve_status or detail.status or "未取得") }}</div>
+        <div>要確認理由</div><div>{{ detail.form_readiness_reason or detail.resolve_reason or "URL解決またはフォーム診断を行ってください" }}</div>
+      </div>
+      <div class="actions vertical">
+        <form method="post" action="/queue/{{ detail.campaign_id }}/approve"><input type="hidden" name="next_url" value="/approved"><input type="hidden" name="approved_note" value="search 詳細から承認"><button class="btn" type="submit" onclick="return confirm('この懸賞を応募対象にします。応募条件・締切・個人情報の取り扱いを確認しましたか？ アプリは自動送信しません。最後の送信はあなた自身が行います。')">応募候補に承認</button></form>
+        <a class="btn primary" href="/review">要確認を見る</a>
+        <a class="btn" href="/campaigns">キャンペーン一覧</a>
+        <button class="btn disabled" disabled>送信（無効）</button>
+      </div>
+      {% else %}
+      <div class="muted">候補を選ぶと詳細を表示します。</div>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+{% endblock %}

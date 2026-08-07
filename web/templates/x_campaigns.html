@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>X懸賞候補</h2>
+    <span class="pill blue">{{ x_campaign_summary.total if x_campaign_summary else 0 }}件</span>
+  </div>
+  <p class="muted">Hermes Agent で検索した候補です。自動応募はしません。人間確認へ送るところまでです。</p>
+  <div class="actions">
+    <form method="get" action="/research/x-campaigns" class="inline-form">
+      <input type="text" name="date" value="{{ x_campaign_date or '' }}" placeholder="YYYYMMDD">
+      <button class="btn primary" type="submit">読み込み</button>
+    </form>
+    <a class="btn" href="/research">通常リサーチへ</a>
+    <a class="btn" href="/queue">応募キューへ</a>
+  </div>
+  <div class="grid metrics">
+    <div class="card"><div class="card-title">人間確認</div><div class="metric">{{ x_campaign_summary.review if x_campaign_summary else 0 }}</div><div class="metric-note">候補に追加しやすいもの</div></div>
+    <div class="card"><div class="card-title">要ウォッチ</div><div class="metric">{{ x_campaign_summary.watch if x_campaign_summary else 0 }}</div><div class="metric-note">低〜中スコア</div></div>
+    <div class="card"><div class="card-title">スキップ</div><div class="metric">{{ x_campaign_summary.skip if x_campaign_summary else 0 }}</div><div class="metric-note">危険候補</div></div>
+    <div class="card"><div class="card-title">URLあり</div><div class="metric">{{ x_campaign_summary.with_url if x_campaign_summary else 0 }}</div><div class="metric-note">投稿URL確認済み</div></div>
+  </div>
+  {% if x_campaign_run and x_campaign_run.error %}
+  <div class="card muted">Hermes 実行結果: {{ x_campaign_run.error }}</div>
+  {% endif %}
+  {% if x_campaign_run and x_campaign_run.status in ['pending', 'unavailable'] %}
+  <div class="card muted">状態: {{ x_campaign_run.status }}。Hermes 未実行または利用不可です。</div>
+  {% endif %}
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in x_campaign_rows %}
+    <article class="card result-card {{ 'danger-faded' if row.queue_status == 'blocked' else '' }}">
+      <div class="result-top">
+        <div class="thumb">X</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.title or "無題" }}</div>
+          <div class="item-sub">{{ row.organizer or "主催者不明" }} / 締切 {{ row.deadline or "未取得" }} / 賞品 {{ row.prize or "未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill blue">total {{ row.total_score or 0 }}</span>
+            <span class="pill blue">safe {{ row.safety_score or 0 }}</span>
+            <span class="pill {{ 'green' if row.recommendation == 'review' else 'orange' if row.recommendation == 'watch' else 'red' }}">{{ row.recommendation or 'watch' }}</span>
+            <span class="pill gray">{{ row.status or 'research_found' }}</span>
+            <span class="pill gray">{{ row.apply_difficulty or 'medium' }}</span>
+          </div>
+          <div class="muted">{{ row.recommendation_reason or row.queue_reason or "人間確認が必要です。" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">応募条件</span><span>{{ row.requirements|join(' / ') if row.requirements else "なし" }}</span></div>
+        <div><span class="label">対象</span><span>{{ row.eligibility or "未取得" }}</span></div>
+        <div><span class="label">年齢条件</span><span>{{ row.age_requirement or "未取得" }}</span></div>
+        <div><span class="label">地域条件</span><span>{{ row.region_requirement or "未取得" }}</span></div>
+        <div><span class="label">リスク理由</span><span>{{ row.risk_flags|join(' / ') if row.risk_flags else "なし" }}</span></div>
+        <details>
+          <summary class="btn">理由を見る</summary>
+          <div class="muted">{{ row.recommendation_reason or "理由未取得" }}</div>
+        </details>
+      </div>
+      <div class="actions">
+        {% if row.recommendation == 'review' %}
+        <form method="post" action="/research/x-campaigns/{{ row.candidate_id }}/queue">
+          <input type="hidden" name="queue_status" value="review_pending">
+          <input type="hidden" name="queue_reason" value="応募候補に追加">
+          <input type="hidden" name="date" value="{{ x_campaign_date or '' }}">
+          <input type="hidden" name="next_url" value="/research/x-campaigns">
+          <button class="btn primary" type="submit">応募候補に追加</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/research/x-campaigns/{{ row.candidate_id }}/queue">
+          <input type="hidden" name="queue_status" value="skipped">
+          <input type="hidden" name="queue_reason" value="スキップ">
+          <input type="hidden" name="date" value="{{ x_campaign_date or '' }}">
+          <input type="hidden" name="next_url" value="/research/x-campaigns">
+          <button class="btn" type="submit">スキップ</button>
+        </form>
+        <a class="btn" href="{{ row.post_url or '#' }}" target="_blank" rel="noreferrer">投稿URL</a>
+        {% if row.campaign_url %}
+        <a class="btn" href="{{ row.campaign_url }}" target="_blank" rel="noreferrer">キャンペーンURL</a>
+        {% endif %}
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">候補がありません。scripts/research_x_kensho.py を実行してください。</div>
+    {% endfor %}
+  </div>
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head"><h2>保存先</h2></div>
+      <div class="detail-grid">
+        <div>日付</div><div>{{ x_campaign_date or "未指定" }}</div>
+        <div>利用可能日</div><div>{{ x_campaign_days|length if x_campaign_days else 0 }}</div>
+        <div>実行状態</div><div>{{ x_campaign_run.status if x_campaign_run else "未実行" }}</div>
+        <div>候補数</div><div>{{ x_campaign_run.candidate_count if x_campaign_run else 0 }}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-head"><h2>安全メモ</h2></div>
+      <div class="muted">自動応募、いいね、リポスト、フォロー、DM は実装していません。</div>
+      <div class="muted">個人情報はログに出さず、人間確認が必要な候補だけを扱います。</div>
+    </div>
+    {% if x_campaign_report %}
+    <div class="card">
+      <div class="section-head"><h2>品質</h2></div>
+      <div class="detail-grid">
+        <div>raw</div><div>{{ x_campaign_report.raw_count or 0 }}</div>
+        <div>dedupe後</div><div>{{ x_campaign_report.deduped_count or 0 }}</div>
+        <div>report</div><div>{{ x_campaign_report.generated_at or "未生成" }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</section>
+{% endblock %}

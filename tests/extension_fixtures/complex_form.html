@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>複雑フォーム</title>
+<div id="react-root">
+  <label>姓 <input name="last_name" autocomplete="family-name"></label>
+</div>
+<div id="shadow-host"></div>
+<iframe id="same-origin-frame" srcdoc="
+  <!doctype html><html lang='ja'><body>
+    <label>メールアドレス <input name='email' type='email' autocomplete='email'></label>
+  </body></html>
+"></iframe>
+<script>
+  const root = document.querySelector("#shadow-host").attachShadow({ mode: "open" });
+  root.innerHTML = '<label>電話番号 <input name="phone" type="tel" autocomplete="tel"></label>';
+  window.redraw = () => {
+    document.querySelector("#react-root").innerHTML =
+      '<label>姓 <input name="last_name" autocomplete="family-name"></label>';
+  };
+</script>

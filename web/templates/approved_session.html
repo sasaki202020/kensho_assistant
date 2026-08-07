@@ -1,0 +1,516 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>承認済み応募キュー連続処理</h2>
+    <span class="pill blue">{{ queue_rows|length if queue_rows else 0 }}件</span>
+  </div>
+  <p class="muted">承認済みキューは送信キューではありません。応募準備の順番待ちです。最後の送信はユーザー本人が行います。</p>
+  <label class="memo-field compact">
+    <input type="checkbox" data-age-fill-toggle>
+    <span>年齢・生年月日の入力補助を許可する</span>
+  </label>
+  <div class="muted">年齢・生年月日は個人情報です。この懸賞で入力してよいと判断した場合のみ許可してください。</div>
+  <section class="card soft">
+    <div class="section-head">
+      <h3>今日の応募</h3>
+      <span class="pill {{ 'red' if assisted_session_state and assisted_session_state.status == 'ERROR' else 'green' if assisted_session_state and assisted_session_state.status == 'COMPLETED' else 'blue' if assisted_session_state and assisted_session_state.status in ['OPENING', 'FILLING', 'ADVANCING'] else 'gray' }}">{{ assisted_session_state.status_label if assisted_session_state else "未実行" }}</span>
+    </div>
+    <div class="status-message">{{ assisted_session_state.message if assisted_session_state else "今日の応募を始めると、入力補助と人間確認の状態がここに表示されます。" }}</div>
+    {% if assisted_session_state and assisted_session_state.state_health == 'corrupt' %}
+    <div class="muted">状態ファイルが壊れているため、新しい実行は止めています。</div>
+    {% elif current_missing and assisted_session_state and assisted_session_state.session_id %}
+    <div class="muted">前回の候補が見つからないため、安全のため停止しています。</div>
+    {% endif %}
+    <div class="detail-grid">
+      <div>セッションID</div><div>{{ assisted_session_state.session_id if assisted_session_state and assisted_session_state.session_id else "未発行" }}</div>
+      <div>現在</div><div>{{ assisted_session_state.current_campaign_name if assisted_session_state and assisted_session_state.current_campaign_name else current.campaign_name if current else "未実行" }}</div>
+      <div>次の行動</div><div>{{ assisted_session_state.last_action if assisted_session_state and assisted_session_state.last_action else "今日の応募を始める" }}</div>
+      <div>セッション開始</div><div>{{ assisted_session_state.session_started_at if assisted_session_state and assisted_session_state.session_started_at else "未記録" }}</div>
+      <div>候補開始</div><div>{{ assisted_session_state.candidate_started_at if assisted_session_state and assisted_session_state.candidate_started_at else "未記録" }}</div>
+      <div>候補終了</div><div>{{ assisted_session_state.candidate_finished_at if assisted_session_state and assisted_session_state.candidate_finished_at else "未記録" }}</div>
+      <div>完了件数</div><div>{{ assisted_session_state.done if assisted_session_state else 0 }}</div>
+      <div>保留件数</div><div>{{ assisted_session_state.hold_count if assisted_session_state else 0 }}</div>
+      <div>open_success</div><div>{{ assisted_session_state.open_success if assisted_session_state else 0 }}</div>
+      <div>assist_success</div><div>{{ assisted_session_state.assist_success if assisted_session_state else 0 }}</div>
+      <div>最終状態</div><div>{{ assisted_session_state.final_status if assisted_session_state and assisted_session_state.final_status else assisted_session_state.status_label if assisted_session_state else "未実行" }}</div>
+      <div>最終更新</div><div>{{ assisted_session_state.updated_at if assisted_session_state and assisted_session_state.updated_at else "未記録" }}</div>
+      <div>経過秒</div><div>{{ assisted_session_state.elapsed_seconds if assisted_session_state else 0 }}</div>
+      <div>送信前停止</div><div>有効</div>
+      <div>自動送信</div><div>無効</div>
+      <div>submitted_count_auto</div><div>{{ assisted_session_state.submitted_count_auto if assisted_session_state else 0 }}</div>
+    </div>
+    <div class="actions compact">
+      <form method="post" action="/queue/session/start">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <button class="btn primary" type="submit">今日の応募を始める</button>
+      </form>
+      {% if current_actions_enabled and current and current.campaign_id %}
+      {% if assisted_session_state and assisted_session_state.workflow_state == "MAPPING_REVIEW_REQUIRED" %}
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/mapping-confirmed">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <input type="hidden" name="session_id" value="{{ assisted_session_state.session_id }}">
+        <input type="hidden" name="candidate_id" value="{{ current.campaign_id }}">
+        <input type="hidden" name="operation_id" value="{{ session_action_tokens.mapping_confirmed }}">
+        <button class="btn primary" type="submit">項目対応を確認して入力へ進む</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/submitted-next">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <input type="hidden" name="session_id" value="{{ assisted_session_state.session_id }}">
+        <input type="hidden" name="candidate_id" value="{{ current.campaign_id }}">
+        <input type="hidden" name="operation_id" value="{{ session_action_tokens.submitted_next }}">
+        <button class="btn" type="submit">送信済み・次へ</button>
+      </form>
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/hold">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <input type="hidden" name="session_id" value="{{ assisted_session_state.session_id }}">
+        <input type="hidden" name="candidate_id" value="{{ current.campaign_id }}">
+        <input type="hidden" name="operation_id" value="{{ session_action_tokens.hold }}">
+        <label class="memo-field compact" style="display:flex; gap:0.5rem; align-items:center;">
+          <span>保留理由</span>
+          <select name="hold_reason">
+            {% for reason_key, reason_label in hold_reason_options %}
+            <option value="{{ reason_key }}">{{ reason_label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn" type="submit">保留</button>
+      </form>
+      <form method="post" action="/queue/session/{{ current.campaign_id }}/stop">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <input type="hidden" name="session_id" value="{{ assisted_session_state.session_id }}">
+        <input type="hidden" name="candidate_id" value="{{ current.campaign_id }}">
+        <input type="hidden" name="operation_id" value="{{ session_action_tokens.stop }}">
+        <button class="btn" type="submit">停止</button>
+      </form>
+      {% else %}
+      <div class="muted">現在の候補が有効なときだけ操作できます。</div>
+      {% endif %}
+    </div>
+  </section>
+  <section class="card soft prepare-status" id="approved-session-prepare-status" data-default-command="{{ prepare_command }}">
+    <div class="section-head">
+      <h3>実行結果</h3>
+      <span class="pill gray" data-prepare-state>未実行</span>
+    </div>
+    <div class="status-message" data-prepare-message>Chromeで応募準備を押すと、ここに結果が表示されます。</div>
+    <div class="muted" data-prepare-next>アプリは送信していません。</div>
+    <div data-prepare-fallback hidden>
+      <div class="command-box">
+        <div class="card-title">手動コマンド</div>
+        <code data-prepare-command>{{ prepare_command }}</code>
+      </div>
+      <div class="actions compact">
+        <button class="btn" type="button" data-copy-command>コマンドをコピー</button>
+        <a class="btn" href="/security">start_chrome_prepare.bat の使い方を見る</a>
+      </div>
+      <div class="muted" data-prepare-help>Chrome起動に失敗した場合は browser doctor を確認してください。</div>
+    </div>
+  </section>
+  {% if not queue_has_items %}
+  <div class="card muted">承認済みの案件はありません。先に応募候補に承認してください。</div>
+  {% else %}
+  <section class="card soft">
+    <div class="section-head">
+      <h3>状態カード</h3>
+      <span class="pill {{ 'green' if current.queue_status == 'PREPARED' else 'blue' if current.queue_status == 'APPROVED' else 'orange' }}">{{ current.queue_status or 'APPROVED' }}</span>
+    </div>
+    <div class="detail-grid">
+      <div>現在の候補</div><div>{{ current.campaign_name }}</div>
+      <div>状態</div><div>{{ current.queue_status or 'APPROVED' }}</div>
+      <div>自動送信</div><div>無効</div>
+      <div>年齢</div><div>{{ '許可時のみ入力補助' if current.age_fill_user_approved == 'true' else '未許可' }}</div>
+      <div>規約同意</div><div>手動</div>
+      <div>クイズ</div><div>手動</div>
+      <div>次に押すボタン</div><div>Chromeで応募準備</div>
+    </div>
+    <div class="muted">自動送信：無効</div>
+  </section>
+
+  <div class="grid metrics">
+    <div class="card">
+      <div class="card-title">現在の順番</div>
+      <div class="metric">{{ current_index + 1 }} / {{ queue_rows|length }}</div>
+      <div class="metric-note">承認済みだけを進めます</div>
+    </div>
+    <div class="card">
+      <div class="card-title">手動確認</div>
+      <div class="metric">{{ current.manual_review_required_fields or "なし" }}</div>
+      <div class="metric-note">規約同意は自動チェックしません</div>
+    </div>
+    <div class="card">
+      <div class="card-title">年齢補助</div>
+      <div class="metric">{{ "可" if current.age_fill_user_approved == "true" else "不可" }}</div>
+      <div class="metric-note">年齢・生年月日は明示許可時のみ</div>
+    </div>
+  </div>
+
+  <section class="card soft">
+    <div class="section-head">
+      <h3>承認済み状態</h3>
+      <span class="pill {{ 'green' if current.queue_status == 'PREPARED' else 'blue' if current.queue_status == 'APPROVED' else 'orange' }}">{{ current.queue_status or "APPROVED" }}</span>
+    </div>
+    <div class="detail-grid">
+      <div>現在の候補</div><div>{{ current.campaign_name }}</div>
+      <div>最終操作</div><div>{{ current.last_action or "なし" }}</div>
+      <div>次にやること</div><div>Chromeで応募準備 → Chrome上で確認 → 自分で送信したら「手動送信済みにする」 → 次の候補へ</div>
+      <div>自動送信</div><div>無効</div>
+      <div>規約同意</div><div>手動</div>
+      <div>クイズ</div><div>手動</div>
+    </div>
+    {% if current.risk_notice %}
+    <div class="muted">{{ current.risk_notice }}</div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h3>{{ current.campaign_name }}</h3>
+      <span class="pill {{ 'green' if current.readiness_status == 'READY_FOR_FILL' else 'orange' if current.readiness_status == 'REVIEW_ONLY' else 'gray' }}">{{ display_status_label(current.readiness_status) }}</span>
+    </div>
+    <div class="detail-grid">
+      <div>campaign_id</div><div>{{ current.campaign_id }}</div>
+      <div>賞品</div><div>{{ current.prize or "未取得" }}</div>
+      <div>提供元</div><div>{{ current.provider or "未取得" }}</div>
+      <div>締切</div><div>{{ current.deadline or "未取得" }}</div>
+      <div>URL</div><div class="break">{{ current.resolved_entry_url or "未取得" }}</div>
+      <div>状態</div><div>{{ current.queue_status or "APPROVED" }}</div>
+      <div>要確認</div><div>{{ current.manual_review_required_fields or "なし" }}</div>
+      <div>年齢補助</div><div>{{ "可" if current.age_fill_user_approved == "true" else "不可" }}</div>
+      <div>準備時刻</div><div>{{ current.prepared_at or "未記録" }}</div>
+      <div>approved_note</div><div>{{ current.approved_note or "なし" }}</div>
+      {% if current.risk_detail %}
+      <div>重複メモ</div><div>{{ current.risk_detail }}</div>
+      {% endif %}
+    </div>
+    <div class="quiz-box">
+      <div class="pill {{ 'green' if current.dry_run_status in ['PRE_SUBMIT_READY', 'DRY_RUN_COMPLETED'] else 'orange' if current.dry_run_status in ['REVIEW_FILL_READY', 'MANUAL_ASSIST_READY', 'NEEDS_REVIEW'] else 'gray' }}">{{ current.dry_run_state_label or "dry_run未実行" }}</div>
+      <div class="quiz-item">
+        <div class="quiz-question">判定</div>
+        <div class="quiz-choices">{{ current.dry_run_detail_label or "まだ dry_run はありません。" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">入力完了率</div>
+        <div class="quiz-choices">{{ current.dry_run_completion_label or "未記録" }}%</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">pre_submit_score</div>
+        <div class="quiz-choices">{{ current.dry_run_score_label or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">未解決項目</div>
+        <div class="quiz-choices">{{ current.dry_run_unresolved_label or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">送信ボタン検出</div>
+        <div class="quiz-choices">{{ current.dry_run_submit_button_label or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">人間確認 checklist</div>
+        <div class="quiz-choices break">
+          {% if current.dry_run_review_items_summary %}
+          <ul style="margin:0; padding-left:1.2em;">
+            {% for item in current.dry_run_review_items_summary %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          {{ current.dry_run_review_items_label or "未記録" }}
+          {% endif %}
+        </div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">実行時刻</div>
+        <div class="quiz-choices">{{ current.dry_run_at or "未記録" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">分析JSON</div>
+        <div class="quiz-choices break">{{ current.dry_run_analysis_path or "未保存" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">送信前チェック</div>
+        <div class="quiz-choices break">{{ current.dry_run_check_path or "未保存" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">HTML snapshot</div>
+        <div class="quiz-choices break">{{ current.dry_run_html_snapshot_path or "未保存" }}</div>
+      </div>
+      <div class="quiz-item">
+        <div class="quiz-question">自動送信の証拠</div>
+        <div class="quiz-choices">submit_clicked={{ current.get('submit_clicked', false) }} / auto_submitted={{ current.get('auto_submitted', false) }} / submitted_count_auto=0</div>
+      </div>
+    </div>
+    <div class="quiz-box">
+      <div class="pill blue">手動確認が必要</div>
+      <div class="quiz-item">同意チェック / 年齢確認 / クイズ / メルマガ / 自由記述 / ログイン / SNS / LINE</div>
+      <div class="muted">これらは自動確定しません。応募ページ上でユーザー本人が確認してください。</div>
+    </div>
+    <label class="memo-field compact">
+      <input type="checkbox" data-age-fill-toggle>
+      <span>年齢・生年月日の入力補助を許可する</span>
+    </label>
+    <div class="muted">年齢・生年月日は個人情報です。この懸賞で入力してよいと判断した場合のみ許可してください。</div>
+    <div class="muted">送信ボタンの自動クリックはしません。実サイトで auto_submitted=true にすることもありません。</div>
+    {% if current.risk_notice %}
+    <div class="muted">{{ current.risk_notice }}</div>
+    {% endif %}
+    <div class="actions">
+      <form method="post" action="/api/approved/{{ current.campaign_id }}/dry-run">
+        <button class="btn" type="submit">ドライラン実行</button>
+      </form>
+      <form method="post" action="/queue/{{ current.campaign_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/approved/{{ current.campaign_id }}/prepare">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <button class="btn primary" type="submit">入力補助</button>
+      </form>
+      <form method="post" action="/queue/session/prepare-all">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <button class="btn" type="submit">承認済みをまとめて入力補助</button>
+      </form>
+      <a class="btn" href="/api/approved/{{ current.campaign_id }}/analysis" target="_blank" rel="noreferrer">解析結果を見る</a>
+      <a class="btn" href="/api/approved/{{ current.campaign_id }}/pre-submit-check" target="_blank" rel="noreferrer">確認チェックを見る</a>
+      <a class="btn" href="/api/approved/{{ current.campaign_id }}/screenshot" target="_blank" rel="noreferrer">スクショを見る</a>
+      <form method="post" action="/api/mock-submit-test">
+        <button class="btn" type="submit">モック送信テスト</button>
+      </form>
+      <form method="post" action="/queue/{{ current.campaign_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/approved/{{ current.campaign_id }}/prepare" data-allow-age-fill="1">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <input type="hidden" name="age_fill_user_approved" value="true">
+        <button class="btn" type="submit">年齢入力を許可してChromeで応募準備</button>
+      </form>
+      <form method="post" action="/queue/{{ current.campaign_id }}/manual-submitted">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <button class="btn" type="submit">手動送信済みにする</button>
+      </form>
+      <form method="post" action="/queue/{{ current.campaign_id }}/hold">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <button class="btn" type="submit">保留</button>
+      </form>
+      <form method="post" action="/queue/{{ current.campaign_id }}/skip">
+        <input type="hidden" name="next_url" value="/approved/session">
+        <button class="btn" type="submit">対象外にする</button>
+      </form>
+      <a class="btn" href="{{ current.resolved_entry_url or '#' }}" target="_blank" rel="noreferrer">応募ページを開く</a>
+      {% if next_item %}
+      <a class="btn" href="/approved/session/{{ next_item.campaign_id }}">次の承認済み候補へ</a>
+      {% endif %}
+      <a class="btn" href="/approved">承認済み一覧へ戻る</a>
+    </div>
+
+  <section class="card soft" data-prepare-all-card>
+    <div class="section-head">
+      <h4>一括入力補助の進捗</h4>
+      <span class="pill gray" data-prepare-all-state>{{ prepare_all_status.status_label if prepare_all_status else "未実行" }}</span>
+    </div>
+    <div class="metric" data-prepare-all-percent>{{ prepare_all_status.progress_percent if prepare_all_status else 0 }}%</div>
+    <div class="metric-note" data-prepare-all-index-line>{{ prepare_all_status.current_index if prepare_all_status else 0 }} / {{ prepare_all_status.total if prepare_all_status else 0 }} 件目を処理中</div>
+    <div class="metric-note" data-prepare-all-current-line>{{ prepare_all_status.current_campaign_name if prepare_all_status and prepare_all_status.current_campaign_name else "未実行" }}</div>
+    <div class="detail-grid">
+      <div>進捗</div><div data-prepare-all-count>{{ prepare_all_status.done if prepare_all_status else 0 }} / {{ prepare_all_status.total if prepare_all_status else 0 }}</div>
+      <div>成功 / 失敗</div><div data-prepare-all-summary>{{ prepare_all_status.ok if prepare_all_status else 0 }} / {{ prepare_all_status.failed if prepare_all_status else 0 }}</div>
+      <div>現在</div><div data-prepare-all-current>{{ prepare_all_status.current_campaign_name if prepare_all_status and prepare_all_status.current_campaign_name else "未実行" }}</div>
+      <div>メッセージ</div><div data-prepare-all-message>{{ prepare_all_status.message if prepare_all_status else "一括入力補助は未実行です。" }}</div>
+      </div>
+      <div class="progress-track" style="margin-top: 8px;">
+        <div class="progress-bar" data-prepare-all-bar style="width: {{ prepare_all_status.progress_percent if prepare_all_status else 0 }}%;"></div>
+      </div>
+      <div class="muted" data-prepare-all-meta>submitted_count_auto=0 / 自動送信はしません</div>
+    </section>
+
+    <div class="card muted">
+      キーボード案内: N 次へ / H 保留 / S スキップ / M 手動送信済み / P 応募準備
+    </div>
+    <div class="muted">最後の送信はユーザー本人が行います。送信ボタンの自動クリックはしません。</div>
+    <div class="muted">コマンド例: <code>{{ prepare_command }}</code></div>
+  </section>
+  {% endif %}
+</section>
+<script>
+(function () {
+  const status = document.getElementById("approved-session-prepare-status");
+  if (!status) {
+    return;
+  }
+  const stateEl = status.querySelector("[data-prepare-state]");
+  const messageEl = status.querySelector("[data-prepare-message]");
+  const nextEl = status.querySelector("[data-prepare-next]");
+  const fallbackPanel = status.querySelector("[data-prepare-fallback]");
+  const commandEl = status.querySelector("[data-prepare-command]");
+  const helpEl = status.querySelector("[data-prepare-help]");
+  const copyButton = status.querySelector("[data-copy-command]");
+  const ageToggle = document.querySelector("[data-age-fill-toggle]");
+  const batchCard = document.querySelector("[data-prepare-all-card]") || null;
+  const batchState = batchCard ? batchCard.querySelector("[data-prepare-all-state]") : null;
+  const batchPercent = batchCard ? batchCard.querySelector("[data-prepare-all-percent]") : null;
+  const batchIndexLine = batchCard ? batchCard.querySelector("[data-prepare-all-index-line]") : null;
+  const batchCurrentLine = batchCard ? batchCard.querySelector("[data-prepare-all-current-line]") : null;
+  const batchCount = batchCard ? batchCard.querySelector("[data-prepare-all-count]") : null;
+  const batchSummary = batchCard ? batchCard.querySelector("[data-prepare-all-summary]") : null;
+  const batchCurrent = batchCard ? batchCard.querySelector("[data-prepare-all-current]") : null;
+  const batchMessage = batchCard ? batchCard.querySelector("[data-prepare-all-message]") : null;
+  const batchBar = batchCard ? batchCard.querySelector("[data-prepare-all-bar]") : null;
+  const batchMeta = batchCard ? batchCard.querySelector("[data-prepare-all-meta]") : null;
+  const sessionCard = document.getElementById("approved-session-status");
+  const sessionState = sessionCard ? sessionCard.querySelector("[data-session-state]") : null;
+  const sessionMessage = sessionCard ? sessionCard.querySelector("[data-session-message]") : null;
+  const sessionCurrent = sessionCard ? sessionCard.querySelector("[data-session-current]") : null;
+  const sessionNext = sessionCard ? sessionCard.querySelector("[data-session-next]") : null;
+  const sessionSubmitted = sessionCard ? sessionCard.querySelector("[data-session-submitted]") : null;
+
+  function applyResult(data) {
+    const ok = Boolean(data && data.ok);
+    stateEl.textContent = ok ? "成功" : "失敗";
+    stateEl.className = ok ? "pill green" : "pill red";
+    messageEl.textContent = data && data.message ? data.message : "";
+    nextEl.textContent = data && data.next_action ? data.next_action : "";
+    if (fallbackPanel) {
+      fallbackPanel.hidden = ok;
+    }
+    if (commandEl) {
+      commandEl.textContent = data && data.fallback_command ? data.fallback_command : status.dataset.defaultCommand;
+    }
+    if (helpEl) {
+      helpEl.textContent = data && data.fallback_help ? data.fallback_help : "Chrome起動に失敗した場合は browser doctor を確認してください。";
+    }
+  }
+
+  function applyBatchStatus(data) {
+    if (!batchCard) {
+      return;
+    }
+    if (batchState) {
+      batchState.textContent = data && data.status_label ? data.status_label : "未実行";
+      batchState.className = data && data.status === "running" ? "pill blue" : data && data.status === "success" ? "pill green" : data && data.status === "warning" ? "pill orange" : "pill gray";
+    }
+    if (batchCount) {
+      const done = data && typeof data.done === "number" ? data.done : 0;
+      const total = data && typeof data.total === "number" ? data.total : 0;
+      batchCount.textContent = `${done} / ${total}`;
+    }
+    if (batchPercent) {
+      const progress = data && typeof data.progress_percent === "number" ? Math.max(0, Math.min(100, data.progress_percent)) : 0;
+      batchPercent.textContent = `${progress}%`;
+    }
+    if (batchIndexLine) {
+      const currentIndex = data && typeof data.current_index === "number" ? data.current_index : 0;
+      const total = data && typeof data.total === "number" ? data.total : 0;
+      batchIndexLine.textContent = `${currentIndex} / ${total} 件目を処理中`;
+    }
+    if (batchCurrentLine) {
+      batchCurrentLine.textContent = data && data.current_campaign_name ? data.current_campaign_name : "未実行";
+    }
+    if (batchSummary) {
+      const ok = data && typeof data.ok === "number" ? data.ok : 0;
+      const failed = data && typeof data.failed === "number" ? data.failed : 0;
+      batchSummary.textContent = `${ok} / ${failed}`;
+    }
+    if (batchCurrent) {
+      batchCurrent.textContent = data && data.current_campaign_name ? data.current_campaign_name : "未実行";
+    }
+    if (batchMessage) {
+      batchMessage.textContent = data && data.message ? data.message : "一括入力補助は未実行です。";
+    }
+    if (batchBar) {
+      const progress = data && typeof data.progress_percent === "number" ? Math.max(0, Math.min(100, data.progress_percent)) : 0;
+      batchBar.style.width = `${progress}%`;
+      batchBar.className = data && data.status === "warning" ? "progress-bar warn" : data && data.status === "failed" ? "progress-bar error" : "progress-bar";
+    }
+    if (batchMeta) {
+      const submitted = data && typeof data.submitted_count_auto === "number" ? data.submitted_count_auto : 0;
+      batchMeta.textContent = `submitted_count_auto=${submitted} / 自動送信はしません`;
+    }
+  }
+
+  async function refreshBatchStatus() {
+    if (!batchCard) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/prepare-all/status", { method: "GET" });
+      const data = await response.json();
+      applyBatchStatus(data);
+    } catch (error) {
+      applyBatchStatus({ status_label: "未実行", done: 0, total: 0, ok: 0, failed: 0, progress_percent: 0, message: "進捗を取得できませんでした。", submitted_count_auto: 0 });
+    }
+  }
+
+  async function refreshSessionStatus() {
+    if (!sessionCard) {
+      return;
+    }
+    try {
+      const response = await fetch(sessionCard.dataset.sessionStatusUrl || "/api/session/status", { method: "GET" });
+      const data = await response.json();
+      if (sessionState) {
+        sessionState.textContent = data && data.status_label ? data.status_label : "未実行";
+        sessionState.className = data && data.status === "COMPLETED" ? "pill green" : data && (data.status === "OPENING" || data.status === "FILLING") ? "pill blue" : "pill gray";
+      }
+      if (sessionMessage) {
+        sessionMessage.textContent = data && data.message ? data.message : "今日の応募を始めると、入力補助と人間確認の状態がここに表示されます。";
+      }
+      if (sessionCurrent) {
+        sessionCurrent.textContent = data && (data.current_campaign_name || data.current_campaign_id) ? (data.current_campaign_name || data.current_campaign_id) : "未実行";
+      }
+      if (sessionNext) {
+        sessionNext.textContent = data && data.last_action ? data.last_action : "今日の応募を始める";
+      }
+      if (sessionSubmitted) {
+        sessionSubmitted.textContent = data && typeof data.submitted_count_auto === "number" ? data.submitted_count_auto : 0;
+      }
+    } catch (error) {
+      if (sessionMessage) {
+        sessionMessage.textContent = "セッション状態を取得できませんでした。";
+      }
+    }
+  }
+
+  const forms = document.querySelectorAll("[data-prepare-form]");
+  forms.forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const apiUrl = form.dataset.prepareApiUrl;
+      if (!apiUrl) {
+        form.submit();
+        return;
+      }
+      try {
+        let targetUrl = apiUrl;
+        if (form.dataset.allowAgeFill === "1" && ageToggle && ageToggle.checked && !targetUrl.includes("allow_age_fill=1")) {
+          targetUrl = `${targetUrl}${targetUrl.includes("?") ? "&" : "?"}allow_age_fill=1`;
+        }
+        const response = await fetch(targetUrl, { method: "POST" });
+        const data = await response.json();
+        applyResult(data);
+      } catch (error) {
+        applyResult({
+          ok: false,
+          message: "Chrome起動に失敗しました。",
+          next_action: "browser doctor を確認してください。",
+          fallback_command: status.dataset.defaultCommand,
+          fallback_help: "手動コマンドを表示します。",
+        });
+      }
+    });
+  });
+
+  if (copyButton && commandEl) {
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(commandEl.textContent || status.dataset.defaultCommand || "");
+        copyButton.textContent = "コピーしました";
+        setTimeout(() => {
+          copyButton.textContent = "コマンドをコピー";
+        }, 1400);
+      } catch (error) {
+        copyButton.textContent = "コピー失敗";
+      }
+    });
+  }
+
+  refreshBatchStatus();
+  setInterval(refreshBatchStatus, 2500);
+  refreshSessionStatus();
+  setInterval(refreshSessionStatus, 2500);
+})();
+</script>
+{% endblock %}

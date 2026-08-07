@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>Fuzzy Choice Mock Form</title></head>
+<body>
+  <form action="submitted.html" method="get">
+    <label>お名前 <input name="name" required></label>
+    <label>メールアドレス <input type="email" name="email" required></label>
+
+    <label>都道府県
+      <select name="prefecture" required>
+        <option value="">選択してください</option>
+        <option>東京都（関東）</option>
+        <option>神奈川県（関東）</option>
+      </select>
+    </label>
+
+    <label>年代
+      <select name="age_group" required>
+        <option value="">選択してください</option>
+        <option>30代前半</option>
+        <option>40代前半</option>
+      </select>
+    </label>
+
+    <fieldset>
+      <legend>性別</legend>
+      <label><input type="radio" name="gender" value="男" required>男</label>
+      <label><input type="radio" name="gender" value="女" required>女</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>子どもの有無</legend>
+      <label><input type="radio" name="children" value="無" required>無</label>
+      <label><input type="radio" name="children" value="有" required>有</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>既婚/未婚</legend>
+      <label><input type="radio" name="marital_status" value="独身" required>独身</label>
+      <label><input type="radio" name="marital_status" value="既婚" required>既婚</label>
+    </fieldset>
+
+    <button type="submit">送信</button>
+  </form>
+</body>
+</html>

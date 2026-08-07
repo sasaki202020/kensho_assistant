@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>メール懸賞</h2>
+    <span class="pill blue">{{ mail_summary.total if mail_summary else 0 }}件</span>
+  </div>
+  <p class="muted">メール本文から懸賞メールを検出し、応募URL・締切らしき文字列・危険度を確認できます。</p>
+  <div class="grid metrics mail-metrics">
+    <div class="card soft">
+      <div class="card-title">候補</div>
+      <div class="metric">{{ mail_summary.candidate if mail_summary else 0 }}</div>
+      <div class="metric-note">応募候補として確認するメール</div>
+    </div>
+    <div class="card soft">
+      <div class="card-title">危険</div>
+      <div class="metric">{{ mail_summary.danger if mail_summary else 0 }}</div>
+      <div class="metric-note">慎重に除外するメール</div>
+    </div>
+    <div class="card soft">
+      <div class="card-title">無視</div>
+      <div class="metric">{{ mail_summary.ignored if mail_summary else 0 }}</div>
+      <div class="metric-note">懸賞以外のメール</div>
+    </div>
+  </div>
+  <div class="actions compact">
+    <form method="post" action="/mail/rescan"><input type="hidden" name="next_url" value="/mail"><button class="btn primary" type="submit">再スキャン</button></form>
+    <a class="btn" href="/search">懸賞を探す</a>
+    <a class="btn" href="/review">要確認を見る</a>
+  </div>
+  <div class="chips compact">
+    {% for label, value in mail_status_filters %}
+    <a class="chip {% if mail_status == value %}active{% endif %}" href="/mail?status={{ value }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="search-layout">
+  <div class="results">
+    {% for row in mail_sweepstakes %}
+    <article class="card result-card {{ 'danger-faded' if row.risk_level == 'high' else '' }}">
+      <div class="result-top">
+        <div class="thumb">✉</div>
+        <div class="result-body">
+          <div class="item-title">{{ row.subject }}</div>
+          <div class="item-sub">{{ row.sender or "差出人未取得" }} / {{ row.received_at or "受信日時未取得" }}</div>
+          <div class="tag-row">
+            <span class="pill {{ 'red' if row.risk_level == 'high' else 'orange' if row.risk_level == 'medium' else 'green' }}">{{ row.risk_level }}</span>
+            <span class="pill {{ 'gray' if row.status == 'ignored' else 'blue' if row.status == 'candidate' else 'green' if row.status == 'added' else 'orange' if row.status == 'duplicate' else 'gray' }}">{{ '重複' if row.status == 'duplicate' else '応募候補' if row.status == 'candidate' else '応募済み' if row.status == 'added' else '未確認' if row.status == 'ignored' else row.status }}</span>
+          </div>
+          <div class="muted">{{ truncate_text(row.body_excerpt, 120) or "本文抜粋なし" }}</div>
+        </div>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">締切</span><span><strong>{{ row.deadline_text or "未検出" }}</strong></span></div>
+        <div><span class="label">応募URL</span><span class="break">{{ row.campaign_url or "未検出" }}</span></div>
+        <div><span class="label">ドメイン</span><span>{{ row.campaign_url.split('/')[2] if row.campaign_url else "未検出" }}</span></div>
+        <div><span class="label">危険理由</span><span>{{ row.risk_reasons|join(" / ") if row.risk_reasons else "なし" }}</span></div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="{{ row.campaign_url or '#' }}" target="_blank" rel="noreferrer">応募ページを開く</a>
+        <form method="post" action="/mail/{{ row.mail_id }}/add-candidate"><input type="hidden" name="next_url" value="/mail">{% if row.status in ['duplicate', 'added'] %}<button class="btn disabled" disabled>{{ '登録済み' if row.status == 'added' else '応募候補に追加' }}</button>{% else %}<button class="btn primary" type="submit">応募候補に追加</button>{% endif %}</form>
+        <form method="post" action="/mail/{{ row.mail_id }}/mark-danger"><input type="hidden" name="next_url" value="/mail"><button class="btn" type="submit">危険として除外</button></form>
+        <a class="btn" href="/api/mail-sweepstakes/{{ row.mail_id }}">API</a>
+      </div>
+    </article>
+    {% else %}
+    <div class="card muted">メール懸賞はまだありません。`samples/mail/` を再スキャンしてください。</div>
+    {% endfor %}
+  </div>
+
+  <aside class="detail">
+    <div class="card">
+      <div class="section-head">
+        <h2>安全メモ</h2>
+      </div>
+      <div class="detail-grid">
+        <div>自動送信</div><div>無効</div>
+        <div>個人情報</div><div>表示しません</div>
+        <div>プロフィール</div><div>暗号化保存データは復号しません</div>
+        <div>操作</div><div>応募ページを開くだけで、人間確認で止めます</div>
+      </div>
+      <div class="actions vertical">
+        <a class="btn primary" href="/review">要確認を見る</a>
+        <a class="btn" href="/campaigns">キャンペーン一覧</a>
+      </div>
+    </div>
+  </aside>
+</section>
+{% endblock %}

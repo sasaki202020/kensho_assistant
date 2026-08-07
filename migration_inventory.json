@@ -1,0 +1,1182 @@
+{
+    "schema_version":  1,
+    "file_count":  294,
+    "files":  [
+                  {
+                      "relative_path":  ".gitattributes",
+                      "sha256":  "012B1E2AB9333A1A42429AFB5EC9AA22CEBEDF439AD5C0BCA355CAD2ED2C9887"
+                  },
+                  {
+                      "relative_path":  ".gitignore",
+                      "sha256":  "47971E11CBFB6133B22AAF7E709830882AFD3A8FCE0F0A63A4B5C7450888BC3C"
+                  },
+                  {
+                      "relative_path":  "__init__.py",
+                      "sha256":  "025AB6DB7700E9E9A4A13AA44901AD3368961E3E883FDAEC2A81A7469A276714"
+                  },
+                  {
+                      "relative_path":  "AGENTS.md",
+                      "sha256":  "73D259C3EF41DE6B63F316BA1B53DCC44D08815DE5ADEF4E2C35996A57FABFB5"
+                  },
+                  {
+                      "relative_path":  "app/__init__.py",
+                      "sha256":  "837C344967128B887FD9EF64638C0D40D84BC9C2816F2795251DEB702E9C6789"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/__init__.py",
+                      "sha256":  "BC2ADA1BE88622EB1B751940F5FA4CB23F9179FF8624B27C72711B542DA52A43"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/agents.py",
+                      "sha256":  "FBC7B7F1256C6128C7E9F3C05A23EB2DB2316739852AB59128085A0B9311864F"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/controller.py",
+                      "sha256":  "AC273D70C9BE6F755E908F405E5EA517435FD95D2B459E52F1D3D498AA1DF0ED"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/job_store.py",
+                      "sha256":  "A63796CBCA28F12C5822952E345CCA4F8D7BBE6DA9C2DCA307CFBA21FC24FF5A"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/report.py",
+                      "sha256":  "812064A9D2568B3D4739EF47FC8FFBAAC6EE718790855E929EAAD797839C5D4A"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/safety.py",
+                      "sha256":  "CC520D11A12DB3506B7C230FFACE019A015C36EAA05601E5580BF3120605E492"
+                  },
+                  {
+                      "relative_path":  "app/agent_control/schema.py",
+                      "sha256":  "F1BB0C29FED98ED08D767E71FDE25078CDA98751816CF3CDF4DA37FCD4760351"
+                  },
+                  {
+                      "relative_path":  "app/agent_dashboard/__init__.py",
+                      "sha256":  "A79B87E9282FA44DEDFCA756E1F00C9A9735F52B6A8B8FA589B0A9F89DF138D5"
+                  },
+                  {
+                      "relative_path":  "app/agent_dashboard/org.py",
+                      "sha256":  "860D3D98665B8E78407E7DB8351C970ED25629B427758D1B49E07BDD3F00DDFA"
+                  },
+                  {
+                      "relative_path":  "app/agent_dashboard/result_reader.py",
+                      "sha256":  "E2B0F6888DD3DC099D39204B997ECCA1430D1DF6E60A7A49755A931D20DA73C2"
+                  },
+                  {
+                      "relative_path":  "app/agent_dashboard/schema.py",
+                      "sha256":  "B2B3A6C1C1C0A2270FF27F8731EEAC05E6DD3B9CB5ECC4EE947A3BB9AB30F395"
+                  },
+                  {
+                      "relative_path":  "app/agent_dashboard/service.py",
+                      "sha256":  "30A0E94BB053D2E7FD5508B12523F581699B3AE604C649F06F3CAC999134A9C2"
+                  },
+                  {
+                      "relative_path":  "app/answer_assistant.py",
+                      "sha256":  "5FAC0F392BCD3D4CFAB2EAB5C147418FDC906887D8DE9AAA37EE25389D8661AE"
+                  },
+                  {
+                      "relative_path":  "app/apply_queue.py",
+                      "sha256":  "423D4590449BAAFF5FD3589CA8114933B7F04F8EDB79A82A7FA2246160EA611B"
+                  },
+                  {
+                      "relative_path":  "app/apply_run_logger.py",
+                      "sha256":  "9BDCCF23CDC6D5EB719528AB82EFF3E07E713690BDA0B25B92FA1E01C09C1D0C"
+                  },
+                  {
+                      "relative_path":  "app/assisted_session.py",
+                      "sha256":  "125AFC4D88DEEBB1D0B9CA8558E59C4FB24608FC7D4A594AB3D1C27250E7CCC1"
+                  },
+                  {
+                      "relative_path":  "app/auto_apply_engine.py",
+                      "sha256":  "C5602D940C8F2F96495EDBCC2D49B49284F34FAD277F704E416D18CA0AE1A2E1"
+                  },
+                  {
+                      "relative_path":  "app/auto_scan_report.py",
+                      "sha256":  "F1FF371D2A7B0A86E6C41098E913DFC78BB6FFF78BF9460AAB761CE555E87B81"
+                  },
+                  {
+                      "relative_path":  "app/browser_manager.py",
+                      "sha256":  "3EDE74141C278BD195CBF2BD43DEA5211EE01E0C0FC619BCB85173032E35E92C"
+                  },
+                  {
+                      "relative_path":  "app/campaign_classifier.py",
+                      "sha256":  "F1AD1C2B03CBE8FDF0A0F1AA51744F435E9209983CC53244B84562C51B56A835"
+                  },
+                  {
+                      "relative_path":  "app/campaign_page_guard.py",
+                      "sha256":  "10500DEC96C9FD6C8492E5B22DC59C5D60731486C0995368054D731F27A6EAE1"
+                  },
+                  {
+                      "relative_path":  "app/direct_prepare.py",
+                      "sha256":  "43B9BD90F1D15558B500D6464B201BF3E3F3266414108913903129A48A615D82"
+                  },
+                  {
+                      "relative_path":  "app/engine.py",
+                      "sha256":  "BCA61AE1F91AEE822EC566F0A776D2D5C84A0C5B0F11B8374C3265A4C519BBED"
+                  },
+                  {
+                      "relative_path":  "app/entry_history.py",
+                      "sha256":  "5BB48B7C78F3B9F2918C816ED6D4584D06F94790B726CF1228B98DA00A77BEA0"
+                  },
+                  {
+                      "relative_path":  "app/entry_logger.py",
+                      "sha256":  "AAE584417D531EBF7E5093891483B984165E0FB6BA3FC7C80B7EE5EE7E90C661"
+                  },
+                  {
+                      "relative_path":  "app/entry_navigator.py",
+                      "sha256":  "5F9928D63C2BA87A3085C51A2C8D68A95DE0BEE4AF7110365120295309A31B50"
+                  },
+                  {
+                      "relative_path":  "app/entry_url_resolver.py",
+                      "sha256":  "62B0F58E8C046B90D7E1AFF345331E35A7E545EC287DA4F690FC09398E5C8F5A"
+                  },
+                  {
+                      "relative_path":  "app/extension_bridge.py",
+                      "sha256":  "DC1D73CB1A5B9EEACA225AA66507904BB19E8C7123185A995C6AE7907B565FFC"
+                  },
+                  {
+                      "relative_path":  "app/field_mapper.py",
+                      "sha256":  "2D662935498FDD5C7FEFF52A19B41EC8483DD6CABCC854CE14C578215647F864"
+                  },
+                  {
+                      "relative_path":  "app/form_analyzer.py",
+                      "sha256":  "CF0A43D202AC6E09821EAF9F8E577D564DE034F29D0E4C3690A3633D272367C8"
+                  },
+                  {
+                      "relative_path":  "app/form_detector.py",
+                      "sha256":  "A167848F8FC6E91B404E44B463B2E8C257D6A0C5FE36D947860EF20220B6AFFC"
+                  },
+                  {
+                      "relative_path":  "app/form_filler.py",
+                      "sha256":  "51AFABC53C734019A49F2AA90CF797E43C26FADA6C252E108D43D1CF8CE11396"
+                  },
+                  {
+                      "relative_path":  "app/form_readiness.py",
+                      "sha256":  "3A48FD2CB6A9DE7A100B6A7E2AEC7A712C834BE575F6D6869A9A6CA82E49268D"
+                  },
+                  {
+                      "relative_path":  "app/harness/__init__.py",
+                      "sha256":  "2829018ADE9DA94029A4670FA4100612A50E77AF75B536BE481E1F1C6D93C37F"
+                  },
+                  {
+                      "relative_path":  "app/harness/kensho_harness.py",
+                      "sha256":  "474EDE7AC482AF4D5C03121152E02F4243F99317AE3B79AF392AF82CD7255C70"
+                  },
+                  {
+                      "relative_path":  "app/harness/run_store.py",
+                      "sha256":  "1CD6AF8CC44BF1E274AA8875F7DF932F95CD9DA66C823035BBDC549FB8BF8324"
+                  },
+                  {
+                      "relative_path":  "app/harness/safety_rules.py",
+                      "sha256":  "49ED1C5F6963934F72D3B0C6AAFEE6FE5E38DFB066D4E2914B3614C1DF2AC45F"
+                  },
+                  {
+                      "relative_path":  "app/harness/task_models.py",
+                      "sha256":  "018504FAC241F967EB220A4DFB6EB6EE7F3B4F8A5FC4205A1E0D8D4E98FDE0B9"
+                  },
+                  {
+                      "relative_path":  "app/harness/x_research_harness.py",
+                      "sha256":  "57029FF94CE2B7B332FC32E8D181E0D35579C7805C131CA1878A5ECD0B79B758"
+                  },
+                  {
+                      "relative_path":  "app/integrations/__init__.py",
+                      "sha256":  "65375E3DEFF1C112B0C61E1BBED0D8389F3F86D42BA088F4364D9B26883F0DF9"
+                  },
+                  {
+                      "relative_path":  "app/integrations/x_post.py",
+                      "sha256":  "D15CC8191A82D1BCC31CB9B1A84E8CE60424621936AAB42007B98BB4A5F8EA85"
+                  },
+                  {
+                      "relative_path":  "app/knshow_scraper.py",
+                      "sha256":  "57A6785C8F0C83B2E7280CEF6D56602153193FB07D8A92E899135C9782E9FB5C"
+                  },
+                  {
+                      "relative_path":  "app/later_queue.py",
+                      "sha256":  "844CCFB5451001785108D9F7B00C7452D6CDB7578EF69B1BA0160DFB6BB4E51A"
+                  },
+                  {
+                      "relative_path":  "app/models.py",
+                      "sha256":  "11B6A3FCB6A7E03A1BDCFFE5D1CD3EA601B4803576C4ED4B10A6B536C71C8276"
+                  },
+                  {
+                      "relative_path":  "app/paths.py",
+                      "sha256":  "4ABC46587BBF80F858CB0440458A03020129EB67E772DA19A9D7E3B49D07474A"
+                  },
+                  {
+                      "relative_path":  "app/pilot_safety.py",
+                      "sha256":  "4EFA2A7F8AA8B3C9CCB08A6B94B02524B31B777A47BB50CBC54EDFED183F2090"
+                  },
+                  {
+                      "relative_path":  "app/pilot_validation.py",
+                      "sha256":  "726F707808D56E7D5955FF1FFAB33258F0986FC61EEF590CC9A4C9FFDB46CA2A"
+                  },
+                  {
+                      "relative_path":  "app/pre_submit_verifier.py",
+                      "sha256":  "5FAE2C4F27E679CE845F91F7628EDE94E6F6676732D29C189FA15C7EF0699B17"
+                  },
+                  {
+                      "relative_path":  "app/prepare_all_status.py",
+                      "sha256":  "2AB7347A5A553A69A3DF5300FAAD3BD052C2BC8C601A590A7DF1CBE70F73F099"
+                  },
+                  {
+                      "relative_path":  "app/privacy_guard.py",
+                      "sha256":  "F2F4058DF9D02CABD61547833E4E3C2EA501F344582C96EEBFE3D84631BA7B72"
+                  },
+                  {
+                      "relative_path":  "app/product_guardrails.py",
+                      "sha256":  "97A6E95BDC360FBAB72C8A26BFC7A477096B4AF7317D68CCD72B6C37B386160B"
+                  },
+                  {
+                      "relative_path":  "app/profile_manager.py",
+                      "sha256":  "2B7B52D25710065845DD091170832F69DF895562B856550C41B0C3DDF5A7498C"
+                  },
+                  {
+                      "relative_path":  "app/real_site_trials.py",
+                      "sha256":  "F21F8CB6B709D1C820C92B23C017F5E0F6D2B2D3D86283B670BA21C7A2E440BF"
+                  },
+                  {
+                      "relative_path":  "app/release_report.py",
+                      "sha256":  "9873C5CD6E93118C4F07C6C373804B4A0EA9241FE333FD5BFEE23EFA806BC402"
+                  },
+                  {
+                      "relative_path":  "app/report_generator.py",
+                      "sha256":  "EB19DAB55F1A3B1CA122657015EFC80C1A342BACC04E51EFC98092A42A95FBD9"
+                  },
+                  {
+                      "relative_path":  "app/research/__init__.py",
+                      "sha256":  "4B92FB3AFC5217EA6C0BA9137B73EA296F07663A6EF22B318686A039B841F7C8"
+                  },
+                  {
+                      "relative_path":  "app/research/hermes_x_search.py",
+                      "sha256":  "A9A0AEC5F581FED3397797E47CD88FD191792543B9B96E0E3650222A05F35744"
+                  },
+                  {
+                      "relative_path":  "app/research/note_material_builder.py",
+                      "sha256":  "08CD88064724B024DC4EFB417C5540EC501824B92CA191ED0FA853E477B69EC1"
+                  },
+                  {
+                      "relative_path":  "app/research/x_campaign_filter.py",
+                      "sha256":  "5B930FE2FF1AA66E3724103ACD493DA2EA114029FE5DAADC0BA928D8A091F134"
+                  },
+                  {
+                      "relative_path":  "app/research/x_campaign_parser.py",
+                      "sha256":  "5BB938B16E6E48161DD77073CE7F96503CA1E41201A5B9A59AD57A916A896DE8"
+                  },
+                  {
+                      "relative_path":  "app/research/x_claim_analyzer.py",
+                      "sha256":  "749667A97C920E3F5FDC61721C8E093F30B8E3A2D51FE69B4F9536B0E61E4B5F"
+                  },
+                  {
+                      "relative_path":  "app/research/x_search_tool.py",
+                      "sha256":  "E5164CAEC2DFA8C2D1453869B858A153A9B02F5F041E977F39A2F01BC08ED981"
+                  },
+                  {
+                      "relative_path":  "app/research_engine.py",
+                      "sha256":  "25DB1C1BEF07355EF489F3E027053CB2E6050F92A6CE65F950097941C9BF40CB"
+                  },
+                  {
+                      "relative_path":  "app/research_loop.py",
+                      "sha256":  "812258C5F0013D25B8B5CF7246CA3F8AF26FFBA3D69B9F718781E0A4B824890B"
+                  },
+                  {
+                      "relative_path":  "app/run_mode.py",
+                      "sha256":  "BA1FA8FF9A113292756210BA74570522A6BF7FBE26E03B7B44E4B0E7337E641F"
+                  },
+                  {
+                      "relative_path":  "app/safety_checker.py",
+                      "sha256":  "932F6251D8D7D605D8D1553CC4A188BB14845C2E93BABBFE4213096174C45AC7"
+                  },
+                  {
+                      "relative_path":  "app/session_state_machine.py",
+                      "sha256":  "2976750B6ED22F4BC562F45A97A0D6B0E133E7960B8B35A793C16E8D1CB26B2E"
+                  },
+                  {
+                      "relative_path":  "app/site_templates.py",
+                      "sha256":  "B2404DE09CADEBB9E0CAA72C5010D2D6E2FCB7399C2B47F75CA6440C3DAC4E64"
+                  },
+                  {
+                      "relative_path":  "app/storage.py",
+                      "sha256":  "F6DEC79197D6891526D14ACC5BBC20299BB077F76B366CB1EAFB51B613EF8022"
+                  },
+                  {
+                      "relative_path":  "app/submission_guard.py",
+                      "sha256":  "C59D23AF18FDC7157EBE06980D4AF917DCFE68BCAE2B0B19AE3175246C068B6F"
+                  },
+                  {
+                      "relative_path":  "app/submit_adapters/__init__.py",
+                      "sha256":  "8E8393BFE343E27287892D254796836C55F70371D74A6D8F1D777E9B830F47A9"
+                  },
+                  {
+                      "relative_path":  "app/submit_adapters/base.py",
+                      "sha256":  "0F03F10F82A255E2B5CE15F5CAC602BB8A8919445A19CC34B5F441124E17A041"
+                  },
+                  {
+                      "relative_path":  "app/submit_adapters/dry_run_submit.py",
+                      "sha256":  "F186A48EDFC0F7933F39AD14A655A301B3F27F135F63502673DE08765A0960BF"
+                  },
+                  {
+                      "relative_path":  "app/submit_adapters/mock_submit.py",
+                      "sha256":  "3E3A25EEDFE4677C54B78A8A5D43CA0CBFC415A0B777A6A98E5DCADDE727EFE0"
+                  },
+                  {
+                      "relative_path":  "app/submit_adapters/real_submit.py",
+                      "sha256":  "7F79B6066060AB54CD58EF006A4F94E3A5D286E615019E092A5C5F4582D5002F"
+                  },
+                  {
+                      "relative_path":  "app/submit_controller.py",
+                      "sha256":  "02FAE718B755FB9C79963AA65CAFD01C83FECFFEDFDD01233F4F3B584F487CCF"
+                  },
+                  {
+                      "relative_path":  "app/version.py",
+                      "sha256":  "33D1CABCDC63DC12AFE0751D325531A3A57E9DB3D1D1D1E0E248E07498E66892"
+                  },
+                  {
+                      "relative_path":  "auto_scan.bat",
+                      "sha256":  "063859EEEAA532B071A84DF5FB45ABE01318E7F0A2FBFE28AC6B2FDF23541F8D"
+                  },
+                  {
+                      "relative_path":  "config/allowed_submit_domains.json",
+                      "sha256":  "C2DAB063AC1E4DEFAB0764FD14FB093F111A77AF01E3F2E7EC5968ABEE9135A4"
+                  },
+                  {
+                      "relative_path":  "config/product.yaml",
+                      "sha256":  "83AED09F831B5330BAC57AD79E4C1E4A9C3E4E843B75B28B4F0A3DD8EF2DC4E1"
+                  },
+                  {
+                      "relative_path":  "config/profile.example.json",
+                      "sha256":  "5D08708D5BE4EC1D4113A0CFD13F3ECABE5E12DE560DADD32DBF6C8AC918C2E3"
+                  },
+                  {
+                      "relative_path":  "config/rules.yaml",
+                      "sha256":  "6DBCF9D4B4781BC7039F9E5B2C7F8FA6585713824D00CECD018EBDD3C2FA5373"
+                  },
+                  {
+                      "relative_path":  "config/site_templates.json",
+                      "sha256":  "E0E198115CECDB63042CD9DF1CB21F2A7288E0A8560D1F5ED1DF4E569701691E"
+                  },
+                  {
+                      "relative_path":  "data/pilot/manifests/5site-pilot-v1.json",
+                      "sha256":  "8E49E15C4F937B1FBF0879760677C68E29D2D289A4648DA5BBE749B4FD52651C"
+                  },
+                  {
+                      "relative_path":  "desktop_app.py",
+                      "sha256":  "24B6BF245FDAEC96E9AA805C39C542870E40AEDAC771AA3A53D41E61303427FD"
+                  },
+                  {
+                      "relative_path":  "docs/5SITE_PILOT_RUNBOOK.md",
+                      "sha256":  "A5A79A5DE967887D50A1FD0C041B276A219780064D12CCEC5D71065F6B00B7FD"
+                  },
+                  {
+                      "relative_path":  "docs/CODEX_HANDOFF.md",
+                      "sha256":  "9AE4B22A154FCC21722458DBD9FC2F681B898B927C8B616AC78BDE31ECCFF23E"
+                  },
+                  {
+                      "relative_path":  "docs/EXTENSION_REAL_SITE_TEST_RUNBOOK.md",
+                      "sha256":  "43DA4B6C1C1D27837DB9AE3A1785A94A2CC6B6AD91642A493B7E134CC7DCDD37"
+                  },
+                  {
+                      "relative_path":  "docs/EXTENSION_SECURITY_MODEL.md",
+                      "sha256":  "E238B1E8A99FD85901015FABE37167EF4C39884697B6E095DF94568F5613512C"
+                  },
+                  {
+                      "relative_path":  "docs/hermes_x_search_setup.md",
+                      "sha256":  "5DD5F54A00CF906EE838A9FEE5AB5ECBBF527ED66F3CD682CE31FB0E2E0DB650"
+                  },
+                  {
+                      "relative_path":  "docs/kensho_harness.md",
+                      "sha256":  "D5E83A1E6ED5CF7FC0A719AF4EAF2C1830CE9A31EFB504C421BD30D7926ABA5C"
+                  },
+                  {
+                      "relative_path":  "docs/REAL_SITE_90_TRIAL_GUIDE.md",
+                      "sha256":  "18FA6CB2CFBCFADCE9BF0150B412CB8D3B32EE283F224850C6E2305F17A745FA"
+                  },
+                  {
+                      "relative_path":  "docs/REMOTE_OPERATIONS.md",
+                      "sha256":  "F21868C3C86FDDD3635DD4421F99E55B84B9127C7EBF33DD5FA9855921BC0F1B"
+                  },
+                  {
+                      "relative_path":  "docs/SELF_TEST_LOG.md",
+                      "sha256":  "1042DD3CE91C15518C9BFD7C9F17073AD3F4C433E7F753B6D6D42AB79244676A"
+                  },
+                  {
+                      "relative_path":  "docs/SITE_TEMPLATE_GUIDE.md",
+                      "sha256":  "BCE570CF2F08BA8D4932C3364E498CC11150DBBFAC2A486583E1C78B0C936F5E"
+                  },
+                  {
+                      "relative_path":  "docs/SITES_DASHBOARD_GUIDE.md",
+                      "sha256":  "DCA41C665A309DCA52393F322D92EBB18BECC6E7FA534272DCC61B4CF9FB6993"
+                  },
+                  {
+                      "relative_path":  "docs/superpowers/plans/2026-07-10-assisted-application-session.md",
+                      "sha256":  "FA2A8883D917A59455C3F037C1011CDAAD4CE8526A0CA5484976F4E16D1EB0F2"
+                  },
+                  {
+                      "relative_path":  "docs/superpowers/plans/2026-07-18-kensho-v1-completion.md",
+                      "sha256":  "6468EB09D83DEA85EDB5A7F1F975E31A8CBFD7953B84793BEB38D67D56889A6A"
+                  },
+                  {
+                      "relative_path":  "docs/superpowers/plans/2026-08-07-assisted-session-unified-ready.md",
+                      "sha256":  "7DC5317CD075AE24C7191AF855743465A293F8EA90EBEE3D82992071C7449745"
+                  },
+                  {
+                      "relative_path":  "docs/superpowers/specs/2026-07-10-assisted-application-session-design.md",
+                      "sha256":  "2BCE292A711F075E70C990A431BB67AEF310AB3F900ED5C9E99FB132965A5D26"
+                  },
+                  {
+                      "relative_path":  "docs/UI_TODO.md",
+                      "sha256":  "7822AB09D203670842F2B4781C462912CB3C476296BD3E41A3D14DEAF6D4017B"
+                  },
+                  {
+                      "relative_path":  "docs/x_research_harness.md",
+                      "sha256":  "10854F45E5546EED77B67D5CACA10F7AFF01914C69617CE1B8AD240DA76531C1"
+                  },
+                  {
+                      "relative_path":  "extension/content/field-matcher.js",
+                      "sha256":  "811C9EB62BA61E7F89092F455CCB21947A22F4D5F98221483FB583E1AAF5D343"
+                  },
+                  {
+                      "relative_path":  "extension/content/form-detector.js",
+                      "sha256":  "AB3007B9BC1B6D8AEAEEA0CCF8AB78B7AC4ECC59B4E54FD7EE610AF2FB951F0B"
+                  },
+                  {
+                      "relative_path":  "extension/content/form-filler.js",
+                      "sha256":  "41AD8CED24E9EDCB7154F764CD559347AE101EB4D1ED178DED5CD7EA9D217708"
+                  },
+                  {
+                      "relative_path":  "extension/content/isolated-guard.js",
+                      "sha256":  "D394FECD4F21B94F8F68CC11D743B495608FAB29E4C649F9B1F664FA0A1A8C89"
+                  },
+                  {
+                      "relative_path":  "extension/content/overlay.js",
+                      "sha256":  "2EDFF36255B6BA5A737A7134A05245AF909A1C739EAC67C340BBC537B8AF3E1C"
+                  },
+                  {
+                      "relative_path":  "extension/content/submit-guard.js",
+                      "sha256":  "5C9E990F38AAB6E90C948E41080403223117041AB9077DE201AA1D4D7F925457"
+                  },
+                  {
+                      "relative_path":  "extension/manifest.json",
+                      "sha256":  "64E813DCDD98B2C9C92DD838F22F6F6C1FD261A34BB4293B9FF9A1C6F0633D18"
+                  },
+                  {
+                      "relative_path":  "extension/options/options.css",
+                      "sha256":  "329AC11800F13181226BE31B6378EDA47AB1DB4F6B5CC5029293400F21DE9C2C"
+                  },
+                  {
+                      "relative_path":  "extension/options/options.html",
+                      "sha256":  "028C4357D861473BF13849CDB672DE00D435AD7C17E1462FF22909E09D41504D"
+                  },
+                  {
+                      "relative_path":  "extension/options/options.js",
+                      "sha256":  "09075B4B8751CAF0DA98B566E1F08C00203BB874029C4917BE380A2360A0C504"
+                  },
+                  {
+                      "relative_path":  "extension/package.json",
+                      "sha256":  "0F3E0E02F99246DC7908E588866AA6E4F84823357E5C8031837B683676286C60"
+                  },
+                  {
+                      "relative_path":  "extension/README.md",
+                      "sha256":  "7875F4B7E36EF8CCCCB9D310972D0AA5DF5194C5A3BE6256354CEF0C269B5085"
+                  },
+                  {
+                      "relative_path":  "extension/service-worker.js",
+                      "sha256":  "394386F74FA1B322B0CE46A3AD898C784939C8B0D26B55493154B3E037ED4929"
+                  },
+                  {
+                      "relative_path":  "extension/shared/audit-log.js",
+                      "sha256":  "71CA3AA6C27D47EAE45652B43EFE1625E1C46BD019D98AB72AD30B65E9B479CA"
+                  },
+                  {
+                      "relative_path":  "extension/shared/config.js",
+                      "sha256":  "14E108A7374989576C4AA6884B81EF26A41EDC078C8FA4DCED18F7762208B1A1"
+                  },
+                  {
+                      "relative_path":  "extension/shared/field-types.js",
+                      "sha256":  "45036E41B0DACC82DB878081CC2A595E9EDECCC17B60B3347078F32445DC3D16"
+                  },
+                  {
+                      "relative_path":  "extension/shared/form-fingerprint.js",
+                      "sha256":  "97691BC0CA7DD80429B292BD3EB333E626E22A4206BCB88B97D7BB3E0D76C931"
+                  },
+                  {
+                      "relative_path":  "extension/shared/form-template.js",
+                      "sha256":  "DAFCC306276E9CBA0F16B8CBB12CE1155234C41F048292BEDE7D99CC947CDD28"
+                  },
+                  {
+                      "relative_path":  "extension/shared/messages.js",
+                      "sha256":  "CFCDFEFC5AB58CC65DA8AB3F85DCB540920E91DB0E24E2A85CF6DD5CE1703373"
+                  },
+                  {
+                      "relative_path":  "extension/shared/normalization.js",
+                      "sha256":  "6A59A1ACC3B993D4FB6831BECAD299EDA642A274A96B4108E7D63C2EF56A33F6"
+                  },
+                  {
+                      "relative_path":  "extension/shared/redaction.js",
+                      "sha256":  "A8AB209900983AC09216B5CB32B9724ABF54B25F2C26B4CC328A9B441534D067"
+                  },
+                  {
+                      "relative_path":  "extension/tests/unit.test.cjs",
+                      "sha256":  "79E77C85AC0291D70A01D23402C5D9790F66E54C0FE44FD6C34FA86574F648E8"
+                  },
+                  {
+                      "relative_path":  "mail_importer.py",
+                      "sha256":  "6B508DDE46146CDCE498265A281FE19C303C94C505AD03FD574D38C5106B2D13"
+                  },
+                  {
+                      "relative_path":  "main.py",
+                      "sha256":  "E45A8516B898E658303A07F069EDE1A125CD0CB6A242DE32A1A0077BB83F61B6"
+                  },
+                  {
+                      "relative_path":  "MIGRATION_PROVENANCE.md",
+                      "sha256":  "F3BC8A0B0EECAD10B2D1A0B6944C3CF23AC2073790EEC61B3E79D91A4C0F5ECC"
+                  },
+                  {
+                      "relative_path":  "pilot/__init__.py",
+                      "sha256":  "1BE22F5058E7A45E034B1372E0123A01C341EA460C458ED7D441EA52EA80BE2B"
+                  },
+                  {
+                      "relative_path":  "pilot/build_fingerprint.py",
+                      "sha256":  "C9F48712885391B0E5D76F79CE5EEE6C637107D64E6608722153EE2655478F56"
+                  },
+                  {
+                      "relative_path":  "pilot/preflight.py",
+                      "sha256":  "293BDCD8471E5EE64C3DF1F5178A7E6CB324CF164D3268F65EA0610B79A7A91B"
+                  },
+                  {
+                      "relative_path":  "README.md",
+                      "sha256":  "DAB76CC7557C5B1D8C3C6DBB7B91404B938EC09418C4E33FCB88B162FBD392C7"
+                  },
+                  {
+                      "relative_path":  "RELEASE_NOTES_v0.4.3.md",
+                      "sha256":  "3CFEF803AF21AB17D3E40ED42522E221BD8E18794B9D5064201CD974F5144BEE"
+                  },
+                  {
+                      "relative_path":  "requirements.txt",
+                      "sha256":  "BFC97899787F952843E6EE2587390E11C704AA32BBEAEC94336D850B93252A31"
+                  },
+                  {
+                      "relative_path":  "run_web.py",
+                      "sha256":  "03C60BF4827E5D4231F450C98CDF6FA793C2EC4B961FB137A42B82FCCB137B88"
+                  },
+                  {
+                      "relative_path":  "samples/mail/fruitmail_sample.eml",
+                      "sha256":  "2DB7CC5B06FC1AC9CE391551E2C2CEA8E69C655CB6B0FAA0CA4A460C890B3ECD"
+                  },
+                  {
+                      "relative_path":  "samples/mail/fruitmail_sample.html",
+                      "sha256":  "09DB3BAA034B4D6D24D9D51B596DC29F654C2E3364193CD1E723D05512CEC370"
+                  },
+                  {
+                      "relative_path":  "samples/mail/fruitmail_sample.txt",
+                      "sha256":  "D02D1032A91B65987E7A99A2B8CAB808CCB0D709CBE2F830D60B83E38A407F8F"
+                  },
+                  {
+                      "relative_path":  "scripts/__init__.py",
+                      "sha256":  "34AF32587CD531EE87652A4852BA133C0FA0B4068847ADA1A131096AE4C3C2AE"
+                  },
+                  {
+                      "relative_path":  "scripts/check_hermes_x_search.py",
+                      "sha256":  "AA33DB7D4E568B40F4E6CDCEE6686AC1F13192B312FBAE0E8779F22906BABE05"
+                  },
+                  {
+                      "relative_path":  "scripts/check_remote_readiness.ps1",
+                      "sha256":  "C78EBB44CACF25F7BA908B8537C52FD29EFEC4013BBECBA549F8D42FE91D1299"
+                  },
+                  {
+                      "relative_path":  "scripts/prepare_direct_url.py",
+                      "sha256":  "BDC33B40DDF149DE13B40287008BC771E2BA06997F6D362D0F92013A07FF398A"
+                  },
+                  {
+                      "relative_path":  "scripts/research_x_kensho.py",
+                      "sha256":  "B966F8AD262689C32820B8AC03A5AF39DA97F7A55801C4F2A7CC7E6085CEBFB8"
+                  },
+                  {
+                      "relative_path":  "scripts/run_extension_local_smoke.py",
+                      "sha256":  "3A3210B9C86F0600A1BE8E188243F50173AC2EDA1B71618DD2B7C03CC64BEB41"
+                  },
+                  {
+                      "relative_path":  "scripts/run_x_search.py",
+                      "sha256":  "55C7F18F8F3086272DC4FC9B9765FE4F7627AFDC5A1C4D1B718754950F39B086"
+                  },
+                  {
+                      "relative_path":  "scripts/start_remote_ops.ps1",
+                      "sha256":  "16250FAE0839AB0D245B28F72CB05801491690D9B7DA5D7ED9D511AC79CBCAD2"
+                  },
+                  {
+                      "relative_path":  "scripts/stop_remote_ops.ps1",
+                      "sha256":  "30B925627501933B765883D001C82FF335AEA3610973AD22C7C967B32A791800"
+                  },
+                  {
+                      "relative_path":  "scripts/windows/x_post_assistant.ps1",
+                      "sha256":  "551B61441DE4A2A840CEA80742B143F3550A00EE234CDFB8C948EDCE0BB623F3"
+                  },
+                  {
+                      "relative_path":  "scripts/x_post.py",
+                      "sha256":  "520E10EB89B47AB9DAFF24E619CB66E18AF1D3277DC9607B7DC3756C0371C602"
+                  },
+                  {
+                      "relative_path":  "tests/conftest.py",
+                      "sha256":  "CC7FF70F94B199963F45C84BA26AA88C8109E683983B98813382A3219B7AB8AA"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/combined_japanese_form.html",
+                      "sha256":  "1FC300D2401A67E5DC507A843921A4565FB65AF4193E330A6DBCF11C5CF59BB7"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/complex_form.html",
+                      "sha256":  "EA1509F8959D4E9380F234D853AC293ECA77D3DE949DC7890A8C9F9620C381E4"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/confirmation_form.html",
+                      "sha256":  "79AC856063F1C0CE24D2595A7CC7EF180E0A28AE1E6BAD251A74919FFB3E148D"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/japanese_split_form.html",
+                      "sha256":  "07265CF7FCCD3B466C24A5D503E25372077123AF67F4C17A8DC561764FA4E68F"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/mapping_safety_form.html",
+                      "sha256":  "5962A0434472B7A7841FA6DDDFB8FB0F45B0F4A96F3F625713FC058EEA1EF9B1"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/opaque_iframe_form.html",
+                      "sha256":  "09503E9C9D29C836B137DE933EBFB0E95A683EF556BD3E2DA010B7684798899D"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/safety_fields.html",
+                      "sha256":  "1D913552125D0DD413AB8A24E3B38931037916FFE6D27AAF726AAB356AB0944A"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/security_form.html",
+                      "sha256":  "EB4541CB11DCC9C8C00F586805636672B4D30AC795425D130FE9BFCFCA0DC6B0"
+                  },
+                  {
+                      "relative_path":  "tests/extension_fixtures/standard_form.html",
+                      "sha256":  "43BCCA1298CD2BF63833721EC88460D21233E3FFF4DBA7A75DE4979CC363FB6B"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/address.html",
+                      "sha256":  "3852E6984609D7862B6EC330D76169BAD07E5DFBF5F6B7966CFCC4DEE9EB7395"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/alt_submit_text.html",
+                      "sha256":  "E41BAA06A55EA39719D7F1ADCEA8D62B8CE7B21BAE424CE2DC82C2911B5FD2E1"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/basic.html",
+                      "sha256":  "07912549A7F7E792B8DFAB674CC297FCF9EF477A1AE524DE78A465EB9E976A0A"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/captcha.html",
+                      "sha256":  "B371D193AC3AE3A4EA4494957F6491A4D0D58448ACA2CF43053A79DBA7EEF414"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/changing_button_text_mock.html",
+                      "sha256":  "258273A2D804732867B4EAA19C8C40FC08E06374797591DD1B07AB84D87D1466"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/comment.html",
+                      "sha256":  "7407BA1385BDB4766F593CE0142CE2C5DC9D8EFDD3E5102A95C23FBAC45C5DE2"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/confirm.html",
+                      "sha256":  "4C4B3B143ACA7AA0E8F74CC5B9107A93A1D52B740B2D524765F6E1E5E46324BE"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/confirm_submit_confusing.html",
+                      "sha256":  "0C0F404614E77861E61106168C5049734CFC6A881EA0746F1B4D54BDE9C6FE41"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/confirmation_flow_mock.html",
+                      "sha256":  "62F31A228AB62FE7360859226E67448BA4466E99016166A446D4DEB773FF92D8"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/confirmation_flow_mock_confirmation.html",
+                      "sha256":  "55E899F895DE86D87ACB098C6BE30B07BE60151C1405374AAF4DC008CE9702AB"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/confirmation_screen.html",
+                      "sha256":  "0B0C1FDE6DEB73CB9E2B34D30F1FB6084790B0610503749837EA170953AA57EB"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/confusing_submit_mock.html",
+                      "sha256":  "3ABD7E62D68BEC413E640789E1091D2DACFEA94A7228119CEC2F7804B6C13661"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/consent.html",
+                      "sha256":  "AAF76B3CC59A948E1691E18E27C2F4044498988D0682D334F44E55DF8A0C95B8"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/entry_form.html",
+                      "sha256":  "BFB61D32809C7A7AB90837906A17B0F7E29A1C12F4987155AF7AC4C8D66DF343"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/entry_landing.html",
+                      "sha256":  "665324DD6E21EA4FDB34B76E8CA61C276A165AF4B0D7D83D4574F0212DF53E2A"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/expired_entry_form.html",
+                      "sha256":  "E56F6BD11E34C7CF6E9289869B6D7C65D34662CA12C08306D5C941AC3027B56A"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/free_text_mock.html",
+                      "sha256":  "FAF9AD4DC8DF9775982E3E94EFFB5A2C598BAE09A64271996793CD6E1C16DC02"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/fuzzy_choices.html",
+                      "sha256":  "065D12826AAF2D07BBD84638A07B22BB9DCE09BDDB843ED74B4103926071B86E"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/login.html",
+                      "sha256":  "C368984CFD43244A28CC3841BF9B214FA2671BF8C41B75B2CE10FB82EFB7066D"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/multi_quiz.html",
+                      "sha256":  "E9FBC2F90B5114B40B99FD1E469CD402E152F3D90EE6E76D36402FB8FAA8F844"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/multi_radio.html",
+                      "sha256":  "45C8917E6D2168E3FA795E10DCC16AE9E3288622BFC3BFAAE21DE8DEB8C40543"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/multi_radio_group_mock.html",
+                      "sha256":  "7640D51DD0ADF8F9BE676E76BC6903C74FFF6AB553A2AC562F9E9CEB165BA87E"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/quiz.html",
+                      "sha256":  "F25B089AE218E38ED40E9EE9825B8F2D43E5759C093ED2D484CB7BCA7A44E082"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/quiz_ai.html",
+                      "sha256":  "7762F41026A83C362B60D7D83C6FF9934234352C56BD5713C4E51084002ADE4C"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/quiz_multi_question_mock.html",
+                      "sha256":  "9706EF902599E3AA87170D1101242C57E4CC13330045F36368620564F4DB192C"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/radio.html",
+                      "sha256":  "AFA5AC51B5CAE3782E5C8F88D5768605C4EF5919358718953F782ECA835B1A7F"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/required_checkbox.html",
+                      "sha256":  "E0A3208958C3890B761BE55F1DC1F9B503CC525F84A76ACAE49E0207C82BF723"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/required_checkbox_mock.html",
+                      "sha256":  "A90D1A5550671C3D56EFB66900DA62EB08754F04E6D28D2DA0C8C102BC69ABA2"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/search_only.html",
+                      "sha256":  "EED5B29780EF2576164117EE4CE3ED579CC837971A5BC61DA90624DAEF0078DB"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/selects.html",
+                      "sha256":  "FF3A8886C6C1F8BDA231C22D9500FB18A7AE105FB60AD6CD94D8F6A7C3CC8D43"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/submitted.html",
+                      "sha256":  "3B0350ED284611355FBCA3A12F482EA9CFA8E9B704C7D9B46C0FC326C4E36F6C"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/weird_select.html",
+                      "sha256":  "DC85ABC093A536F5CD55C0D34696CFBFA12B34D00D6724E3516A696DE2793F2F"
+                  },
+                  {
+                      "relative_path":  "tests/mock_forms/weird_select_mock.html",
+                      "sha256":  "1236FBC6C067C9B9D71EFE88F6885082BB8F1973CF3803664F7A1C1769E9C661"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_control_api.py",
+                      "sha256":  "5EF4CA83A9BEDF25B4A0909C0A1DAE5B47002CD66B36C306F19677F87C3B8D8C"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_control_job_store.py",
+                      "sha256":  "E05CB20CB19E0BAA810F43987516E2C594DD34A39A8222317F3065491F835C58"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_control_no_submit.py",
+                      "sha256":  "831EC14BBAF789D8C7824AC9E97822787AA5BC4D3F62E92D07A2F4D716D442F4"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_control_safety.py",
+                      "sha256":  "372C508DBE37DD4B8EC850347EB5DF92A00E5F3D91D4F841FD20ECECF76E5370"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_control_schema.py",
+                      "sha256":  "2902385429DB7AA553D47FDC4F7BDB485C55927E5CEE8046F91DD42B7B0B43B0"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_dashboard_reader.py",
+                      "sha256":  "A7691D1362F6FB72797EA3BEC4689935C76AA87894B605F493388AAE5240696C"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_dashboard_schema.py",
+                      "sha256":  "3913B95737E39BD6FC87D31426E079A4DEBC6AB907E0719AC004D6FE0B4E8125"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_dashboard_service.py",
+                      "sha256":  "BBE011580302F307E76BE0F6760479E4B2F598DF28B6A041711083B5B1FC42AF"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_org.py",
+                      "sha256":  "9C28BCD7F30A6A01D4DCC860EFB667BBD44E6914974473C06D5F50A034CC5E5E"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_run_log.py",
+                      "sha256":  "19A360A7ACE7D0DC96013F55864313C68ECA957DF09A16BEEE00F2524FFA5391"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_status_generate.py",
+                      "sha256":  "63FAEB2F495A91B476A9A0A20F7FDEF97A7985551CAED775BAC505A5F9A5DEA9"
+                  },
+                  {
+                      "relative_path":  "tests/test_agent_status_run.py",
+                      "sha256":  "A0AEB875F5BB9DF9BBC48D4E35AADC1D06788D9A0F0A9BFF91FB5C93BEFFC942"
+                  },
+                  {
+                      "relative_path":  "tests/test_assisted_session.py",
+                      "sha256":  "AC61840CD06F63D80F4F1AB67AF85820F651942FC90994AFB07FE98F574A14D3"
+                  },
+                  {
+                      "relative_path":  "tests/test_assisted_session_state_machine.py",
+                      "sha256":  "9897DDA84C4C615D23A33EA9674C71FAE1ECBE7D76F419328E97C3559DF98012"
+                  },
+                  {
+                      "relative_path":  "tests/test_auto_apply_engine.py",
+                      "sha256":  "F2E4F0496989479997D58945751B078EE161363D00CBE09C20468DB3068F725D"
+                  },
+                  {
+                      "relative_path":  "tests/test_browser_manager.py",
+                      "sha256":  "3CFB7C57779755B6BDD548E71AEEF793EAA4B40204B5DAB73903F47BEFAEFE79"
+                  },
+                  {
+                      "relative_path":  "tests/test_campaign_page_guard.py",
+                      "sha256":  "57BEFED1CEB639F5B0D0CEECA3D23C1E9E41264111A6A4DAB7CBF166EB7FC879"
+                  },
+                  {
+                      "relative_path":  "tests/test_campaign_selection.py",
+                      "sha256":  "727497A3069C29FAFD0A27EB0C9E1919A082EDDC8D9F757AE12DEA33A65D980C"
+                  },
+                  {
+                      "relative_path":  "tests/test_classifier.py",
+                      "sha256":  "88C6A920852E2B6A39D8D3DD54692899FEF948D18958F3655DC0417B8891A43E"
+                  },
+                  {
+                      "relative_path":  "tests/test_desktop_ui_logic.py",
+                      "sha256":  "1D3F87B9056C94342604AE98B7C1C467BBBE0D319193F96CDEC0435DD14B3A9D"
+                  },
+                  {
+                      "relative_path":  "tests/test_direct_prepare.py",
+                      "sha256":  "DAAAC821D7AB39703283B1F3B9B2C9E6E3702259688BC606E9B4A556FFC30751"
+                  },
+                  {
+                      "relative_path":  "tests/test_duplicate_detection.py",
+                      "sha256":  "671E000B86EDEFF1EC808CB25B68D54074CAC177805E821F215C1DB4074FA7C2"
+                  },
+                  {
+                      "relative_path":  "tests/test_entry_history.py",
+                      "sha256":  "B711679859642542A62457A83889609D817A6A038FAAFF88500D7B259F2B6176"
+                  },
+                  {
+                      "relative_path":  "tests/test_entry_logger.py",
+                      "sha256":  "CB17A42B64AB9BEE2977FAE137BDCFE17611EE5F2222E0F3519D82D80A4154BC"
+                  },
+                  {
+                      "relative_path":  "tests/test_entry_navigator.py",
+                      "sha256":  "DE632E74520AFAF4143C912F622A582E168CED909C5FA606C6A86DB586E49B78"
+                  },
+                  {
+                      "relative_path":  "tests/test_entry_url_resolver.py",
+                      "sha256":  "385E22D023A205F6CC923D90D78C3AEA5C45511BCF376CE34533D2CAA4130DF7"
+                  },
+                  {
+                      "relative_path":  "tests/test_extension_bridge.py",
+                      "sha256":  "C7BF006C69A921340552D28EB70F5A9A586C5D4C587B5B2654815490D66B911C"
+                  },
+                  {
+                      "relative_path":  "tests/test_extension_local_smoke.py",
+                      "sha256":  "C04BED6E1B826A3B3C102738A06CA60C5BF0C9592B757FACFA39E17E26373F41"
+                  },
+                  {
+                      "relative_path":  "tests/test_extension_mvp.py",
+                      "sha256":  "F94BF7DA93AFF2C0A7041A53B67F27B4AB258226418682B6B79925B9D83722C7"
+                  },
+                  {
+                      "relative_path":  "tests/test_field_mapping_safety.py",
+                      "sha256":  "D4E43C2200B6C33A5E1F54158738BFEE9F3F2D16CADDE938726963D21C75FDD5"
+                  },
+                  {
+                      "relative_path":  "tests/test_form_detector.py",
+                      "sha256":  "11E4B29EC0C8690970A5B935CCF601F321E0877363F33F620DB4E787AD6FBE75"
+                  },
+                  {
+                      "relative_path":  "tests/test_form_filler.py",
+                      "sha256":  "0413059842D8E19E90D5CFEBD955BC49D1619BB02950F40A305F46740977F88C"
+                  },
+                  {
+                      "relative_path":  "tests/test_form_readiness.py",
+                      "sha256":  "C52ED10B1FA14C801EDE720116261ECF4B50D7C228301229EF6A1DA62607AD56"
+                  },
+                  {
+                      "relative_path":  "tests/test_harness_timeout.py",
+                      "sha256":  "D6E6F3351A907017C809FC41D70BB46F8301D598F6E7DB6A050F9A88474155E8"
+                  },
+                  {
+                      "relative_path":  "tests/test_hermes_x_search.py",
+                      "sha256":  "A2BD5A34301E2966C29F2FE1120A7FF8BECE16D512C7503D64F614089559A671"
+                  },
+                  {
+                      "relative_path":  "tests/test_hermes_x_search_check.py",
+                      "sha256":  "37D2A92C350BCF212E32BC209B42027AD3245467BD2B9948ACA731EB9AE23F70"
+                  },
+                  {
+                      "relative_path":  "tests/test_kensho_harness.py",
+                      "sha256":  "1613742F536C73671059A65838967CA9125A4CE3685F55D55A61073448BAE396"
+                  },
+                  {
+                      "relative_path":  "tests/test_knshow_scraper.py",
+                      "sha256":  "42F1A24B0324AB50379FDBB3F46FBB29D6A1D90DCF0DDC396077A42FE34D40C3"
+                  },
+                  {
+                      "relative_path":  "tests/test_later_queue.py",
+                      "sha256":  "3BF17B36D4695C11075685ADC2FAAF3E50E419B2657EAAC232D0911EBA8ABE62"
+                  },
+                  {
+                      "relative_path":  "tests/test_mail_importer.py",
+                      "sha256":  "27414ED85D777403D7CD1C2D995798A71809106DDF9FA6CE4CF1237EC91EDA8D"
+                  },
+                  {
+                      "relative_path":  "tests/test_mock_form_regression_v044.py",
+                      "sha256":  "D6482615B8391FAEE03E2E016C15B71E83A59653ADA6C72D7CE2778D05BF0CA7"
+                  },
+                  {
+                      "relative_path":  "tests/test_pilot_build_fingerprint.py",
+                      "sha256":  "3B4CFA8A67B48DD4C1C7CBF0B499FFA8832613E9A96A9E3A6332189F950298BE"
+                  },
+                  {
+                      "relative_path":  "tests/test_pilot_preflight.py",
+                      "sha256":  "3D145D13D79ABFAADD572DC02810F54F8A5FCBA2BF6D40FBD15DAC17C5AA4735"
+                  },
+                  {
+                      "relative_path":  "tests/test_pilot_validation.py",
+                      "sha256":  "CB529B41A8EB2F1A80E744C17D4CC4D4006C001202602FD7D2CF1EA3D0A9392A"
+                  },
+                  {
+                      "relative_path":  "tests/test_pre_submit_grouping.py",
+                      "sha256":  "45CF9C5F63F734F5653EB6DC22EFF1A8DD5C38F30DFDD0079C484E63B2DA3FAB"
+                  },
+                  {
+                      "relative_path":  "tests/test_privacy_guard.py",
+                      "sha256":  "175EA00C050514AE522F068533F73D08A55EF0192D58DB4ABFB4678FFE7EE848"
+                  },
+                  {
+                      "relative_path":  "tests/test_profile_manager.py",
+                      "sha256":  "0ED7EAB91D707EA53F023AE62AC7408C5A61EBD4E9544B2AF91340EB89F903C1"
+                  },
+                  {
+                      "relative_path":  "tests/test_profile_readiness.py",
+                      "sha256":  "32346B578961A42E293E20792AF19618BA9462F2F60D8E5AFAE7B2F58410E4E1"
+                  },
+                  {
+                      "relative_path":  "tests/test_real_site_trials.py",
+                      "sha256":  "C7854821D668FDAAF73972375338CAE3F01AE80F7BB37010514AC533CD403CEF"
+                  },
+                  {
+                      "relative_path":  "tests/test_release_report.py",
+                      "sha256":  "B0F6CE205253C3708C7EBDFCF242F923B709CAAE63A17786D2DF2F02914F8FC9"
+                  },
+                  {
+                      "relative_path":  "tests/test_remote_ops_scripts.py",
+                      "sha256":  "C55010F409F368517B8D8058D365AADC7375F61725A9F252BA0A58EF51063681"
+                  },
+                  {
+                      "relative_path":  "tests/test_research_loop.py",
+                      "sha256":  "710F63C242F8ED30D770B33B4B5CA0A784E00E55BCFFC8444E5CF06798BD1335"
+                  },
+                  {
+                      "relative_path":  "tests/test_safety_checker.py",
+                      "sha256":  "106891F171D290FA0FFA44C45C5FEAB911EB26E145502F05F10D579424F0C51C"
+                  },
+                  {
+                      "relative_path":  "tests/test_standalone_ops_layout.py",
+                      "sha256":  "E67BA137BD07E76AE2902AC2DA6317761D5491FE9CE2344A5E972CD471A0D3BA"
+                  },
+                  {
+                      "relative_path":  "tests/test_storage.py",
+                      "sha256":  "9983D7E352112962C8E9361E34D3CDF127C936E931ACA88FC762A715B734BD62"
+                  },
+                  {
+                      "relative_path":  "tests/test_submission_guard.py",
+                      "sha256":  "56AAEB95F5600B876069FE86E8B89A7E87065F14DA2F35455914262E06C7E6CA"
+                  },
+                  {
+                      "relative_path":  "tests/test_submit_controller.py",
+                      "sha256":  "B556BE3139C127F7A5D0E0566777BD9185FC576B33850A33C9A9D957AB000769"
+                  },
+                  {
+                      "relative_path":  "tests/test_web_app.py",
+                      "sha256":  "271564D1A57B174D233920158E5D7576C52BB79109191893D61D84C64BF5F080"
+                  },
+                  {
+                      "relative_path":  "tests/test_x_post.py",
+                      "sha256":  "A6798C09157B9B69FBD648B8AB3EC4364CE4061263B07160EBF114E53CC51105"
+                  },
+                  {
+                      "relative_path":  "tests/test_x_research_harness.py",
+                      "sha256":  "1BE4AB3560EACE4EFAF1D3584656128C0588C73E1217BA2C6669BAB7C7A876AB"
+                  },
+                  {
+                      "relative_path":  "tests/test_x_search_tool.py",
+                      "sha256":  "3AEAB56815DE02BE6C8B4BA34D0997F44B98153099DB61ECBAB18B53C24C511C"
+                  },
+                  {
+                      "relative_path":  "ui/__init__.py",
+                      "sha256":  "A22A7CF848AA438D2621845D35E1E07E9C7108A7576D292D0B9E6D776A4CFD87"
+                  },
+                  {
+                      "relative_path":  "ui/agent_control_page.py",
+                      "sha256":  "E7F0EF91B938456765F57F0FCAB81CA5176554BFFAA1F53DCF6324B943958DD5"
+                  },
+                  {
+                      "relative_path":  "ui/agent_dashboard_page.py",
+                      "sha256":  "B19D86C54CC6FD755D5EA8E27C04A54C282389DD8D9E7F97F5F88FB53B0C161A"
+                  },
+                  {
+                      "relative_path":  "ui/campaigns_page.py",
+                      "sha256":  "38ECDC033CF4B64A00FB67123AA94AC06F9DC740037EED7F1E9C8289870FE695"
+                  },
+                  {
+                      "relative_path":  "ui/dashboard_page.py",
+                      "sha256":  "9784BC2387191D2460787B631379F11E73335A7131B844CE9701095A5478886E"
+                  },
+                  {
+                      "relative_path":  "ui/data_loader.py",
+                      "sha256":  "1767CC648E18E6F5DCD00A341672D360E6CCCAC63DE3FDC99E9A8FD8FE2CCAAA"
+                  },
+                  {
+                      "relative_path":  "ui/entries_page.py",
+                      "sha256":  "E34AE744AA7A80984C73DF4C148E71330BD566395FE5A466F1C4AAC30C1003DF"
+                  },
+                  {
+                      "relative_path":  "ui/form_diagnosis_page.py",
+                      "sha256":  "7D020F605B76ED57BD7BD90B4A50BEF0475B4FCF8B818A1691B9CF20D890AB5E"
+                  },
+                  {
+                      "relative_path":  "ui/help_page.py",
+                      "sha256":  "C8150C40AD8A4966464A2763210E9AD598314680A51AD7DAF08CF6BAA046BFAB"
+                  },
+                  {
+                      "relative_path":  "ui/main_window.py",
+                      "sha256":  "B10F798871D66BD393F0979D43F29842E4A813E918E748C8C0730E5EF26F5603"
+                  },
+                  {
+                      "relative_path":  "ui/profile_security_page.py",
+                      "sha256":  "B7D990403B80E7DD49E3360536799005F6E1080A1B6EB7BE5D5EE5704B44B011"
+                  },
+                  {
+                      "relative_path":  "ui/search_campaigns_page.py",
+                      "sha256":  "F6F9C5F22339CC01DBF18039D7C5D88BC0872206B6315BCC3A0AEAC29E1E8E15"
+                  },
+                  {
+                      "relative_path":  "ui/theme.py",
+                      "sha256":  "974B486F1F41B8567E06CFD2A62A83987968B4B75EC6343EB399CD75B50F1F31"
+                  },
+                  {
+                      "relative_path":  "ui/widgets.py",
+                      "sha256":  "066EB1FCA2347719A4E09C4720E50A146D9AA87D28BEB5A3C3836604370076B2"
+                  },
+                  {
+                      "relative_path":  "ui/x_post_assistant_page.py",
+                      "sha256":  "91FA449F1EA35C128FD9B32FD92EC4A3B31CB7B08E031183E4A46D7C979B3ADF"
+                  },
+                  {
+                      "relative_path":  "web/__init__.py",
+                      "sha256":  "3F85E8FA6B64BB8CE7A7D04659B5439A3D418F7BEEDF66EA578A02AF2133C8FC"
+                  },
+                  {
+                      "relative_path":  "web/app.py",
+                      "sha256":  "AEF8EE95F751B6F0829F929E1E9EFE6A3830A20CD9466DD7EEBEF7DCA345EBFA"
+                  },
+                  {
+                      "relative_path":  "web/static/style.css",
+                      "sha256":  "BFB16FAED804FC7DED23663891EE45C76763730C216673E54C1224B7964A14A8"
+                  },
+                  {
+                      "relative_path":  "web/templates/agent_control.html",
+                      "sha256":  "762157992EEDC4A5C8C43B2DC76A2C6756077292279E059D18B4E3208BABF180"
+                  },
+                  {
+                      "relative_path":  "web/templates/agent_dashboard.html",
+                      "sha256":  "896C2063F876846D6A4358A61D7CBE9718038A638C9E7718AA56DB04B1BB52EB"
+                  },
+                  {
+                      "relative_path":  "web/templates/approved.html",
+                      "sha256":  "AF44BFA7A24D1A0D4690260B8AD611B449E0B60835CD86728B3B403285D5CD9F"
+                  },
+                  {
+                      "relative_path":  "web/templates/approved_session.html",
+                      "sha256":  "CA168C6E9E8840F9028A3E422646A5ABEF60BD23E97EFDFEF5C16E47565A3B1A"
+                  },
+                  {
+                      "relative_path":  "web/templates/base.html",
+                      "sha256":  "1363FCD2107C55E21AECA01219B32A8722C54274622F8C350607642624F0B005"
+                  },
+                  {
+                      "relative_path":  "web/templates/campaigns.html",
+                      "sha256":  "6CA6CEAD1EB5A0D49FEFF5F5BD89DAB1F8F8E491598936634D8EE3599B244CEF"
+                  },
+                  {
+                      "relative_path":  "web/templates/dashboard.html",
+                      "sha256":  "8610BFCC4F3E4C5B8201346E86EBD5426265368098ACB6F03C4D6799E26B11EE"
+                  },
+                  {
+                      "relative_path":  "web/templates/entries.html",
+                      "sha256":  "1C97D0AF89F803C722DFF808BC6DA6A7EF283FD3AEE3C65F0130BC6FDA114B61"
+                  },
+                  {
+                      "relative_path":  "web/templates/later_queue.html",
+                      "sha256":  "1788B868B6CBCC9F373CFAA01E06C942E150970AC5C261733604492131E5EBC9"
+                  },
+                  {
+                      "relative_path":  "web/templates/mail.html",
+                      "sha256":  "9BAE1D27FE2F5D1093208192C4415EB517EB5B649947497975FC5E5CDEE7020C"
+                  },
+                  {
+                      "relative_path":  "web/templates/queue.html",
+                      "sha256":  "DC98B2A856CB46C37F8276F848C44E6D0CC483600EDF104D1D47D986E84639F0"
+                  },
+                  {
+                      "relative_path":  "web/templates/queue_session.html",
+                      "sha256":  "DE34EF36291CEBA148BF06BD8A969C2704B964295D0A4F3DFE0A43688D5D23F0"
+                  },
+                  {
+                      "relative_path":  "web/templates/research.html",
+                      "sha256":  "FED0F2D3F8B087CB3853DB80013550509FDA1A6C7C2A5FD323AA6C07EEE23510"
+                  },
+                  {
+                      "relative_path":  "web/templates/review.html",
+                      "sha256":  "AC36B827B2D65BA19B97DAC4E10819013FFF50B934DBC03AD6AA1EA2DD7945DC"
+                  },
+                  {
+                      "relative_path":  "web/templates/search.html",
+                      "sha256":  "9E67A91EE891603CEE5B29FE0E11DFD4ECF36497DEBAA4F725D202B0342F6DD9"
+                  },
+                  {
+                      "relative_path":  "web/templates/security.html",
+                      "sha256":  "001976293683DE7FCC3853D32AB54D52A314996FA1E81CBD5241353A3378E03A"
+                  },
+                  {
+                      "relative_path":  "web/templates/sites_dashboard.html",
+                      "sha256":  "0681ACB74FCAD382648CBEADB11560B5CB81449B2C8702A616FEA19F982BE0BF"
+                  },
+                  {
+                      "relative_path":  "web/templates/today.html",
+                      "sha256":  "24D84D065A3F5E9A012E0E2D0CC9B85C7366495AB6EB23711A9E598319E58CDD"
+                  },
+                  {
+                      "relative_path":  "web/templates/x_campaigns.html",
+                      "sha256":  "592C624BA1FBD7CBBB655611DF0E30BD5F053E6FA33E7FD37688E4EBBC32E2E8"
+                  }
+              ]
+}

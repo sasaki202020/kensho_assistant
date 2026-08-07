@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <div>
+      <h2>AI担当者</h2>
+      <div class="muted">現在はJSON結果表示モードです。実際にAIが動いているわけではありません。</div>
+    </div>
+    <div class="pill-row">
+      <span class="pill blue">JSON結果表示</span>
+      <a class="pill {% if agent_mode == 'normal' %}green{% else %}gray{% endif %}" href="/ai-agents?mode=normal">通常モード</a>
+      <a class="pill {% if agent_mode == 'release' %}orange{% else %}gray{% endif %}" href="/ai-agents?mode=release">リリース前モード</a>
+    </div>
+  </div>
+  <p class="muted">agent_status.json を読み込んで担当者カードを表示します。sample JSON は本番データとしては読み込みません。</p>
+  <p class="muted">組織: {{ agent_org_summary.org_name if agent_org_summary else "Kensho Safe AI Team" }} / {{ agent_org_summary.mode_label if agent_org_summary else "通常モード" }}</p>
+  <div class="note-box">
+    <div>自動送信なし</div>
+    <div>profile.enc 未読込</div>
+    <div>PIIログなし</div>
+    <div>X操作自動化なし</div>
+  </div>
+</section>
+
+<section class="grid metrics">
+  <div class="card soft">
+    <div class="card-title">担当者数</div>
+    <div class="metric">{{ agent_summary.total_agents if agent_summary else 0 }}</div>
+    <div class="metric-note">表示対象の担当者</div>
+  </div>
+  <div class="card soft">
+    <div class="card-title">チーム数</div>
+    <div class="metric">{{ agent_org_summary.active_team_count if agent_org_summary else 0 }}</div>
+    <div class="metric-note">表示対象のチーム</div>
+  </div>
+  <div class="card soft">
+    <div class="card-title">実行中</div>
+    <div class="metric">{{ agent_summary.running_count if agent_summary else 0 }}</div>
+    <div class="metric-note">running 状態の担当者</div>
+  </div>
+  <div class="card soft">
+    <div class="card-title">警告あり</div>
+    <div class="metric">{{ agent_summary.warning_count if agent_summary else 0 }}</div>
+    <div class="metric-note">warning または警告件数あり</div>
+  </div>
+  <div class="card soft">
+    <div class="card-title">エラー</div>
+    <div class="metric">{{ agent_summary.error_count if agent_summary else 0 }}</div>
+    <div class="metric-note">error またはエラー件数あり</div>
+  </div>
+  <div class="card soft">
+    <div class="card-title">完了</div>
+    <div class="metric">{{ agent_summary.completed_count if agent_summary else 0 }}</div>
+    <div class="metric-note">completed 状態の担当者</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>チーム別カード一覧</h2>
+    <span class="pill orange">警告・エラーを見逃さない表示</span>
+  </div>
+  {% if agent_team_groups %}
+  <div class="team-list">
+    {% for team in agent_team_groups %}
+    <section class="card soft team-card">
+      <div class="section-head">
+        <div>
+          <div class="item-title">{{ team.name }}</div>
+          <div class="muted">{{ team.purpose }}</div>
+        </div>
+        <span class="pill blue">{{ team.agents|length }} 名</span>
+      </div>
+      {% if team.agents %}
+      <div class="agent-grid">
+        {% for agent in team.agents %}
+        {% set status_bucket = agent.status_display or agent.status %}
+        <article class="agent-card {% if status_bucket == 'warning' or agent.warning_count > 0 %}agent-warning{% elif status_bucket == 'error' or agent.error_count > 0 %}agent-error{% endif %}">
+          <div class="agent-head">
+            <div>
+              <div class="item-title">{{ agent.display_name }}</div>
+              <div class="item-sub">role: {{ agent.role }}</div>
+            </div>
+            <span class="pill {% if status_bucket == 'completed' %}green{% elif status_bucket == 'running' %}blue{% elif status_bucket == 'warning' %}orange{% elif status_bucket == 'error' %}red{% else %}gray{% endif %}">{{ agent.status }}</span>
+          </div>
+          <div class="agent-progress-head">
+            <span>進捗</span>
+            <strong>{{ agent.progress_percent }}%</strong>
+          </div>
+          <div class="progress-track">
+            <div class="progress-bar {% if agent.status == 'warning' %}warn{% elif agent.status == 'error' %}error{% endif %}" style="width: {{ agent.progress_percent }}%;"></div>
+          </div>
+          <div class="agent-meta">
+            <div><span class="label">total_tasks</span><span>{{ agent.total_tasks }}</span></div>
+            <div><span class="label">completed_tasks</span><span>{{ agent.completed_tasks }}</span></div>
+            <div><span class="label">warning_count</span><span>{{ agent.warning_count }}</span></div>
+            <div><span class="label">error_count</span><span>{{ agent.error_count }}</span></div>
+            <div><span class="label">last_message</span><span class="break">{{ agent.last_message }}</span></div>
+            <div><span class="label">updated_at</span><span>{{ agent.updated_at or "未取得" }}</span></div>
+          </div>
+          {% if agent.role in ["safety-director", "privacy-guard", "no-submit-reviewer", "pii-auditor", "external-action-reviewer", "release-gatekeeper"] %}
+          <div class="note-box agent-safety">
+            <div>自動送信なし</div>
+            <div>profile.enc 未読込</div>
+            <div>PIIログなし</div>
+            <div>X操作自動化なし</div>
+          </div>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="muted">このモードでは担当はありません。</div>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="muted">担当者情報はありません。</div>
+  {% endif %}
+</section>
+{% endblock %}

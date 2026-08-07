@@ -1,0 +1,1 @@
+"""Offline pilot safety tools."""

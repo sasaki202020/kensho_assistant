@@ -1,0 +1,55 @@
+{
+  "manifest_id": "pilot-3ef02a0e702ae07a",
+  "mode": "pilot",
+  "attempts_per_site": 3,
+  "entries": [
+    {
+      "entry_id": "entry-bda51d25f3a0",
+      "candidate_ref": "frjbnhpbohe5qtk3",
+      "site_id": "site-879a8dbccf4e",
+      "site_category": "campaign_landing_form"
+    },
+    {
+      "entry_id": "entry-cfdd3f0340a4",
+      "candidate_ref": "8e6e14c65dd06",
+      "site_id": "site-59e743ee479b",
+      "site_category": "sample_request_form"
+    },
+    {
+      "entry_id": "entry-7489fb5ec84f",
+      "candidate_ref": "pnasjpcvjjri7",
+      "site_id": "site-5c081b0e68d3",
+      "site_category": "monitor_campaign_form"
+    },
+    {
+      "entry_id": "entry-d402703b814d",
+      "candidate_ref": "kns8znt26d935r",
+      "site_id": "site-17d9878c8254",
+      "site_category": "hosted_survey_form"
+    },
+    {
+      "entry_id": "entry-4fa4d451f6fa",
+      "candidate_ref": "5gjbhz2frksfv63m",
+      "site_id": "site-b34843722ab1",
+      "site_category": "aggregator_redirect"
+    }
+  ],
+  "manifest_version": 1,
+  "pilot_id": "5site-pilot-v1",
+  "git_branch": "pilot/5site-v1",
+  "pilot_commit": "601c037c5c059d8329c89e10c668000d055c0833",
+  "build_fingerprint_sha256": "4977ef6ec9f795210c80d2fe7cc8581bd666dba9760340cd77cb4830ee594d7f",
+  "submitted_count_auto": 0,
+  "playwright_trace": "DISABLED",
+  "screenshot_storage": "DISABLED",
+  "preflight_result": "READY_FOR_5_SITE_PILOT",
+  "site_count": 5,
+  "trials_per_site": 3,
+  "total_trials": 15,
+  "safety_invariants": {
+    "auto_submit_allowed": false,
+    "captcha_automation_allowed": false,
+    "terms_auto_consent_allowed": false,
+    "pii_persistence_allowed": false
+  }
+}

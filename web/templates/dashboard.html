@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="home-action-card">
+  <div class="home-action-copy">
+    <div class="eyebrow">今日やること</div>
+    <h2>{{ home_action.title if home_action else "確認待ちはありません。" }}</h2>
+    <p>応募フォームは送信直前で止まります。最後の送信はあなたが確認して行います。</p>
+  </div>
+  <a class="btn primary btn-xl" href="{{ home_action.href if home_action else '/today' }}">{{ home_action.label if home_action else "今日の候補を見る" }}</a>
+</section>
+
+<section class="simple-home-grid">
+  <article class="simple-card attention">
+    <div class="simple-card-label">要確認</div>
+    <div class="simple-card-count">{{ home_counts.review if home_counts else 0 }}件</div>
+    <a class="btn primary btn-wide" href="/review">確認する</a>
+  </article>
+  <article class="simple-card">
+    <div class="simple-card-label">応募できそう</div>
+    <div class="simple-card-count">{{ home_counts.ready if home_counts else 0 }}件</div>
+    <a class="btn btn-wide" href="/approved/session">候補を見る</a>
+  </article>
+  <article class="simple-card">
+    <div class="simple-card-label">完了</div>
+    <div class="simple-card-count">{{ home_counts.done if home_counts else 0 }}件</div>
+    <a class="btn btn-wide" href="/entries">履歴を見る</a>
+  </article>
+</section>
+
+<section class="safe-stop-card">
+  <div>
+    <div class="safe-stop-title">安全に止まっています</div>
+    <div class="safe-stop-copy">自動送信は無効です。応募前に必ず人間確認が入ります。</div>
+  </div>
+  <span class="pill green">送信前で停止</span>
+</section>
+{% endblock %}

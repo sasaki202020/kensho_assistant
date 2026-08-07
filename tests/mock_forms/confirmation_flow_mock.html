@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>Confirmation Flow Mock</title></head>
+<body>
+  <form action="confirmation_flow_mock_confirmation.html" method="get">
+    <h1>応募フォーム</h1>
+    <label>お名前 <input name="full_name" required></label>
+    <label>メールアドレス <input name="email" type="email" required></label>
+    <label>都道府県
+      <select name="prefecture" required>
+        <option value="">選択してください</option>
+        <option value="13">東京都</option>
+        <option value="14">神奈川県</option>
+      </select>
+    </label>
+    <p>内容を確認してから次へ進んでください。</p>
+    <a href="confirmation_flow_mock_confirmation.html">確認画面へ</a>
+    <button type="button" onclick="location.href='confirmation_flow_mock_confirmation.html'">内容を確認</button>
+  </form>
+</body>
+</html>

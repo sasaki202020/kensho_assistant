@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>Multi Quiz Mock Form</title></head>
+<body>
+  <form action="submitted.html" method="get">
+    <div class="quiz">
+      <p>クイズ1: 福岡県の特産品はどれですか。</p>
+      <p>ヒント: 福岡県産の農林水産物</p>
+      <label>回答1
+        <select name="quiz_answer_1" required>
+          <option value="">選択してください</option>
+          <option>福岡県</option>
+          <option>佐賀県</option>
+        </select>
+      </label>
+    </div>
+    <div class="quiz">
+      <p>クイズ2: 旬の食材で注目されるのはどれですか。</p>
+      <label>回答2
+        <select name="quiz_answer_2" required>
+          <option value="">選択してください</option>
+          <option>野菜</option>
+          <option>魚</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit">送信</button>
+  </form>
+</body>
+</html>

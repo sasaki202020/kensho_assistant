@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero-grid">
+  <div class="card hero-main">
+    <div class="eyebrow">Sites</div>
+    <h2>懸賞応募アシスタント 管理ダッシュボード</h2>
+    <p>キャンペーン一覧、応募ステータス、フォーム診断、人間確認項目を横断して確認できます。実サイトの自動送信は行いません。</p>
+    <div class="tag-row">
+      <span class="pill blue">submitted_count=0</span>
+      <span class="pill green">個人情報はマスク表示</span>
+      <span class="pill orange">送信直前で停止</span>
+    </div>
+    <div class="actions compact">
+      <a class="btn primary" href="/queue/session">応募キューを開く</a>
+      <a class="btn" href="/approved/session">承認済みキュー</a>
+      <a class="btn" href="/campaigns">全キャンペーンへ</a>
+    </div>
+  </div>
+  <div class="card hero-safety">
+    <div class="section-head"><h2>マスク済みプロフィール</h2></div>
+    <div class="stack">
+      <div class="mini-stat"><span>氏名</span><strong>{{ profile_preview.name }}</strong></div>
+      <div class="mini-stat"><span>郵便番号</span><strong>{{ profile_preview.postal_code }}</strong></div>
+      <div class="mini-stat"><span>メール</span><strong>{{ profile_preview.email }}</strong></div>
+      <div class="mini-stat"><span>電話</span><strong>{{ profile_preview.phone }}</strong></div>
+      <div class="mini-stat"><span>profile.enc</span><strong>{{ profile_state.profile_enc }}</strong></div>
+      <div class="mini-stat"><span>profile.json</span><strong>{{ profile_state.profile_json }}</strong></div>
+    </div>
+  </div>
+</section>
+
+{% if focus_detail %}
+<section class="card focus-panel">
+  <div class="section-head">
+    <h2>注目案件</h2>
+    <span class="pill {{ focus_detail.score_state_class or 'gray' }}">{{ focus_detail.score_state_label or '要確認' }}</span>
+  </div>
+  <div class="candidate-detail">
+    <div><span class="label">案件</span><span>{{ focus_detail.campaign_name or "未選択" }}</span></div>
+    <div><span class="label">campaign_id</span><span class="break">{{ focus_detail.campaign_id or "未取得" }}</span></div>
+    <div><span class="label">URL</span><span class="break">{{ focus_detail.resolved_entry_url or "未取得" }}</span></div>
+    <div><span class="label">診断</span><span>{{ focus_detail.status or "未診断" }} / {{ focus_detail.readiness_status or "unknown" }}</span></div>
+    <div><span class="label">pre_submit_score</span><span>{{ focus_detail.pre_submit_score or 0 }}</span></div>
+    <div><span class="label">ready_for_fill</span><span>{{ "YES" if focus_detail.ready_for_fill else "NO" }}</span></div>
+    <div><span class="label">skip_reason</span><span class="break">{{ focus_detail.skip_reason or "なし" }}</span></div>
+    <div><span class="label">safety_memo</span><span class="break">{{ focus_detail.safety_memo or "なし" }}</span></div>
+    <div><span class="label">未解決項目</span><span>
+      {% if focus_detail.unresolved_required_fields %}
+        {% for field in focus_detail.unresolved_required_fields %}
+          <div>{{ field }}</div>
+        {% endfor %}
+      {% else %}
+        なし
+      {% endif %}
+    </span></div>
+    <div><span class="label">AI候補</span><span>
+      {% if focus_detail.ai_candidates %}
+        {% for item in focus_detail.ai_candidates %}
+          <div>{{ item }}</div>
+        {% endfor %}
+      {% else %}
+        なし
+      {% endif %}
+    </span></div>
+    <div><span class="label">人間確認 checklist</span><span>
+      {% if focus_detail.human_checklist %}
+        {% for item in focus_detail.human_checklist %}
+          <div>{{ item }}</div>
+        {% endfor %}
+      {% else %}
+        なし
+      {% endif %}
+    </span></div>
+    <div><span class="label">テンプレート</span><span>{{ focus_detail.template_label or "generic" }} / {{ focus_detail.template_last_verified_at or "未記録" }}</span></div>
+    <div><span class="label">整合性</span><span>{{ "一致" if focus_detail.diagnostics_consistent else "要確認" }}</span></div>
+  </div>
+  <div class="actions compact">
+    {% if focus_detail.campaign_id %}
+    <a class="btn primary" href="/sites?campaign_id={{ focus_detail.campaign_id }}">この案件を固定</a>
+    {% endif %}
+    {% if focus_detail.analysis_path %}
+    <a class="btn" href="/api/approved/{{ focus_detail.campaign_id }}/analysis" target="_blank" rel="noreferrer">解析JSON</a>
+    {% endif %}
+    {% if focus_detail.check_path %}
+    <a class="btn" href="/api/approved/{{ focus_detail.campaign_id }}/pre-submit-check" target="_blank" rel="noreferrer">確認JSON</a>
+    {% endif %}
+    {% if focus_detail.html_snapshot_path %}
+    <a class="btn" href="/api/approved/{{ focus_detail.campaign_id }}/html-snapshot" target="_blank" rel="noreferrer">HTML snapshot</a>
+    {% endif %}
+  </div>
+  <details class="json-details">
+    <summary>解析JSON</summary>
+    <pre>{{ focus_detail.analysis_json_text }}</pre>
+  </details>
+  <details class="json-details">
+    <summary>送信前チェックJSON</summary>
+    <pre>{{ focus_detail.check_json_text }}</pre>
+  </details>
+</section>
+{% endif %}
+
+{% if focus_later_detail and focus_later_detail.campaign_id %}
+<section class="card focus-panel">
+  <div class="section-head">
+    <h2>あとで応募からの診断</h2>
+    <span class="pill {{ focus_later_detail.score_state_class or 'gray' }}">{{ focus_later_detail.score_state_label or '要確認' }}</span>
+  </div>
+  <div class="candidate-detail">
+    <div><span class="label">登録URL</span><span class="break">{{ focus_later_detail.url or "未取得" }}</span></div>
+    <div><span class="label">campaign_id</span><span class="break">{{ focus_later_detail.campaign_id or "未連携" }}</span></div>
+    <div><span class="label">診断結果</span><span>{{ focus_later_detail.diagnostic_status or "未診断" }}</span></div>
+    <div><span class="label">ready_for_fill</span><span>{{ "YES" if focus_later_detail.ready_for_fill else "NO" }}</span></div>
+    <div><span class="label">skip_reason</span><span class="break">{{ focus_later_detail.skip_reason or "なし" }}</span></div>
+    <div><span class="label">整合性</span><span>{{ "一致" if focus_later_detail.diagnostics_consistent else "要確認" }}</span></div>
+    <div><span class="label">entry_history</span><span>{{ "連携済み" if focus_later_detail.entry_synced else "未連携" }}</span></div>
+  </div>
+  <div class="actions compact">
+    <a class="btn" href="/later-queue?selected={{ focus_later_detail.id }}">あとで応募で開く</a>
+    <a class="btn primary" href="/sites?campaign_id={{ focus_later_detail.campaign_id }}">Sites診断を固定</a>
+  </div>
+  <details class="json-details">
+    <summary>送信前チェックJSON</summary>
+    <pre>{{ focus_later_detail.check_json_text }}</pre>
+  </details>
+  <details class="json-details">
+    <summary>解析JSON</summary>
+    <pre>{{ focus_later_detail.analysis_json_text }}</pre>
+  </details>
+</section>
+{% endif %}
+
+<section class="grid metrics">
+  <div class="card"><div class="card-title">総キャンペーン</div><div class="metric">{{ status_summary.campaign_total if status_summary else 0 }}</div><div class="metric-note">全件の収集件数</div></div>
+  <div class="card"><div class="card-title">応募キュー</div><div class="metric">{{ status_summary.queue_total if status_summary else 0 }}</div><div class="metric-note">管理対象の応募候補</div></div>
+  <div class="card"><div class="card-title">あとで応募</div><div class="metric">{{ status_summary.later_total if status_summary else 0 }}</div><div class="metric-note">URL登録候補</div></div>
+  <div class="card"><div class="card-title">診断済み</div><div class="metric">{{ status_summary.inspected_total if status_summary else 0 }}</div><div class="metric-note">フォーム解析済みの件数</div></div>
+  <div class="card"><div class="card-title">PRE_SUBMIT_READY</div><div class="metric">{{ status_summary.pre_submit_ready_total if status_summary else 0 }}</div><div class="metric-note">送信直前まで入力済み</div></div>
+  <div class="card"><div class="card-title">REVIEW_FILL_READY</div><div class="metric">{{ status_summary.review_fill_ready_total if status_summary else 0 }}</div><div class="metric-note">人間確認が必要な入力済み候補</div></div>
+  <div class="card"><div class="card-title">MANUAL_ASSIST_READY</div><div class="metric">{{ status_summary.manual_assist_total if status_summary else 0 }}</div><div class="metric-note">人間操作が必要な候補</div></div>
+  <div class="card"><div class="card-title">SKIPPED</div><div class="metric">{{ status_summary.skipped_total if status_summary else 0 }}</div><div class="metric-note">危険・対象外のみ</div></div>
+  <div class="card"><div class="card-title">テンプレート一致</div><div class="metric">{{ status_summary.template_matched_total if status_summary else 0 }}</div><div class="metric-note">サイト別ルールが効いた件数</div></div>
+  <div class="card"><div class="card-title">あとで応募連携</div><div class="metric">{{ status_summary.later_linked_total if status_summary else 0 }}</div><div class="metric-note">Sites診断に渡せる件数</div></div>
+  <div class="card"><div class="card-title">submitted_count</div><div class="metric">{{ submitted_count if submitted_count is not none else 0 }}</div><div class="metric-note">この画面では常に 0</div></div>
+</section>
+
+{% if later_diagnostics %}
+<section class="card">
+  <div class="section-head">
+    <h2>あとで応募との接続</h2>
+    <span class="pill blue">{{ status_summary.later_linked_total if status_summary else 0 }}件</span>
+  </div>
+  <div class="list">
+    {% for item in later_diagnostics %}
+    <article class="review-card">
+      <div class="section-head">
+        <div>
+          <div class="item-title">{{ item.title or item.campaign_name or item.url or "later-queue" }}</div>
+          <div class="item-sub">{{ item.campaign_name or "campaign未取得" }} / {{ item.url or "URL未取得" }}</div>
+        </div>
+        <span class="pill {{ item.score_state_class or 'gray' }}">{{ item.score_state_label or '要確認' }}</span>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">campaign_id</span><span class="break">{{ item.campaign_id or "未連携" }}</span></div>
+        <div><span class="label">診断結果</span><span>{{ item.diagnostic_status or "未診断" }}</span></div>
+        <div><span class="label">ready_for_fill</span><span>{{ "YES" if item.ready_for_fill else "NO" }}</span></div>
+        <div><span class="label">skip_reason</span><span class="break">{{ item.skip_reason or "なし" }}</span></div>
+        <div><span class="label">entry_history</span><span>{{ "連携済み" if item.entry_synced else "未連携" }}</span></div>
+        <div><span class="label">整合性</span><span>{{ "一致" if item.diagnostics_consistent else "要確認" }}</span></div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/later-queue?selected={{ item.id if item.id is defined else '' }}">あとで応募で開く</a>
+        {% if item.campaign_id %}
+        <a class="btn primary" href="/sites?campaign_id={{ item.campaign_id }}">Sites診断で開く</a>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="section-head">
+    <h2>キャンペーン一覧</h2>
+    <div class="section-actions">
+      <span class="pill blue">{{ status_summary.queue_total if status_summary else 0 }}件を管理中</span>
+      <a class="btn" href="/campaigns">全件一覧へ</a>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="campaign-table">
+      <thead>
+        <tr>
+          <th>キャンペーン</th>
+          <th>応募ステータス</th>
+          <th>フォーム診断結果</th>
+          <th>人間確認が必要な項目</th>
+          <th>証拠</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in managed_rows %}
+        <tr>
+          <td>
+            <div class="item-title">{{ row.campaign_name }}</div>
+            <div class="item-sub">{{ row.prize }}</div>
+            <div class="table-meta">{{ row.provider }} / 締切 {{ row.deadline or "未取得" }}</div>
+            <div class="table-meta break">{{ row.campaign_id }}</div>
+          </td>
+          <td>
+            <div class="stack">
+              <span class="pill blue">{{ row.queue_state_label }}</span>
+              <span class="pill {{ row.score_state_class or 'gray' }}">{{ row.score_state_label or row.dry_run_state_label }}</span>
+              <div class="table-meta">submitted_count=0 / submit_clicked=false / auto_submitted=false</div>
+              {% if row.site_template_last_verified_at %}
+              <div class="table-meta">template verified {{ row.site_template_last_verified_at }}</div>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            <div class="table-meta">score {{ row.pre_submit_score or "0" }}</div>
+            <div class="table-meta">入力完了率 {{ row.fill_completion_rate or "0" }}%</div>
+            <div class="table-meta">未解決 required {{ row.unresolved_required_fields_count or "0" }}</div>
+            <div class="table-meta">送信ボタン {{ row.submit_button_label }}</div>
+            <div class="table-meta">skip_reason {{ row.skip_reason or "なし" }}</div>
+            <div class="table-meta">safety_memo {{ row.safety_memo or "なし" }}</div>
+            <div class="table-meta">フォーム {{ row.detected_forms_count }} / 項目 {{ row.detected_fields_count }}</div>
+            <div class="table-meta">テンプレート {{ row.site_template_label or row.site_template_id or "generic" }}</div>
+            {% if row.site_template_signal_score %}
+            <div class="table-meta">template score {{ row.site_template_signal_score }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <div class="stack">
+              <div>
+                <div class="table-meta">未解決項目</div>
+                {% if row.unresolved_required_fields %}
+                <ul class="compact-list">
+                  {% for item in row.unresolved_required_fields %}
+                  <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <div class="table-meta">なし</div>
+                {% endif %}
+              </div>
+              <div>
+                <div class="table-meta">AI候補</div>
+                {% if row.ai_candidates %}
+                <ul class="compact-list">
+                  {% for item in row.ai_candidates %}
+                  <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <div class="table-meta">なし</div>
+                {% endif %}
+              </div>
+              <div>
+                <div class="table-meta">人間確認 checklist</div>
+                {% if row.human_checklist %}
+                <ul class="compact-list">
+                  {% for item in row.human_checklist %}
+                  <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <div class="table-meta">なし</div>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="actions vertical">
+              <a class="btn" href="/api/approved/{{ row.campaign_id }}/analysis" target="_blank" rel="noreferrer">解析JSON</a>
+              <a class="btn" href="/api/approved/{{ row.campaign_id }}/pre-submit-check" target="_blank" rel="noreferrer">確認JSON</a>
+              <a class="btn" href="/api/approved/{{ row.campaign_id }}/screenshot" target="_blank" rel="noreferrer">スクショ</a>
+              <a class="btn" href="/api/approved/{{ row.campaign_id }}/html-snapshot" target="_blank" rel="noreferrer">HTML snapshot</a>
+              <details class="json-details">
+                <summary>解析JSONを見る</summary>
+                <pre>{{ row.analysis_json_text }}</pre>
+              </details>
+              <details class="json-details">
+                <summary>送信前チェックJSONを見る</summary>
+                <pre>{{ row.check_json_text }}</pre>
+              </details>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>人間確認が必要な項目</h2>
+    <span class="pill orange">{{ status_summary.human_review_total if status_summary else 0 }}件</span>
+  </div>
+  <div class="list">
+    {% for group in review_groups %}
+    <article class="review-card">
+      <div class="section-head">
+        <div>
+          <div class="item-title">{{ group.campaign_name }}</div>
+          <div class="item-sub">{{ group.reason or "確認項目あり" }}</div>
+        </div>
+        <span class="pill {{ group.score_state_class or 'orange' }}">{{ group.score_state_label or group.dry_run_state_label }}</span>
+      </div>
+      <div class="candidate-detail">
+        <div><span class="label">確認項目</span><span>
+          {% if group.review_items %}
+            {% for item in group.review_items %}
+              <div>{{ item }}</div>
+            {% endfor %}
+          {% else %}
+            なし
+          {% endif %}
+        </span></div>
+        <div><span class="label">AI候補</span><span>
+          {% if group.ai_candidates %}
+            {% for item in group.ai_candidates %}
+              <div>{{ item }}</div>
+            {% endfor %}
+          {% else %}
+            なし
+          {% endif %}
+        </span></div>
+        <div><span class="label">人間確認 checklist</span><span>
+          {% if group.human_checklist %}
+            {% for item in group.human_checklist %}
+              <div>{{ item }}</div>
+            {% endfor %}
+          {% else %}
+            なし
+          {% endif %}
+        </span></div>
+        <div><span class="label">skip_reason</span><span class="break">{{ group.skip_reason or "なし" }}</span></div>
+        <div><span class="label">safety_memo</span><span class="break">{{ group.safety_memo or "なし" }}</span></div>
+        <div><span class="label">証拠</span><span class="break">{{ group.analysis_path or "未保存" }}</span></div>
+        <div><span class="label">テンプレート</span><span>{{ group.site_template_label or group.site_template_id or "generic" }}</span></div>
+        <div><span class="label">最終確認</span><span>{{ group.site_template_last_verified_at or "未記録" }}</span></div>
+        {% if group.site_template_notes %}
+        <div><span class="label">テンプレート注記</span><span>
+          {% for note in group.site_template_notes %}
+            <div>{{ note }}</div>
+          {% endfor %}
+        </span></div>
+        {% endif %}
+        <div><span class="label">チェック</span><span class="break">{{ group.check_path or "未保存" }}</span></div>
+        <div><span class="label">スクショ</span><span class="break">{{ group.screenshot_path or "未保存" }}</span></div>
+        <div><span class="label">HTML snapshot</span><span class="break">{{ group.html_snapshot_path or "未保存" }}</span></div>
+      </div>
+      <details class="json-details">
+        <summary>解析JSON</summary>
+        <pre>{{ group.analysis_json_text }}</pre>
+      </details>
+      <details class="json-details">
+        <summary>送信前チェックJSON</summary>
+        <pre>{{ group.check_json_text }}</pre>
+      </details>
+    </article>
+    {% else %}
+    <div class="muted">現時点で人間確認項目はありません。</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
