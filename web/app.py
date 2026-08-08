@@ -99,6 +99,7 @@ from ..app.profile_manager import load_profile
 from ..app.run_mode import get_run_mode, normalize_run_mode
 from ..app.entry_url_resolver import target_url_for_campaign
 from ..app.prepare_all_status import load_prepare_all_status
+from ..app.high_value.ranking import assess_campaign, filter_high_value_campaigns
 
 WEB_HOST = "127.0.0.1"
 WEB_PORT = 8787
@@ -3243,6 +3244,47 @@ def create_app() -> FastAPI:
             selected_count=sum(1 for row in rows if row.get("selected_by_user") == "true"),
             excluded_count=sum(1 for row in rows if row.get("excluded_by_user") == "true"),
         )
+
+    @app.get("/high-value", response_class=HTMLResponse)
+    def high_value_campaigns(
+        request: Request,
+        min_value: int = 30_000,
+        category: str = "",
+        sort: str = "priority",
+        review_only: bool = False,
+    ) -> HTMLResponse:
+        assessed = filter_high_value_campaigns(load_campaigns(), threshold_yen=max(0, min_value))
+        if review_only:
+            assessed = [row for row in assessed if row.get("value_review_status") == "NEEDS_REVIEW"]
+        if category:
+            assessed = [row for row in assessed if category.casefold() in f"{row.get('category', '')} {row.get('prize', '')}".casefold()]
+        if sort == "value":
+            assessed.sort(key=lambda row: (-int(row.get("max_individual_prize_value_yen") or 0), str(row.get("campaign_name", ""))))
+        elif sort == "deadline":
+            assessed.sort(key=lambda row: (str(row.get("deadline", "")), str(row.get("campaign_name", ""))))
+        elif sort == "winners":
+            assessed.sort(key=lambda row: (-int(str(row.get("winner_count", "0") or "0").replace(",", "") or 0), str(row.get("campaign_name", ""))))
+        return _render(
+            request,
+            "high_value.html",
+            page_title="高額懸賞",
+            active_page="high_value",
+            high_value_rows=_safe_rows(assessed),
+            high_value_count=len(assessed),
+            min_value=min_value,
+            category=category,
+            sort=sort,
+            review_only=review_only,
+        )
+
+    @app.post("/high-value/{campaign_id}/prepare")
+    def high_value_prepare(campaign_id: str, next_url: str = Form(default="/high-value")) -> RedirectResponse:
+        matched = next((row for row in load_campaigns() if row.get("campaign_id") == campaign_id), None)
+        if matched:
+            mark_selected(campaign_id, reason="高額懸賞から応募準備")
+            queue_rows = build_apply_queue(load_campaigns(), load_form_inspections(), load_entries(), load_apply_queue(), limit=30)
+            save_apply_queue(queue_rows)
+        return RedirectResponse(url=_safe_internal_next_url(next_url, "/high-value"), status_code=303)
 
     @app.get("/research", response_class=HTMLResponse)
     def research(request: Request, q: str = "", category: str = "すべて") -> HTMLResponse:

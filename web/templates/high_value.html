@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>高額懸賞</h2>
+    <span class="pill blue">{{ high_value_count }}件</span>
+  </div>
+  <p class="muted">3万円以上、または高額カテゴリとして価格確認が必要な候補です。応募優先度は当選確率ではありません。</p>
+  <form method="get" class="tag-row">
+    <label>基準額 <select name="min_value"><option value="30000" {% if min_value == 30000 %}selected{% endif %}>3万円以上</option><option value="50000" {% if min_value == 50000 %}selected{% endif %}>5万円以上</option><option value="100000" {% if min_value == 100000 %}selected{% endif %}>10万円以上</option><option value="300000" {% if min_value == 300000 %}selected{% endif %}>30万円以上</option><option value="1000000" {% if min_value == 1000000 %}selected{% endif %}>100万円以上</option></select></label>
+    <label>分類 <input name="category" value="{{ category }}" placeholder="車 / 旅行 / 家電"></label>
+    <label>並び順 <select name="sort"><option value="priority" {% if sort == 'priority' %}selected{% endif %}>応募優先度</option><option value="value" {% if sort == 'value' %}selected{% endif %}>賞品価格</option><option value="deadline" {% if sort == 'deadline' %}selected{% endif %}>締切</option><option value="winners" {% if sort == 'winners' %}selected{% endif %}>当選人数</option></select></label>
+    <label><input type="checkbox" name="review_only" value="true" {% if review_only %}checked{% endif %}>価格確認待ち</label>
+    <button class="btn primary" type="submit">絞り込む</button>
+  </form>
+</section>
+
+<section class="results">
+{% for row in high_value_rows %}
+  <article class="card result-card">
+    <div class="result-top"><div class="thumb">¥</div><div class="result-body">
+      <div class="item-title">{{ row.campaign_name or row.prize or "名称未取得" }}</div>
+      <div class="item-sub">{{ row.provider or "主催者不明" }} / 締切 {{ row.deadline or "未取得" }} / 掲載元 {{ row.source or row.source_site or "未取得" }}</div>
+      <div class="tag-row"><span class="pill green">応募優先度 {{ row.priority_score }}</span><span class="pill {% if row.value_review_status == 'CONFIRMED' %}blue{% else %}orange{% endif %}">{{ row.value_review_status }}</span><span class="pill gray">{{ row.value_basis }}</span></div>
+    </div></div>
+    <div class="candidate-detail">
+      <div><span class="label">最大個別賞品額</span><span>{{ row.max_individual_prize_value_yen or "未確認" }}円</span></div>
+      <div><span class="label">金額根拠</span><span>{{ row.value_basis }} / 信頼度 {{ row.value_confidence }}</span></div>
+      <div><span class="label">当選人数</span><span>{{ row.winner_count or "未取得" }}</span></div>
+      <div><span class="label">応募条件</span><span>{{ row.eligibility_summary or "要確認" }}</span></div>
+      <div><span class="label">優先度の内訳</span><span>{{ row.priority_reasons|join(' / ') }}</span></div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/campaigns?selected={{ row.campaign_id }}">詳細</a>
+      <a class="btn" href="{{ row.official_campaign_url_raw or row.resolved_entry_url or row.entry_url or '#' }}" target="_blank" rel="noreferrer">公式ページ</a>
+      <form method="post" action="/high-value/{{ row.campaign_id }}/prepare"><input type="hidden" name="next_url" value="/high-value"><button class="btn primary" type="submit">応募準備</button></form>
+    </div>
+    <div class="muted">自動入力後もCAPTCHA、規約、クイズ、自由記述、最終送信は人間確認です。</div>
+  </article>
+{% else %}
+  <div class="card muted">該当候補はありません。掲載中の候補を更新し、価格確認待ちを確認してください。</div>
+{% endfor %}
+</section>
+{% endblock %}

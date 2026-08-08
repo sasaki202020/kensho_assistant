@@ -14,6 +14,17 @@
 
 `KENSHO_PROFILE_PATH`を設定すると、別の絶対パスを使用できます。ただし、リポジトリ配下のパスは安全のため拒否します。実プロフィールは基準テストへ使用せず、独立ビルドの検証後に本人が登録します。
 
+## 高額懸賞
+
+Web UIの `/high-value` または「候補」画面の「高額懸賞を見る」から、3万円以上と価格確認待ちの候補を応募優先度順に確認できます。価格不明の高額カテゴリは推定せず、人間確認へ残します。`応募準備` は既存キューへ渡すだけで、最終送信は行いません。
+
+ユーザーが保存した掲載一覧HTMLは、外部通信なしで取り込めます。
+
+```powershell
+py -3.12 -m kensho_assistant.main high-value import-html --source chance --html-file .\chance-list.html --source-url https://chance.com/list
+py -3.12 -m kensho_assistant.main high-value list --min-value 30000 --limit 30
+```
+
 ## 独立版の実行場所
 
 この版のGitルートは`C:\Users\goo10\Projects\kensho_assistant`です。Pythonモジュールは親ディレクトリから実行します。

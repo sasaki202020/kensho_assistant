@@ -87,6 +87,8 @@ from .app.apply_queue import (
 )
 from .app.browser_manager import check_browser_doctor, close_browser_safely, open_url_in_chrome
 from .app.knshow_scraper import collect_campaigns, save_campaigns
+from .app.high_value.importer import save_imported_listing
+from .app.high_value.ranking import filter_high_value_campaigns
 from .app.models import CAMPAIGN_HEADERS
 from .app.research_engine import (
     build_research_report,
@@ -238,6 +240,19 @@ def cmd_collect(args: argparse.Namespace) -> int:
     log_event("collect", {"count": len(rows), "limit": args.limit})
     print(CAMPAIGNS_CSV)
     print(f"collected: {len(rows)}")
+    return 0
+
+
+def cmd_high_value(args: argparse.Namespace) -> int:
+    if args.high_value_command == "import-html":
+        if args.source not in {"knshow", "chance", "ken-kaku"}:
+            raise SystemExit("unsupported source")
+        path = save_imported_listing(args.source, args.html_file, args.source_url, _campaign_rows())
+        print(path)
+        return 0
+    rows = filter_high_value_campaigns(_campaign_rows(), threshold_yen=max(0, args.min_value))
+    for row in rows[: max(0, args.limit)]:
+        print(f"{row.get('campaign_id','')}\t{row.get('campaign_name','')}\t{row.get('max_individual_prize_value_yen','未確認')}\t{row.get('priority_score',0)}")
     return 0
 
 
@@ -2160,6 +2175,18 @@ def build_parser() -> argparse.ArgumentParser:
     research_loop.add_argument("--limit", type=int, default=20, help="source count limit per round")
     research_loop.add_argument("--output-root", default="", help="custom output root")
     research_loop.set_defaults(func=cmd_research_loop)
+
+    high_value = subparsers.add_parser("high-value", help="list or import high-value campaign candidates")
+    high_value_sub = high_value.add_subparsers(dest="high_value_command", required=False)
+    high_value_list = high_value_sub.add_parser("list", help="list high-value candidates")
+    high_value_list.add_argument("--min-value", type=int, default=30_000, help="minimum explicit individual prize value")
+    high_value_list.add_argument("--limit", type=int, default=30, help="number of candidates to show")
+    high_value_list.set_defaults(func=cmd_high_value)
+    high_value_import = high_value_sub.add_parser("import-html", help="import user-provided listing HTML without network access")
+    high_value_import.add_argument("--source", choices=("knshow", "chance", "ken-kaku"), required=True)
+    high_value_import.add_argument("--html-file", required=True, help="HTML file already saved by the user")
+    high_value_import.add_argument("--source-url", required=True, help="listing page URL for provenance")
+    high_value_import.set_defaults(func=cmd_high_value)
 
     release_report = subparsers.add_parser("release-report", help="write release report")
     release_report.add_argument("--version", default=APP_VERSION, help="release version label")
