@@ -1,4 +1,10 @@
-from kensho_assistant.app.high_value.ranking import assess_campaign, application_mode, canonical_campaign_key, filter_high_value_campaigns
+from kensho_assistant.app.high_value.ranking import (
+    assess_campaign,
+    application_mode,
+    canonical_campaign_key,
+    filter_high_value_campaigns,
+    recommendation_tier,
+)
 from kensho_assistant.app.high_value.value_parser import extract_yen_amounts, max_individual_value
 
 
@@ -60,6 +66,37 @@ def test_only_explicitly_ready_form_is_auto_fill_available():
 def test_manual_routes_never_become_fill_queue_route():
     for status in ("X_ACTION_REQUIRED", "INSTAGRAM_ACTION_REQUIRED", "LINE_ACTION_REQUIRED", "MEMBER_REGISTRATION_REQUIRED", "PURCHASE_REQUIRED"):
         assert application_mode({"status": status, "form_readiness_status": "READY_FOR_FILL"}) != "AUTO_FILL_AVAILABLE"
+
+
+def test_recommendation_requires_verified_application_url_without_hiding_campaign():
+    row = assess_campaign({
+        "campaign_id": "manual",
+        "campaign_name": "現金10万円",
+        "status": "X_ACTION_REQUIRED",
+        "entry_url": "https://example.invalid/entry",
+        "prize": "現金10万円",
+    })
+
+    assert row["is_high_value"] is True
+    assert row["application_mode"] == "X_MANUAL"
+    assert row["recommendation_tier"] == "skip"
+    assert row["recommendation_reason"] == "公式応募URLが未確認"
+
+
+def test_verified_manual_campaign_is_conditional_and_deadline_bucket_is_visible():
+    row = assess_campaign({
+        "campaign_id": "manual",
+        "campaign_name": "旅行券10万円",
+        "status": "X_ACTION_REQUIRED",
+        "official_campaign_url_raw": "https://example.invalid/campaign",
+        "prize": "旅行券10万円",
+        "deadline": "8月10日（残り 1日）",
+    })
+
+    assert recommendation_tier(row)[0] == "conditional"
+    assert row["recommendation_label"] == "条件付き"
+    assert row["deadline_bucket"] == "tomorrow"
+    assert row["deadline_label"] == "あと1日"
 
 
 def test_priority_is_explainable_and_bounded():

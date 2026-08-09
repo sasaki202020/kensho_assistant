@@ -100,6 +100,72 @@ def application_mode(row: Mapping[str, object]) -> str:
     return "MANUAL_WEB_FORM"
 
 
+def _has_application_url(row: Mapping[str, object]) -> bool:
+    return bool(
+        str(row.get("official_campaign_url_raw", "") or "").strip()
+        or str(row.get("resolved_entry_url", "") or "").strip()
+        or str(row.get("entry_url", "") or "").strip()
+    )
+
+
+def _has_verified_official_url(row: Mapping[str, object]) -> bool:
+    if "official_url_verified" in row:
+        return _truthy(row.get("official_url_verified"))
+    return bool(
+        str(row.get("official_campaign_url_raw", "") or "").strip()
+        or str(row.get("official_url_status", "") or "").strip().upper() in {"VERIFIED", "CONFIRMED"}
+        or str(row.get("resolve_status", "") or "").strip().upper() == "RESOLVED"
+    )
+
+
+RECOMMENDATION_LABELS = {
+    "recommended": "おすすめ",
+    "conditional": "条件付き",
+    "skip": "見送り",
+}
+
+
+def recommendation_tier(row: Mapping[str, object]) -> tuple[str, str]:
+    mode = str(row.get("application_mode", "REVIEW_REQUIRED") or "REVIEW_REQUIRED")
+    status = str(row.get("status", "") or "").strip().upper()
+    days = _deadline_days(row.get("deadline"))
+    if status in {"EXPIRED", "CLOSED"} or (days is not None and days < 0):
+        return "skip", "受付終了または締切済み"
+    if mode == "PURCHASE_REQUIRED":
+        return "skip", "購入が必要なため見送り"
+    if not _has_application_url(row):
+        return "skip", "応募先URLが未確認"
+    if not _has_verified_official_url(row):
+        return "skip", "公式応募URLが未確認"
+    if mode == "AUTO_FILL_AVAILABLE":
+        return "recommended", "無料・公式URL確認済み・入力補助可能"
+    if mode in {
+        "MANUAL_WEB_FORM",
+        "SNS_MANUAL",
+        "INSTAGRAM_MANUAL",
+        "X_MANUAL",
+        "LINE_MANUAL",
+        "MEMBER_REGISTRATION_REQUIRED",
+    }:
+        return "conditional", APPLICATION_MODE_LABELS.get(mode, "手動確認が必要")
+    return "skip", "応募条件または対応範囲を確認できない"
+
+
+def application_steps(row: Mapping[str, object]) -> list[str]:
+    mode = str(row.get("application_mode", "REVIEW_REQUIRED") or "REVIEW_REQUIRED")
+    if mode == "AUTO_FILL_AVAILABLE":
+        return ["応募ページを開く", "入力内容を確認", "CAPTCHA・規約を本人が確認", "最終送信は本人が行う"]
+    if mode == "PURCHASE_REQUIRED":
+        return ["応募条件を見る", "購入条件と費用を本人が確認", "応募・購入は本人が判断"]
+    if mode == "MEMBER_REGISTRATION_REQUIRED":
+        return ["登録・応募ページを開く", "会員登録・ログインを本人が行う", "応募条件を本人が確認"]
+    if mode in {"X_MANUAL", "INSTAGRAM_MANUAL", "LINE_MANUAL", "SNS_MANUAL"}:
+        return ["応募先を開く", "表示されたSNS条件を本人が確認", "SNS操作は本人が行う", "完了後に応募済みを記録"]
+    if mode == "MANUAL_WEB_FORM":
+        return ["応募ページを開く", "必要事項を本人が入力", "CAPTCHA・規約を本人が確認", "最終送信は本人が行う"]
+    return ["詳細と応募条件を本人が確認", "不明点がなければ本人が応募"]
+
+
 def canonical_campaign_key(row: Mapping[str, object]) -> str:
     raw_url = str(row.get("official_campaign_url_raw", "") or row.get("official_campaign_url", "") or row.get("resolved_entry_url", "") or row.get("entry_url", ""))
     parsed = urlsplit(raw_url.strip())
@@ -120,12 +186,46 @@ def _parse_manual(row: Mapping[str, object]) -> int | None:
 
 def _deadline_days(value: object) -> int | None:
     raw = str(value or "").strip()
+    remaining = re.search(r"残り\s*([0-9０-９]+)\s*日", raw)
+    if remaining:
+        digits = remaining.group(1).translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+        return int(digits)
+    if "本日" in raw:
+        return 0
+    if "明日" in raw:
+        return 1
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日"):
         try:
             return (datetime.strptime(raw[:10] if fmt != "%Y年%m月%d日" else raw, fmt).date() - date.today()).days
         except ValueError:
             continue
     return None
+
+
+def deadline_bucket(value: object) -> str:
+    days = _deadline_days(value)
+    if days is None:
+        return "unknown"
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if days <= 3:
+        return "within_3_days"
+    if days <= 7:
+        return "within_7_days"
+    return "later"
+
+
+def deadline_label(value: object) -> str:
+    return {
+        "today": "本日締切",
+        "tomorrow": "あと1日",
+        "within_3_days": "あと3日以内",
+        "within_7_days": "あと7日以内",
+        "later": "締切まで余裕あり",
+        "unknown": "締切要確認",
+    }[deadline_bucket(value)]
 
 
 def _priority(row: Mapping[str, object], value: int | None, review_status: str) -> tuple[int, list[str]]:
@@ -189,6 +289,11 @@ def assess_campaign(row: Mapping[str, object], threshold_yen: int = 30_000) -> d
     review_status = "CONFIRMED" if value is not None and value >= threshold_yen else "NEEDS_REVIEW" if value is None and category_candidate else "UNKNOWN"
     is_high_value = bool((value is not None and value >= threshold_yen) or review_status == "NEEDS_REVIEW" or str(row.get("high_value_manual", "")).casefold() in {"true", "1", "yes"})
     score, reasons = _priority(row, value, review_status)
+    official_url_verified = bool(
+        str(row.get("official_campaign_url_raw", "") or "").strip()
+        or str(row.get("official_url_status", "") or "").strip().upper() in {"VERIFIED", "CONFIRMED"}
+        or str(row.get("resolve_status", "") or "").strip().upper() == "RESOLVED"
+    )
     result = dict(row)
     result.update({
         "official_campaign_url_raw": row.get("official_campaign_url_raw", row.get("resolved_entry_url", row.get("entry_url", ""))),
@@ -203,13 +308,21 @@ def assess_campaign(row: Mapping[str, object], threshold_yen: int = 30_000) -> d
         "priority_score": score,
         "priority_reasons": reasons,
         "priority_label": "応募優先度スコア",
+        "official_url_verified": official_url_verified,
     })
     mode = application_mode(result)
+    recommendation, recommendation_reason = recommendation_tier({**result, "application_mode": mode})
     result.update({
         "discovery_status": "DISPLAY" if is_high_value else "HIDDEN_NOT_HIGH_VALUE",
         "application_mode": mode,
         "application_mode_label": APPLICATION_MODE_LABELS[mode],
         "application_action": APPLICATION_MODE_ACTIONS[mode],
+        "deadline_bucket": deadline_bucket(result.get("deadline")),
+        "deadline_label": deadline_label(result.get("deadline")),
+        "recommendation_tier": recommendation,
+        "recommendation_label": RECOMMENDATION_LABELS[recommendation],
+        "recommendation_reason": recommendation_reason,
+        "application_steps": application_steps({**result, "application_mode": mode}),
     })
     return result
 

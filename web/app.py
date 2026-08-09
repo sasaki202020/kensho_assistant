@@ -99,7 +99,8 @@ from ..app.profile_manager import load_profile
 from ..app.run_mode import get_run_mode, normalize_run_mode
 from ..app.entry_url_resolver import target_url_for_campaign
 from ..app.prepare_all_status import load_prepare_all_status
-from ..app.high_value.ranking import assess_campaign, filter_high_value_campaigns
+from ..app.high_value.ranking import APPLICATION_MODE_LABELS, assess_campaign, filter_high_value_campaigns
+from ..app.high_value.submissions import ManualSubmissionStoreError, load_manual_submissions, mark_manual_submitted
 
 WEB_HOST = "127.0.0.1"
 WEB_PORT = 8787
@@ -259,6 +260,15 @@ def _safe_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
                 "application_mode": row.get("application_mode", "REVIEW_REQUIRED"),
                 "application_mode_label": row.get("application_mode_label", "条件確認が必要"),
                 "application_action": row.get("application_action", "確認する"),
+                "sponsor": row.get("sponsor", "") or row.get("provider", ""),
+                "source_site": row.get("source_site", "") or row.get("source", ""),
+                "deadline_label": row.get("deadline_label", "締切要確認"),
+                "recommendation_tier": row.get("recommendation_tier", "skip"),
+                "recommendation_label": row.get("recommendation_label", "見送り"),
+                "recommendation_reason": row.get("recommendation_reason", ""),
+                "application_steps": row.get("application_steps", []),
+                "manual_submitted_at": row.get("manual_submitted_at", ""),
+                "high_value_submitted": row.get("high_value_submitted", False),
             }
         )
     return safe
@@ -3263,24 +3273,51 @@ def create_app() -> FastAPI:
         category: str = "",
         sort: str = "priority",
         review_only: bool = False,
+        focus: str = "all",
+        mode: str = "",
+        hide_submitted: bool = False,
+        include_purchase: bool = True,
     ) -> HTMLResponse:
         campaigns = load_campaigns()
         inspections = load_form_inspections()
+        submission_store_error = False
+        try:
+            submissions = load_manual_submissions()
+        except ManualSubmissionStoreError:
+            submissions = {}
+            submission_store_error = True
         enriched_campaigns = []
         for campaign in campaigns:
+            campaign_id = str(campaign.get("campaign_id", ""))
             inspection = inspections.get(str(campaign.get("campaign_id", "")), {})
+            submission = submissions.get(campaign_id, {})
             if campaign.get("form_readiness_status") or not inspection:
-                enriched_campaigns.append(campaign)
+                enriched = dict(campaign)
             else:
-                enriched_campaigns.append({
+                enriched = {
                     **campaign,
                     "form_readiness_status": inspection.get("form_readiness_status", inspection.get("readiness_status", "")),
-                })
+                }
+            enriched["manual_submitted_at"] = submission.get("manual_submitted_at", "")
+            enriched["high_value_submitted"] = bool(submission)
+            enriched_campaigns.append(enriched)
         assessed = filter_high_value_campaigns(enriched_campaigns, threshold_yen=max(0, min_value))
         if review_only:
             assessed = [row for row in assessed if row.get("value_review_status") == "NEEDS_REVIEW"]
         if category:
             assessed = [row for row in assessed if category.casefold() in f"{row.get('category', '')} {row.get('prize', '')}".casefold()]
+        if mode:
+            assessed = [row for row in assessed if row.get("application_mode") == mode]
+        if focus == "today":
+            assessed = [row for row in assessed if row.get("recommendation_tier") == "recommended"]
+        elif focus == "conditional":
+            assessed = [row for row in assessed if row.get("recommendation_tier") == "conditional"]
+        elif focus == "skip":
+            assessed = [row for row in assessed if row.get("recommendation_tier") == "skip"]
+        if not include_purchase:
+            assessed = [row for row in assessed if row.get("application_mode") != "PURCHASE_REQUIRED"]
+        if hide_submitted:
+            assessed = [row for row in assessed if not row.get("high_value_submitted")]
         if sort == "value":
             assessed.sort(key=lambda row: (-int(row.get("max_individual_prize_value_yen") or 0), str(row.get("campaign_name", ""))))
         elif sort == "deadline":
@@ -3298,6 +3335,13 @@ def create_app() -> FastAPI:
             category=category,
             sort=sort,
             review_only=review_only,
+            focus=focus,
+            mode=mode,
+            mode_labels=APPLICATION_MODE_LABELS,
+            hide_submitted=hide_submitted,
+            include_purchase=include_purchase,
+            total_high_value_count=len(filter_high_value_campaigns(enriched_campaigns, threshold_yen=max(0, min_value))),
+            submission_store_error=submission_store_error,
         )
 
     @app.post("/high-value/{campaign_id}/prepare")
@@ -3314,6 +3358,18 @@ def create_app() -> FastAPI:
             mark_selected(campaign_id, reason="高額懸賞から応募準備")
             queue_rows = build_apply_queue(load_campaigns(), load_form_inspections(), load_entries(), load_apply_queue(), limit=30)
             save_apply_queue(queue_rows)
+        return RedirectResponse(url=_safe_internal_next_url(next_url, "/high-value"), status_code=303)
+
+    @app.post("/high-value/{campaign_id}/manual-submitted")
+    def high_value_manual_submitted(campaign_id: str, next_url: str = Form(default="/high-value")) -> RedirectResponse:
+        matched = next((row for row in load_campaigns() if row.get("campaign_id") == campaign_id), None)
+        if matched:
+            assessed = assess_campaign(matched)
+            if assessed.get("is_high_value"):
+                try:
+                    mark_manual_submitted(campaign_id, str(assessed.get("application_mode", "REVIEW_REQUIRED")))
+                except ManualSubmissionStoreError:
+                    pass
         return RedirectResponse(url=_safe_internal_next_url(next_url, "/high-value"), status_code=303)
 
     @app.get("/research", response_class=HTMLResponse)

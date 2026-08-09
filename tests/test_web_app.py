@@ -86,6 +86,71 @@ def test_high_value_prepare_rejects_manual_route_without_mutating_queue(monkeypa
     assert selected == []
 
 
+def test_high_value_manual_submission_is_separate_and_idempotent(monkeypatch, tmp_path) -> None:
+    campaigns = [{
+        "campaign_id": "sns",
+        "campaign_name": "現金10万円",
+        "status": "X_ACTION_REQUIRED",
+        "prize": "現金10万円",
+        "entry_url": "https://example.invalid/entry",
+    }]
+    path = tmp_path / "high_value_manual_submissions.json"
+    monkeypatch.setattr("kensho_assistant.web.app.load_campaigns", lambda: campaigns)
+    monkeypatch.setattr("kensho_assistant.web.app.load_form_inspections", lambda: {})
+
+    import kensho_assistant.app.high_value.submissions as submission_store
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_manual_submissions",
+        lambda: submission_store.load_manual_submissions(path),
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.mark_manual_submitted",
+        lambda campaign_id, application_mode: submission_store.mark_manual_submitted(
+            campaign_id, application_mode, path
+        ),
+    )
+
+    app = create_app()
+    with TestClient(app) as client:
+        first = client.post("/high-value/sns/manual-submitted", follow_redirects=False)
+        second = client.post("/high-value/sns/manual-submitted", follow_redirects=False)
+
+    assert first.status_code == 303
+    assert second.status_code == 303
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert len(payload["records"]) == 1
+    assert payload["records"][0]["campaign_id"] == "sns"
+
+
+def test_high_value_page_exposes_filters_and_never_auto_actions_for_manual_routes(monkeypatch) -> None:
+    campaigns = [
+        {
+            "campaign_id": "sns",
+            "campaign_name": "現金10万円",
+            "status": "X_ACTION_REQUIRED",
+            "prize": "現金10万円",
+            "entry_url": "https://example.invalid/sns",
+        },
+        {
+            "campaign_id": "purchase",
+            "campaign_name": "車",
+            "status": "PURCHASE_REQUIRED",
+            "prize": "車",
+            "entry_url": "https://example.invalid/purchase",
+        },
+    ]
+    monkeypatch.setattr("kensho_assistant.web.app.load_campaigns", lambda: campaigns)
+    monkeypatch.setattr("kensho_assistant.web.app.load_form_inspections", lambda: {})
+    with TestClient(create_app()) as client:
+        body = client.get("/high-value").text
+
+    assert "今日応募（おすすめ）" in body
+    assert "応募済みにする" in body
+    assert "Xで手動応募" in body
+    assert "購入が必要" in body
+    assert "/high-value/sns/prepare" not in body
+
+
 def test_web_app_allows_localhost_without_tailscale_identity(monkeypatch) -> None:
     monkeypatch.delenv("KENSHO_ALLOWED_TAILSCALE_USERS", raising=False)
     app = create_app()

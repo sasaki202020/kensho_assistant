@@ -2,15 +2,49 @@
 {% block content %}
 <section class="card">
   <div class="section-head">
-    <h2>高額懸賞</h2>
-    <span class="pill blue">{{ high_value_count }}件</span>
+    <h2>今日応募する高額懸賞</h2>
+    <span class="pill blue">表示 {{ high_value_count }}件 / 高額候補 {{ total_high_value_count }}件</span>
   </div>
-  <p class="muted">3万円以上、または高額カテゴリとして価格確認が必要な候補です。応募優先度は当選確率ではありません。</p>
+  <p class="muted">応募価値の高い順に、必要な手動作業と応募先を確認できます。最終送信、SNS操作、会員登録、購入は行いません。</p>
+  {% if submission_store_error %}<p class="muted">応募済み記録を読み取れないため、安全のため記録操作を停止しています。保存先を確認してください。</p>{% endif %}
   <form method="get" class="tag-row">
-    <label>基準額 <select name="min_value"><option value="30000" {% if min_value == 30000 %}selected{% endif %}>3万円以上</option><option value="50000" {% if min_value == 50000 %}selected{% endif %}>5万円以上</option><option value="100000" {% if min_value == 100000 %}selected{% endif %}>10万円以上</option><option value="300000" {% if min_value == 300000 %}selected{% endif %}>30万円以上</option><option value="1000000" {% if min_value == 1000000 %}selected{% endif %}>100万円以上</option></select></label>
+    <label>表示
+      <select name="focus">
+        <option value="all" {% if focus == 'all' %}selected{% endif %}>全高額懸賞</option>
+        <option value="today" {% if focus == 'today' %}selected{% endif %}>今日応募（おすすめ）</option>
+        <option value="conditional" {% if focus == 'conditional' %}selected{% endif %}>条件付き</option>
+        <option value="skip" {% if focus == 'skip' %}selected{% endif %}>見送り</option>
+      </select>
+    </label>
+    <label>基準額
+      <select name="min_value">
+        <option value="30000" {% if min_value == 30000 %}selected{% endif %}>3万円以上</option>
+        <option value="50000" {% if min_value == 50000 %}selected{% endif %}>5万円以上</option>
+        <option value="100000" {% if min_value == 100000 %}selected{% endif %}>10万円以上</option>
+        <option value="300000" {% if min_value == 300000 %}selected{% endif %}>30万円以上</option>
+        <option value="1000000" {% if min_value == 1000000 %}selected{% endif %}>100万円以上</option>
+      </select>
+    </label>
+    <label>応募方式
+      <select name="mode">
+        <option value="">すべて</option>
+        {% for mode_key, mode_label in mode_labels.items() %}
+        <option value="{{ mode_key }}" {% if mode == mode_key %}selected{% endif %}>{{ mode_label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>分類 <input name="category" value="{{ category }}" placeholder="車 / 旅行 / 家電"></label>
-    <label>並び順 <select name="sort"><option value="priority" {% if sort == 'priority' %}selected{% endif %}>応募優先度</option><option value="value" {% if sort == 'value' %}selected{% endif %}>賞品価格</option><option value="deadline" {% if sort == 'deadline' %}selected{% endif %}>締切</option><option value="winners" {% if sort == 'winners' %}selected{% endif %}>当選人数</option></select></label>
+    <label>並び順
+      <select name="sort">
+        <option value="priority" {% if sort == 'priority' %}selected{% endif %}>応募優先度</option>
+        <option value="value" {% if sort == 'value' %}selected{% endif %}>賞品価格</option>
+        <option value="deadline" {% if sort == 'deadline' %}selected{% endif %}>締切</option>
+        <option value="winners" {% if sort == 'winners' %}selected{% endif %}>当選人数</option>
+      </select>
+    </label>
     <label><input type="checkbox" name="review_only" value="true" {% if review_only %}checked{% endif %}>価格確認待ち</label>
+    <label><input type="checkbox" name="hide_submitted" value="true" {% if hide_submitted %}checked{% endif %}>応募済みを非表示</label>
+    <label><input type="checkbox" name="include_purchase" value="true" {% if include_purchase %}checked{% endif %}>購入必須も表示</label>
     <button class="btn primary" type="submit">絞り込む</button>
   </form>
 </section>
@@ -20,29 +54,39 @@
   <article class="card result-card">
     <div class="result-top"><div class="thumb">¥</div><div class="result-body">
       <div class="item-title">{{ row.campaign_name or row.prize or "名称未取得" }}</div>
-      <div class="item-sub">{{ row.provider or "主催者不明" }} / 締切 {{ row.deadline or "未取得" }} / 掲載元 {{ row.source or row.source_site or "未取得" }}</div>
-      <div class="tag-row"><span class="pill green">応募優先度 {{ row.priority_score }}</span><span class="pill {% if row.value_review_status == 'CONFIRMED' %}blue{% else %}orange{% endif %}">{{ row.value_review_status }}</span><span class="pill gray">{{ row.value_basis }}</span><span class="pill {% if row.application_mode == 'AUTO_FILL_AVAILABLE' %}green{% elif row.application_mode == 'PURCHASE_REQUIRED' %}red{% else %}orange{% endif %}">{{ row.application_mode_label }}</span></div>
+      <div class="item-sub">{{ row.sponsor or "主催者不明" }} / 締切 {{ row.deadline or "未取得" }} / {{ row.source_site or "掲載元未取得" }}</div>
+      <div class="tag-row">
+        <span class="pill {% if row.recommendation_tier == 'recommended' %}green{% elif row.recommendation_tier == 'conditional' %}orange{% else %}gray{% endif %}">{{ row.recommendation_label }}</span>
+        <span class="pill {% if row.deadline_bucket in ['today', 'tomorrow'] %}red{% else %}blue{% endif %}">{{ row.deadline_label }}</span>
+        <span class="pill green">応募優先度 {{ row.priority_score }}</span>
+        <span class="pill {% if row.value_review_status == 'CONFIRMED' %}blue{% else %}orange{% endif %}">{{ row.value_review_status or "価格要確認" }}</span>
+        <span class="pill {% if row.application_mode == 'PURCHASE_REQUIRED' %}red{% elif row.application_mode == 'AUTO_FILL_AVAILABLE' %}green{% else %}orange{% endif %}">{{ row.application_mode_label }}</span>
+        {% if row.high_value_submitted %}<span class="pill gray">応募済み</span>{% endif %}
+      </div>
     </div></div>
     <div class="candidate-detail">
-      <div><span class="label">最大個別賞品額</span><span>{{ row.max_individual_prize_value_yen or "未確認" }}円</span></div>
-      <div><span class="label">金額根拠</span><span>{{ row.value_basis }} / 信頼度 {{ row.value_confidence }}</span></div>
+      <div><span class="label">最大個別賞品額</span><span>{{ row.max_individual_prize_value_yen or "未確認" }}{% if row.max_individual_prize_value_yen %}円{% endif %}</span></div>
       <div><span class="label">当選人数</span><span>{{ row.winner_count or "未取得" }}</span></div>
       <div><span class="label">応募条件</span><span>{{ row.eligibility_summary or "要確認" }}</span></div>
-      <div><span class="label">優先度の内訳</span><span>{{ row.priority_reasons|join(' / ') }}</span></div>
+      <div><span class="label">おすすめ理由</span><span>{{ row.recommendation_reason or "条件を確認してください" }}</span></div>
+      <div><span class="label">応募手順</span><span><ol>{% for step in row.application_steps %}<li>{{ step }}</li>{% endfor %}</ol></span></div>
     </div>
     <div class="actions">
       <a class="btn" href="/campaigns?selected={{ row.campaign_id }}">詳細</a>
-      <a class="btn" href="{{ row.official_campaign_url_raw or row.resolved_entry_url or row.entry_url or '#' }}" target="_blank" rel="noreferrer">公式ページ</a>
+      <a class="btn" href="{{ row.official_campaign_url_raw or row.resolved_entry_url or row.entry_url or '#' }}" target="_blank" rel="noreferrer">応募先を開く</a>
       {% if row.application_mode == 'AUTO_FILL_AVAILABLE' %}
-      <form method="post" action="/high-value/{{ row.campaign_id }}/prepare"><input type="hidden" name="next_url" value="/high-value"><button class="btn primary" type="submit">{{ row.application_action }}</button></form>
+      <form method="post" action="/high-value/{{ row.campaign_id }}/prepare"><input type="hidden" name="next_url" value="/high-value"><button class="btn primary" type="submit">応募準備</button></form>
+      {% endif %}
+      {% if row.high_value_submitted %}
+      <span class="muted">すでに応募済みとして記録されています</span>
       {% else %}
-      <a class="btn {% if row.application_mode == 'PURCHASE_REQUIRED' %}warning{% endif %}" href="{{ row.official_campaign_url_raw or row.resolved_entry_url or row.entry_url or '#' }}" target="_blank" rel="noreferrer">{{ row.application_action }}</a>
+      <form method="post" action="/high-value/{{ row.campaign_id }}/manual-submitted"><input type="hidden" name="next_url" value="/high-value"><button class="btn" type="submit">応募済みにする</button></form>
       {% endif %}
     </div>
-    <div class="muted">自動入力後もCAPTCHA、規約、クイズ、自由記述、最終送信は人間確認です。</div>
+    <div class="muted">{{ row.application_mode_label }}。自動操作は応募先を開くところまでです。規約、CAPTCHA、認証、SNS操作、購入、最終送信は本人が行います。</div>
   </article>
 {% else %}
-  <div class="card muted">該当候補はありません。掲載中の候補を更新し、価格確認待ちを確認してください。</div>
+  <div class="card muted">該当候補はありません。表示条件を変えるか、候補を更新してください。</div>
 {% endfor %}
 </section>
 {% endblock %}

@@ -61,6 +61,7 @@ PILOT_RUNS_DIR = PILOT_DIR / "runs"
 PILOT_EVIDENCE_DIR = PILOT_DIR / "evidence"
 PILOT_REPORTS_DIR = PILOT_DIR / "reports"
 PILOT_TRIALS_JSONL = PILOT_RUNS_DIR / "trials.jsonl"
+HIGH_VALUE_SUBMISSIONS_JSON = DATA_DIR / "high_value_manual_submissions.json"
 
 CAMPAIGNS_CSV = DATA_DIR / "campaigns.csv"
 SELECTED_CAMPAIGNS_CSV = DATA_DIR / "selected_campaigns.csv"
