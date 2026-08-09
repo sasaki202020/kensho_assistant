@@ -248,6 +248,17 @@ def _safe_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
                 "next_action": row.get("next_action", ""),
                 "one_line_reason": _one_line_reason(row.get("form_readiness_reason", "") or row.get("resolve_reason", "")),
                 "risk_class": _risk_class(status),
+                "official_campaign_url_raw": row.get("official_campaign_url_raw", ""),
+                "max_individual_prize_value_yen": row.get("max_individual_prize_value_yen", ""),
+                "value_basis": row.get("value_basis", ""),
+                "value_confidence": row.get("value_confidence", ""),
+                "value_review_status": row.get("value_review_status", ""),
+                "priority_score": row.get("priority_score", ""),
+                "priority_reasons": row.get("priority_reasons", []),
+                "discovery_status": row.get("discovery_status", ""),
+                "application_mode": row.get("application_mode", "REVIEW_REQUIRED"),
+                "application_mode_label": row.get("application_mode_label", "条件確認が必要"),
+                "application_action": row.get("application_action", "確認する"),
             }
         )
     return safe
@@ -3253,7 +3264,19 @@ def create_app() -> FastAPI:
         sort: str = "priority",
         review_only: bool = False,
     ) -> HTMLResponse:
-        assessed = filter_high_value_campaigns(load_campaigns(), threshold_yen=max(0, min_value))
+        campaigns = load_campaigns()
+        inspections = load_form_inspections()
+        enriched_campaigns = []
+        for campaign in campaigns:
+            inspection = inspections.get(str(campaign.get("campaign_id", "")), {})
+            if campaign.get("form_readiness_status") or not inspection:
+                enriched_campaigns.append(campaign)
+            else:
+                enriched_campaigns.append({
+                    **campaign,
+                    "form_readiness_status": inspection.get("form_readiness_status", inspection.get("readiness_status", "")),
+                })
+        assessed = filter_high_value_campaigns(enriched_campaigns, threshold_yen=max(0, min_value))
         if review_only:
             assessed = [row for row in assessed if row.get("value_review_status") == "NEEDS_REVIEW"]
         if category:
@@ -3281,6 +3304,13 @@ def create_app() -> FastAPI:
     def high_value_prepare(campaign_id: str, next_url: str = Form(default="/high-value")) -> RedirectResponse:
         matched = next((row for row in load_campaigns() if row.get("campaign_id") == campaign_id), None)
         if matched:
+            inspection = load_form_inspections().get(campaign_id, {})
+            enriched = {**matched} if matched.get("form_readiness_status") else {
+                **matched,
+                "form_readiness_status": inspection.get("form_readiness_status", inspection.get("readiness_status", "")),
+            }
+            if assess_campaign(enriched).get("application_mode") != "AUTO_FILL_AVAILABLE":
+                return RedirectResponse(url=_safe_internal_next_url(next_url, "/high-value"), status_code=303)
             mark_selected(campaign_id, reason="高額懸賞から応募準備")
             queue_rows = build_apply_queue(load_campaigns(), load_form_inspections(), load_entries(), load_apply_queue(), limit=30)
             save_apply_queue(queue_rows)

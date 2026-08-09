@@ -47,6 +47,45 @@ def test_web_app_health_reports_localhost() -> None:
     assert set(data) == {"status", "app", "host", "port", "submitted_count_auto", "session_active"}
 
 
+def test_high_value_page_displays_manual_routes_without_prepare_action(monkeypatch) -> None:
+    campaigns = [
+        {"campaign_id": "sns", "campaign_name": "現金10万円", "status": "X_ACTION_REQUIRED", "prize": "現金10万円", "official_campaign_url_raw": "https://example.com/sns"},
+        {"campaign_id": "ready", "campaign_name": "商品券5万円", "status": "SAFE_TO_FILL", "prize": "商品券5万円", "form_readiness_status": "READY_FOR_FILL", "official_campaign_url_raw": "https://example.com/form"},
+    ]
+    monkeypatch.setattr("kensho_assistant.web.app.load_campaigns", lambda: campaigns)
+    monkeypatch.setattr("kensho_assistant.web.app.load_form_inspections", lambda: {})
+    app = create_app()
+
+    with TestClient(app) as client:
+        body = client.get("/high-value").text
+
+    assert "Xで手動応募" in body
+    assert "入力補助可能" in body
+    assert "/high-value/sns/prepare" not in body
+    assert "/high-value/ready/prepare" in body
+
+
+def test_high_value_prepare_rejects_manual_route_without_mutating_queue(monkeypatch) -> None:
+    campaigns = [{
+        "campaign_id": "sns",
+        "campaign_name": "現金10万円",
+        "status": "X_ACTION_REQUIRED",
+        "prize": "現金10万円",
+        "official_campaign_url_raw": "https://example.com/sns",
+    }]
+    selected: list[str] = []
+    monkeypatch.setattr("kensho_assistant.web.app.load_campaigns", lambda: campaigns)
+    monkeypatch.setattr("kensho_assistant.web.app.load_form_inspections", lambda: {})
+    monkeypatch.setattr("kensho_assistant.web.app.mark_selected", lambda campaign_id, reason: selected.append(campaign_id))
+    app = create_app()
+
+    with TestClient(app) as client:
+        response = client.post("/high-value/sns/prepare", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert selected == []
+
+
 def test_web_app_allows_localhost_without_tailscale_identity(monkeypatch) -> None:
     monkeypatch.delenv("KENSHO_ALLOWED_TAILSCALE_USERS", raising=False)
     app = create_app()

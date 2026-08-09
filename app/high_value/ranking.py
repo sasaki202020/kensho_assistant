@@ -13,10 +13,91 @@ HIGH_VALUE_CATEGORIES = (
     "国内旅行", "パソコン", "PC", "スマートフォン", "大型家電", "高級時計", "ブランド",
 )
 TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid", "fbclid"}
+APPLICATION_MODES = (
+    "AUTO_FILL_AVAILABLE",
+    "MANUAL_WEB_FORM",
+    "SNS_MANUAL",
+    "INSTAGRAM_MANUAL",
+    "X_MANUAL",
+    "LINE_MANUAL",
+    "MEMBER_REGISTRATION_REQUIRED",
+    "PURCHASE_REQUIRED",
+    "LOGIN_REQUIRED",
+    "REVIEW_REQUIRED",
+    "UNSUPPORTED",
+)
+APPLICATION_MODE_LABELS = {
+    "AUTO_FILL_AVAILABLE": "入力補助可能",
+    "MANUAL_WEB_FORM": "手動フォーム",
+    "SNS_MANUAL": "SNSで手動応募",
+    "INSTAGRAM_MANUAL": "Instagramで手動応募",
+    "X_MANUAL": "Xで手動応募",
+    "LINE_MANUAL": "LINEで手動応募",
+    "MEMBER_REGISTRATION_REQUIRED": "会員登録が必要",
+    "PURCHASE_REQUIRED": "購入が必要",
+    "LOGIN_REQUIRED": "ログインが必要",
+    "REVIEW_REQUIRED": "条件確認が必要",
+    "UNSUPPORTED": "対応外フォーム",
+}
+APPLICATION_MODE_ACTIONS = {
+    "AUTO_FILL_AVAILABLE": "応募準備",
+    "MANUAL_WEB_FORM": "応募ページを開く",
+    "SNS_MANUAL": "応募ページを開く",
+    "INSTAGRAM_MANUAL": "応募ページを開く",
+    "X_MANUAL": "応募ページを開く",
+    "LINE_MANUAL": "応募ページを開く",
+    "MEMBER_REGISTRATION_REQUIRED": "会員登録ページを開く",
+    "PURCHASE_REQUIRED": "条件を見る",
+    "LOGIN_REQUIRED": "ログインページを開く",
+    "REVIEW_REQUIRED": "確認する",
+    "UNSUPPORTED": "条件を見る",
+}
 
 
 def _text(row: Mapping[str, object]) -> str:
-    return " ".join(str(row.get(key, "") or "") for key in ("campaign_name", "prize", "description", "category"))
+    return " ".join(str(row.get(key, "") or "") for key in ("campaign_name", "prize", "description", "category", "eligibility_summary", "notes", "status"))
+
+
+def _truthy(value: object) -> bool:
+    return str(value or "").strip().casefold() in {"true", "yes", "1", "必須", "required"}
+
+
+def application_mode(row: Mapping[str, object]) -> str:
+    """Return the safest user-facing application route for a discovered campaign.
+
+    Discovery and application capability are intentionally separate. A campaign
+    may remain visible while its route is manual or blocked; only an explicitly
+    inspected READY_FOR_FILL form is eligible for the existing fill queue.
+    """
+    status = str(row.get("status", "") or "").strip().upper()
+    text = _text(row).casefold()
+    readiness = str(row.get("form_readiness_status", "") or "").strip().upper()
+
+    if _truthy(row.get("purchase_required")) or status == "PURCHASE_REQUIRED" or any(keyword in text for keyword in ("購入必須", "購入条件", "購入時に", "購入者限定")):
+        return "PURCHASE_REQUIRED"
+    if status == "LINE_ACTION_REQUIRED" or _truthy(row.get("line_required")) or "line応募" in text:
+        return "LINE_MANUAL"
+    if status == "X_ACTION_REQUIRED" or status == "TWITTER_ACTION_REQUIRED" or _truthy(row.get("x_required")):
+        return "X_MANUAL"
+    if status == "INSTAGRAM_ACTION_REQUIRED" or "instagram" in text or "インスタグラム" in text:
+        return "INSTAGRAM_MANUAL"
+    if _truthy(row.get("sns_required")) or status == "SNS_ACTION_REQUIRED" or any(keyword in text for keyword in ("sns応募", "sns必須", "フォローして応募")):
+        return "SNS_MANUAL"
+    if status == "MEMBER_REGISTRATION_REQUIRED" or _truthy(row.get("account_required")) or any(keyword in text for keyword in ("会員登録必須", "会員登録が必要", "会員登録後")):
+        return "MEMBER_REGISTRATION_REQUIRED"
+    if status == "LOGIN_REQUIRED" or "ログイン必須" in text or "ログインが必要" in text:
+        return "LOGIN_REQUIRED"
+    if readiness == "NO_FORM" or status in {"UNSUPPORTED", "NO_FORM"}:
+        return "UNSUPPORTED"
+    if readiness == "READY_FOR_FILL":
+        return "AUTO_FILL_AVAILABLE"
+    if readiness == "REVIEW_ONLY":
+        return "MANUAL_WEB_FORM"
+    if readiness:
+        return "REVIEW_REQUIRED"
+    if status in {"SAFE_TO_FILL", "APPROVED", "PREPARED"}:
+        return "REVIEW_REQUIRED"
+    return "MANUAL_WEB_FORM"
 
 
 def canonical_campaign_key(row: Mapping[str, object]) -> str:
@@ -122,6 +203,13 @@ def assess_campaign(row: Mapping[str, object], threshold_yen: int = 30_000) -> d
         "priority_score": score,
         "priority_reasons": reasons,
         "priority_label": "応募優先度スコア",
+    })
+    mode = application_mode(result)
+    result.update({
+        "discovery_status": "DISPLAY" if is_high_value else "HIDDEN_NOT_HIGH_VALUE",
+        "application_mode": mode,
+        "application_mode_label": APPLICATION_MODE_LABELS[mode],
+        "application_action": APPLICATION_MODE_ACTIONS[mode],
     })
     return result
 

@@ -1,4 +1,4 @@
-from kensho_assistant.app.high_value.ranking import assess_campaign, canonical_campaign_key
+from kensho_assistant.app.high_value.ranking import assess_campaign, application_mode, canonical_campaign_key, filter_high_value_campaigns
 from kensho_assistant.app.high_value.value_parser import extract_yen_amounts, max_individual_value
 
 
@@ -37,6 +37,31 @@ def test_manual_value_is_supported_without_guessing():
     assert result["value_review_status"] == "CONFIRMED"
 
 
+def test_high_value_display_keeps_manual_routes_visible():
+    rows = [
+        {"campaign_id": "sns", "campaign_name": "現金10万円", "status": "X_ACTION_REQUIRED", "prize": "現金10万円"},
+        {"campaign_id": "member", "campaign_name": "旅行券", "status": "MEMBER_REGISTRATION_REQUIRED", "prize": "旅行券10万円"},
+        {"campaign_id": "purchase", "campaign_name": "新車", "status": "PURCHASE_REQUIRED", "prize": "購入支援30万円"},
+    ]
+
+    assessed = filter_high_value_campaigns(rows)
+
+    assert {row["campaign_id"] for row in assessed} == {"sns", "member", "purchase"}
+    assert {row["application_mode"] for row in assessed} == {"X_MANUAL", "MEMBER_REGISTRATION_REQUIRED", "PURCHASE_REQUIRED"}
+    assert all(row["discovery_status"] == "DISPLAY" for row in assessed)
+
+
+def test_only_explicitly_ready_form_is_auto_fill_available():
+    assert application_mode({"form_readiness_status": "READY_FOR_FILL"}) == "AUTO_FILL_AVAILABLE"
+    assert application_mode({"status": "SAFE_TO_FILL", "form_readiness_status": "NO_FORM"}) == "UNSUPPORTED"
+    assert application_mode({"status": "SAFE_TO_FILL"}) == "REVIEW_REQUIRED"
+
+
+def test_manual_routes_never_become_fill_queue_route():
+    for status in ("X_ACTION_REQUIRED", "INSTAGRAM_ACTION_REQUIRED", "LINE_ACTION_REQUIRED", "MEMBER_REGISTRATION_REQUIRED", "PURCHASE_REQUIRED"):
+        assert application_mode({"status": status, "form_readiness_status": "READY_FOR_FILL"}) != "AUTO_FILL_AVAILABLE"
+
+
 def test_priority_is_explainable_and_bounded():
     result = assess_campaign({"prize": "現金10万円", "winner_count": "5", "entry_url": "https://example.com/apply"})
     assert 0 <= result["priority_score"] <= 100
@@ -54,4 +79,3 @@ def test_canonical_key_keeps_raw_url_separate_and_removes_tracking():
     result = assess_campaign(row)
     assert result["official_campaign_url_raw"].endswith("utm_source=site")
     assert canonical_campaign_key(row) == canonical_campaign_key({**row, "official_campaign_url_raw": "https://example.com/campaign?id=7&utm_medium=x"})
-

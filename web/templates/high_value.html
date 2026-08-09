@@ -21,7 +21,7 @@
     <div class="result-top"><div class="thumb">¥</div><div class="result-body">
       <div class="item-title">{{ row.campaign_name or row.prize or "名称未取得" }}</div>
       <div class="item-sub">{{ row.provider or "主催者不明" }} / 締切 {{ row.deadline or "未取得" }} / 掲載元 {{ row.source or row.source_site or "未取得" }}</div>
-      <div class="tag-row"><span class="pill green">応募優先度 {{ row.priority_score }}</span><span class="pill {% if row.value_review_status == 'CONFIRMED' %}blue{% else %}orange{% endif %}">{{ row.value_review_status }}</span><span class="pill gray">{{ row.value_basis }}</span></div>
+      <div class="tag-row"><span class="pill green">応募優先度 {{ row.priority_score }}</span><span class="pill {% if row.value_review_status == 'CONFIRMED' %}blue{% else %}orange{% endif %}">{{ row.value_review_status }}</span><span class="pill gray">{{ row.value_basis }}</span><span class="pill {% if row.application_mode == 'AUTO_FILL_AVAILABLE' %}green{% elif row.application_mode == 'PURCHASE_REQUIRED' %}red{% else %}orange{% endif %}">{{ row.application_mode_label }}</span></div>
     </div></div>
     <div class="candidate-detail">
       <div><span class="label">最大個別賞品額</span><span>{{ row.max_individual_prize_value_yen or "未確認" }}円</span></div>
@@ -33,7 +33,11 @@
     <div class="actions">
       <a class="btn" href="/campaigns?selected={{ row.campaign_id }}">詳細</a>
       <a class="btn" href="{{ row.official_campaign_url_raw or row.resolved_entry_url or row.entry_url or '#' }}" target="_blank" rel="noreferrer">公式ページ</a>
-      <form method="post" action="/high-value/{{ row.campaign_id }}/prepare"><input type="hidden" name="next_url" value="/high-value"><button class="btn primary" type="submit">応募準備</button></form>
+      {% if row.application_mode == 'AUTO_FILL_AVAILABLE' %}
+      <form method="post" action="/high-value/{{ row.campaign_id }}/prepare"><input type="hidden" name="next_url" value="/high-value"><button class="btn primary" type="submit">{{ row.application_action }}</button></form>
+      {% else %}
+      <a class="btn {% if row.application_mode == 'PURCHASE_REQUIRED' %}warning{% endif %}" href="{{ row.official_campaign_url_raw or row.resolved_entry_url or row.entry_url or '#' }}" target="_blank" rel="noreferrer">{{ row.application_action }}</a>
+      {% endif %}
     </div>
     <div class="muted">自動入力後もCAPTCHA、規約、クイズ、自由記述、最終送信は人間確認です。</div>
   </article>

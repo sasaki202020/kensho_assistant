@@ -252,7 +252,7 @@ def cmd_high_value(args: argparse.Namespace) -> int:
         return 0
     rows = filter_high_value_campaigns(_campaign_rows(), threshold_yen=max(0, args.min_value))
     for row in rows[: max(0, args.limit)]:
-        print(f"{row.get('campaign_id','')}\t{row.get('campaign_name','')}\t{row.get('max_individual_prize_value_yen','未確認')}\t{row.get('priority_score',0)}")
+        print(f"{row.get('campaign_id','')}\t{row.get('campaign_name','')}\t{row.get('max_individual_prize_value_yen','未確認')}\t{row.get('priority_score',0)}\t{row.get('application_mode','REVIEW_REQUIRED')}")
     return 0
 
 
