@@ -110,6 +110,10 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                     """async () => {
                       const deadline = Date.now() + 10000;
                       while (Date.now() < deadline) {
+                        if (!chrome.scripting?.getRegisteredContentScripts) {
+                          await new Promise(resolve => setTimeout(resolve, 50));
+                          continue;
+                        }
                         const scripts = await chrome.scripting.getRegisteredContentScripts();
                         if (scripts.filter(item => item.id.startsWith("kensho-")).length === 2) {
                           return;

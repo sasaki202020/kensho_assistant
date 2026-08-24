@@ -3,6 +3,7 @@
 
   const originals = new Map();
   const threshold = 0.75;
+  const rollbackSettleMs = 50;
   let verificationBlocked = false;
 
   function profileValueForField(fieldType, profile) {
@@ -267,12 +268,74 @@
     return Array.from(document.querySelectorAll("input,select,textarea")).map(
       (element) => ({
         element,
-        value: element.value,
+        tagName: String(element.tagName || "").toLowerCase(),
+        value: "value" in element ? element.value : undefined,
         checked: Boolean(element.checked),
+        indeterminate: Boolean(element.indeterminate),
         disabled: Boolean(element.disabled),
         readOnly: Boolean(element.readOnly),
+        selectedIndex: element.tagName === "SELECT" ? element.selectedIndex : undefined,
+        selectedOptions:
+          element.tagName === "SELECT"
+            ? Array.from(element.options || []).map((option) => Boolean(option.selected))
+            : undefined,
+        attributes: ["required", "readonly", "aria-invalid", "aria-required", "name", "id", "type", "autocomplete"]
+          .map((name) => [name, element.getAttribute(name)]),
       })
     );
+  }
+
+  function restoreSnapshotControl(before, emitEvents = false) {
+    const element = before.element;
+    if (!element || !element.isConnected) return;
+    if ("value" in element && before.value !== undefined) {
+      const setter = nativeValueSetter(element);
+      if (setter) setter.call(element, before.value);
+      else element.value = before.value;
+    }
+    if ("checked" in element && before.checked !== undefined) element.checked = before.checked;
+    if ("indeterminate" in element && before.indeterminate !== undefined) {
+      element.indeterminate = before.indeterminate;
+    }
+    if ("disabled" in element && before.disabled !== undefined) element.disabled = before.disabled;
+    if ("readOnly" in element && before.readOnly !== undefined) element.readOnly = before.readOnly;
+    if (element.tagName === "SELECT" && before.selectedIndex !== undefined) {
+      element.selectedIndex = before.selectedIndex;
+      if (Array.isArray(before.selectedOptions)) {
+        Array.from(element.options || []).forEach((option, index) => {
+          if (before.selectedOptions[index] !== undefined) option.selected = before.selectedOptions[index];
+        });
+      }
+    }
+    if (emitEvents) dispatchInputEvents(element);
+  }
+
+  function snapshotStateMatches(before) {
+    const element = before.element;
+    if (!element || !element.isConnected) return false;
+    if ("value" in element && before.value !== undefined && element.value !== before.value) return false;
+    if ("checked" in element && before.checked !== undefined && Boolean(element.checked) !== before.checked) return false;
+    if (
+      "indeterminate" in element &&
+      before.indeterminate !== undefined &&
+      Boolean(element.indeterminate) !== before.indeterminate
+    ) return false;
+    if ("disabled" in element && before.disabled !== undefined && Boolean(element.disabled) !== before.disabled) return false;
+    if ("readOnly" in element && before.readOnly !== undefined && Boolean(element.readOnly) !== before.readOnly) return false;
+    if (element.tagName === "SELECT" && before.selectedIndex !== undefined) {
+      if (element.selectedIndex !== before.selectedIndex) return false;
+      if (
+        Array.isArray(before.selectedOptions) &&
+        element.options.length !== before.selectedOptions.length
+      ) return false;
+      if (
+        Array.isArray(before.selectedOptions) &&
+        Array.from(element.options || []).some(
+          (option, index) => before.selectedOptions[index] !== undefined && Boolean(option.selected) !== before.selectedOptions[index]
+        )
+      ) return false;
+    }
+    return before.attributes.every(([name, value]) => element.getAttribute(name) === value);
   }
 
   function currentFingerprint() {
@@ -280,43 +343,47 @@
     return detector?.scan ? detector.scan(document).formFingerprint : "";
   }
 
-  function rollback() {
+  function rollback(emitEvents = true) {
     let restoredCount = 0;
     for (const [element, original] of originals.entries()) {
       const setter = nativeValueSetter(element);
       if (setter) setter.call(element, original.value);
       else element.value = original.value;
       if ("checked" in element) element.checked = original.checked;
+      if (emitEvents) dispatchInputEvents(element);
       restoredCount += 1;
     }
     originals.clear();
     return {restoredCount, rollbackComplete: true, submitted_count_auto: 0};
   }
 
-  function rollbackAndVerify(snapshot) {
-    const result = rollback();
+  async function rollbackAndVerify(snapshot) {
+    const result = rollback(false);
     let restoreFailed = false;
     for (const before of snapshot || []) {
-      const element = before.element;
       try {
-        const setter = nativeValueSetter(element);
-        if (setter) setter.call(element, before.value);
-        else element.value = before.value;
-        if ("checked" in element) element.checked = before.checked;
-        if ("disabled" in element) element.disabled = before.disabled;
-        if ("readOnly" in element) element.readOnly = before.readOnly;
+        restoreSnapshotControl(before, true);
       } catch (_error) {
         restoreFailed = true;
       }
     }
-    const incomplete = (snapshot || []).some(
-      (before) =>
-        before.element.value !== before.value ||
-        Boolean(before.element.checked) !== before.checked ||
-        Boolean(before.element.disabled) !== before.disabled ||
-        Boolean(before.element.readOnly) !== before.readOnly
-    );
-    result.rollbackComplete = !restoreFailed && !incomplete;
+    await new Promise((resolve) => setTimeout(resolve, rollbackSettleMs));
+    for (const before of snapshot || []) {
+      try {
+        restoreSnapshotControl(before);
+      } catch (_error) {
+        restoreFailed = true;
+      }
+    }
+    const snapshotElements = new Set((snapshot || []).map((before) => before.element));
+    const currentControls = Array.from(document.querySelectorAll("input,select,textarea"));
+    const addedControlCount = currentControls.filter((element) => !snapshotElements.has(element)).length;
+    const missingControlCount = (snapshot || []).filter((before) => !before.element?.isConnected).length;
+    const incomplete = (snapshot || []).some((before) => !snapshotStateMatches(before));
+    result.addedControlCount = addedControlCount;
+    result.missingControlCount = missingControlCount;
+    result.rollbackComplete =
+      !restoreFailed && !incomplete && addedControlCount === 0 && missingControlCount === 0;
     return result;
   }
 
@@ -358,7 +425,7 @@
       const value = valueForItem(item, profile);
       if (value === undefined || value === "") continue;
       if (!setElementValue(element, value, true)) {
-        const rolled = rollbackAndVerify(snapshot);
+        const rolled = await rollbackAndVerify(snapshot);
         if (!rolled.rollbackComplete) verificationBlocked = true;
         return {
           status: rolled.rollbackComplete
@@ -419,7 +486,7 @@
       unrelatedChangedCount,
     };
     if (fingerprintChanged || targetMismatchFieldIds.length || unrelatedChangedCount) {
-      const rolled = rollbackAndVerify(snapshot);
+      const rolled = await rollbackAndVerify(snapshot);
       if (!rolled.rollbackComplete) verificationBlocked = true;
       return {
         status: rolled.rollbackComplete

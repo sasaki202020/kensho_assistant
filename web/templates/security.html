@@ -25,6 +25,34 @@
   </div>
 </section>
 
+{% if storage.profile_enc == "未検出" %}
+<section class="card">
+  <div class="section-head"><h2>暗号化プロフィールを登録</h2></div>
+  <p class="muted">入力値はlocalhostから暗号化保存し、画面やログへ再表示しません。登録後は編集画面を残しません。</p>
+  {% if profile_setup_error %}<p class="warning">{{ profile_setup_error }}</p>{% endif %}
+  <form method="post" action="/profile/setup" autocomplete="off">
+    <div class="detail-grid profile-form-grid">
+      <label for="last_name">姓</label><input id="last_name" name="last_name" required autocomplete="family-name">
+      <label for="first_name">名</label><input id="first_name" name="first_name" required autocomplete="given-name">
+      <label for="last_name_kana">姓カナ</label><input id="last_name_kana" name="last_name_kana" required>
+      <label for="first_name_kana">名カナ</label><input id="first_name_kana" name="first_name_kana" required>
+      <label for="postal_code">郵便番号</label><input id="postal_code" name="postal_code" required autocomplete="postal-code">
+      <label for="prefecture">都道府県</label><input id="prefecture" name="prefecture" required>
+      <label for="city">市区町村</label><input id="city" name="city" required>
+      <label for="address1">住所</label><input id="address1" name="address1" required autocomplete="street-address">
+      <label for="address2">建物名</label><input id="address2" name="address2">
+      <label for="phone">電話番号</label><input id="phone" name="phone" required autocomplete="tel">
+      <label for="email">メール</label><input id="email" name="email" type="email" required autocomplete="email">
+      <label for="gender">性別</label><input id="gender" name="gender" required>
+      <label for="birth_year">生年</label><input id="birth_year" name="birth_year" required inputmode="numeric">
+      <label for="birth_month">生月</label><input id="birth_month" name="birth_month" required inputmode="numeric">
+      <label for="birth_day">生日</label><input id="birth_day" name="birth_day" required inputmode="numeric">
+    </div>
+    <button class="btn primary" type="submit">暗号化して保存</button>
+  </form>
+</section>
+{% endif %}
+
 <section class="card">
   <div class="section-head"><h2>Chrome応募準備</h2></div>
   <div class="mode-grid">

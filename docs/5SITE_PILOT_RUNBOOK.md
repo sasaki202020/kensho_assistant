@@ -38,12 +38,12 @@ Chrome Remote Desktopアプリで自宅PCがオンラインと表示され、本
 ## 4. build fingerprint確認
 
 ```powershell
-py -3.12 -m kensho_assistant.pilot.build_fingerprint `
+py -3.13 -m kensho_assistant.pilot.build_fingerprint `
   --manifest kensho_assistant\data\pilot\manifests\5site-pilot-v1.json `
   --candidates kensho_assistant\data\pilot\manifests\5site-candidates-v1.json
 ```
 
-出力値が`5site-pilot-v1.json`の`build_fingerprint_sha256`と一致しない場合は停止する。
+出力値が`5site-pilot-v1.json`の`build_fingerprint_sha256`と一致しない場合は停止する。fingerprintには`extension/`と送信・PII・フォーム安全テストを含める。
 
 ## 5. commit SHA確認
 
@@ -59,14 +59,15 @@ git -C kensho_assistant status --short
 マニフェストを検証してからpilotを開始する。
 
 ```powershell
-py -3.12 -m kensho_assistant.main pilot-manifest validate `
+py -3.13 -m kensho_assistant.main pilot-manifest validate `
   --manifest kensho_assistant\data\pilot\manifests\5site-pilot-v1.json
-py -3.12 -m kensho_assistant.main pilot-run `
+py -3.13 -m kensho_assistant.main pilot-run `
   --manifest kensho_assistant\data\pilot\manifests\5site-pilot-v1.json `
+  --candidates kensho_assistant\data\pilot\manifests\5site-candidates-v1.json `
   --browser chrome
 ```
 
-`--keep-open`は使用しない。各試行では新しいbrowser contextを使用し、終了時に閉じる。このCLI経路は5サイト測定用であり、Phase AのChrome拡張非送信確認とは別に扱う。
+`--keep-open`は使用しない。pilot-runはclean worktree、manifestのbranch/HEAD/fingerprint一致を満たさない場合、profile読み込みやブラウザ起動より前に終了する。各試行では新しいbrowser contextを使用し、終了時に閉じる。このCLI経路は5サイト測定用であり、Phase AのChrome拡張非送信確認とは別に扱う。
 
 ## 7. 入力結果の確認
 

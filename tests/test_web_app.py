@@ -47,6 +47,41 @@ def test_web_app_health_reports_localhost() -> None:
     assert set(data) == {"status", "app", "host", "port", "submitted_count_auto", "session_active"}
 
 
+def test_profile_setup_posts_fields_without_putting_values_in_redirect(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_save_profile(profile):
+        captured.update(profile)
+
+    monkeypatch.setattr("kensho_assistant.web.app.save_profile", fake_save_profile)
+    app = create_app()
+    payload = {
+        "last_name": "PII_TEST_LAST",
+        "first_name": "PII_TEST_FIRST",
+        "last_name_kana": "テストセイ",
+        "first_name_kana": "テストメイ",
+        "postal_code": "000-0000",
+        "prefecture": "東京都",
+        "city": "テスト区",
+        "address1": "テスト1-1",
+        "address2": "テスト101",
+        "phone": "00000000000",
+        "email": "pii-test@example.invalid",
+        "gender": "未回答",
+        "birth_year": "1980",
+        "birth_month": "1",
+        "birth_day": "1",
+    }
+    with TestClient(app) as client:
+        response = client.post("/profile/setup", data=payload, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/security"
+    assert captured == payload
+    assert "PII_TEST" not in response.headers["location"]
+    assert "pii-test@example.invalid" not in response.headers["location"]
+
+
 def test_high_value_page_displays_manual_routes_without_prepare_action(monkeypatch) -> None:
     campaigns = [
         {"campaign_id": "sns", "campaign_name": "現金10万円", "status": "X_ACTION_REQUIRED", "prize": "現金10万円", "official_campaign_url_raw": "https://example.com/sns"},
@@ -576,6 +611,8 @@ def test_web_app_prepare_api_returns_json(monkeypatch) -> None:
     assert data["queue_status"] == "PREPARED"
     assert "送信はしていません" in data["message"]
     assert "手動送信済みにする" in data["next_action"]
+    assert data["fallback_command"].startswith("python -m kensho_assistant.main prepare")
+    assert "--yes-known-fields" in data["fallback_command"]
     assert data["submitted_count_auto"] == 0
 
 
@@ -593,7 +630,8 @@ def test_web_app_prepare_api_failure_returns_fallback(monkeypatch) -> None:
     assert data["queue_status"] == "QUEUED"
     assert "承認済みではありません" in data["message"]
     assert "応募候補に承認" in data["next_action"]
-    assert "python main.py prepare --campaign-id test-campaign" in data["fallback_command"]
+    assert "python -m kensho_assistant.main prepare --campaign-id test-campaign" in data["fallback_command"]
+    assert "--yes-known-fields" in data["fallback_command"]
     assert data["submitted_count_auto"] == 0
 
 
@@ -710,7 +748,7 @@ def test_web_app_session_self_test_note_saved(tmp_path, monkeypatch) -> None:
     assert "改善したい" in text
 
 
-def test_start_chrome_prepare_uses_main_prepare(monkeypatch) -> None:
+def test_start_chrome_prepare_uses_installed_module(monkeypatch) -> None:
     calls = {}
 
     def fake_popen(args, **kwargs):
@@ -721,9 +759,8 @@ def test_start_chrome_prepare_uses_main_prepare(monkeypatch) -> None:
     monkeypatch.setattr("kensho_assistant.web.app.subprocess.Popen", fake_popen)
     status = _start_chrome_prepare("test-campaign")
     assert status == "started"
-    assert calls["args"][0] == __import__("sys").executable
-    assert calls["args"][1].endswith("main.py")
-    assert calls["args"][2:] == [
+    assert calls["args"][:3] == [__import__("sys").executable, "-m", "kensho_assistant.main"]
+    assert calls["args"][3:] == [
         "prepare",
         "--campaign-id",
         "test-campaign",
@@ -732,10 +769,11 @@ def test_start_chrome_prepare_uses_main_prepare(monkeypatch) -> None:
         "--keep-open",
         "--no-screenshot",
         "--require-user-approved",
+        "--yes-known-fields",
     ]
 
 
-def test_start_prepare_all_uses_main_prepare_all(monkeypatch) -> None:
+def test_start_prepare_all_uses_installed_module(monkeypatch) -> None:
     calls = {}
 
     def fake_popen(args, **kwargs):
@@ -746,9 +784,8 @@ def test_start_prepare_all_uses_main_prepare_all(monkeypatch) -> None:
     monkeypatch.setattr("kensho_assistant.web.app.subprocess.Popen", fake_popen)
     status = _start_prepare_all()
     assert status == "started"
-    assert calls["args"][0] == __import__("sys").executable
-    assert calls["args"][1].endswith("main.py")
-    assert calls["args"][2:] == [
+    assert calls["args"][:3] == [__import__("sys").executable, "-m", "kensho_assistant.main"]
+    assert calls["args"][3:] == [
         "prepare-all",
         "--status",
         "APPROVED,PREPARED",
@@ -794,7 +831,7 @@ def test_web_app_session_start_spawns_prepare_session(monkeypatch) -> None:
     with TestClient(app) as client:
         response = client.post("/queue/session/start", follow_redirects=False)
     assert response.status_code == 303
-    assert calls["args"][0] == __import__("sys").executable
+    assert calls["args"][:3] == [__import__("sys").executable, "-m", "kensho_assistant.main"]
     assert "prepare-session" in calls["args"]
 
 
@@ -1163,6 +1200,8 @@ def test_prepare_passes_allow_age_fill(monkeypatch) -> None:
     monkeypatch.setattr(main_cli, "has_resolved_form_url", lambda campaign: True)
     monkeypatch.setattr(main_cli, "read_csv_rows", lambda path: [{"campaign_id": "x", "queue_status": "APPROVED", "approved_by_user": "true"}])
     monkeypatch.setattr(main_cli, "open_url_in_chrome", lambda playwright, url, browser: (object(), object(), browser))
+    monkeypatch.setattr(main_cli, "install_submission_guard_on_context", lambda context: None, raising=False)
+    monkeypatch.setattr(main_cli, "install_submission_guard", lambda page: None, raising=False)
     monkeypatch.setattr(main_cli, "close_browser_safely", lambda context: None)
 
     def fake_fill_campaign_page(*args, **kwargs):
@@ -1189,12 +1228,55 @@ def test_prepare_passes_allow_age_fill(monkeypatch) -> None:
     assert calls["allow_age_fill"] is True
 
 
+def test_prepare_installs_submission_guard_before_filling(monkeypatch) -> None:
+    events: list[str] = []
+    context = object()
+    page = object()
+    monkeypatch.setattr(main_cli, "_load_profile_or_fail", lambda: {})
+    monkeypatch.setattr(main_cli, "_campaign_rows", lambda: [{"campaign_id": "x", "status": "SAFE_TO_FILL", "form_readiness_status": "READY_FOR_FILL", "resolved_entry_url": "https://example.com"}])
+    monkeypatch.setattr(main_cli, "has_resolved_form_url", lambda campaign: True)
+    monkeypatch.setattr(main_cli, "read_csv_rows", lambda path: [{"campaign_id": "x", "queue_status": "APPROVED", "approved_by_user": "true"}])
+    monkeypatch.setattr(main_cli, "open_url_in_chrome", lambda playwright, url, browser: (context, page, browser))
+    monkeypatch.setattr(main_cli, "install_submission_guard_on_context", lambda value: events.append("context_guard"), raising=False)
+    monkeypatch.setattr(main_cli, "install_submission_guard", lambda value: events.append("page_guard"), raising=False)
+    monkeypatch.setattr(main_cli, "close_browser_safely", lambda value: None)
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
+
+    def fake_fill_campaign_page(*args, **kwargs):
+        events.append("fill")
+
+        class Result:
+            decision = "n"
+            submitted = False
+
+        return Result()
+
+    monkeypatch.setattr(main_cli, "fill_campaign_page", fake_fill_campaign_page)
+
+    result = main_cli.cmd_prepare(
+        __import__("argparse").Namespace(
+            campaign_id="x",
+            browser="chrome",
+            keep_open=False,
+            no_screenshot=True,
+            force_review=False,
+            require_user_approved=True,
+            allow_age_fill=False,
+        )
+    )
+
+    assert result == 0
+    assert events == ["context_guard", "page_guard", "fill"]
+
+
 def test_prepare_prints_summary_messages(monkeypatch, capsys) -> None:
     monkeypatch.setattr(main_cli, "_load_profile_or_fail", lambda: {})
     monkeypatch.setattr(main_cli, "_campaign_rows", lambda: [{"campaign_id": "x", "status": "SAFE_TO_FILL", "form_readiness_status": "READY_FOR_FILL", "resolved_entry_url": "https://example.com"}])
     monkeypatch.setattr(main_cli, "has_resolved_form_url", lambda campaign: True)
     monkeypatch.setattr(main_cli, "read_csv_rows", lambda path: [{"campaign_id": "x", "queue_status": "APPROVED", "approved_by_user": "true"}])
     monkeypatch.setattr(main_cli, "open_url_in_chrome", lambda playwright, url, browser: (object(), object(), browser))
+    monkeypatch.setattr(main_cli, "install_submission_guard_on_context", lambda context: None, raising=False)
+    monkeypatch.setattr(main_cli, "install_submission_guard", lambda page: None, raising=False)
     monkeypatch.setattr(main_cli, "close_browser_safely", lambda context: None)
     monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
 
@@ -1217,6 +1299,8 @@ def test_prepare_prints_cancel_messages(monkeypatch, capsys) -> None:
     monkeypatch.setattr(main_cli, "has_resolved_form_url", lambda campaign: True)
     monkeypatch.setattr(main_cli, "read_csv_rows", lambda path: [{"campaign_id": "x", "queue_status": "APPROVED", "approved_by_user": "true"}])
     monkeypatch.setattr(main_cli, "open_url_in_chrome", lambda playwright, url, browser: (object(), object(), browser))
+    monkeypatch.setattr(main_cli, "install_submission_guard_on_context", lambda context: None, raising=False)
+    monkeypatch.setattr(main_cli, "install_submission_guard", lambda page: None, raising=False)
     monkeypatch.setattr(main_cli, "close_browser_safely", lambda context: None)
     monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
 

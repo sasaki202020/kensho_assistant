@@ -57,8 +57,10 @@ from .app.real_site_trials import TrialStore, summarize_trials
 from .app.pilot_validation import (
     PilotTrialStore,
     create_pilot_manifest,
+    pilot_build_preflight,
     launch_pilot_browser,
     load_pilot_manifest,
+    pilot_candidate_preflight,
     pilot_structure_summary,
     run_pilot_manifest,
     save_pilot_manifest,
@@ -86,6 +88,7 @@ from .app.apply_queue import (
     save_apply_queue_report,
 )
 from .app.browser_manager import check_browser_doctor, close_browser_safely, open_url_in_chrome
+from .app.submission_guard import install_submission_guard, install_submission_guard_on_context
 from .app.knshow_scraper import collect_campaigns, save_campaigns
 from .app.high_value.importer import save_imported_listing
 from .app.high_value.ranking import filter_high_value_campaigns
@@ -424,12 +427,14 @@ def cmd_fill(args: argparse.Namespace) -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context()
+        install_submission_guard_on_context(context)
         page = context.new_page()
         for campaign in safe_campaigns:
             processed += 1
             entry_url = campaign.get("entry_url", "") or campaign.get("knshow_url", "")
             target_url = target_url_for_campaign(campaign)
             page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+            install_submission_guard(page)
             result = fill_campaign_page(
                 page,
                 campaign,
@@ -470,7 +475,7 @@ def cmd_fill(args: argparse.Namespace) -> int:
                     "entry_type": campaign.get("entry_type_raw", ""),
                     "risk_level": "low",
                     "risk_reason": campaign.get("notes", ""),
-                    "auto_submit_allowed": "true",
+                    "auto_submit_allowed": "false",
                     "status": entry_state,
                     "submitted_at": datetime.now().astimezone().isoformat(timespec="seconds") if result.submitted else "",
                     "screenshot_before": result.screenshot_before,
@@ -530,6 +535,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             raise SystemExit(f"browser launch failed: {safe_exception_message(exc)}")
         if args.browser == "chrome" and actual_browser != "chrome":
             print("Chromeが見つからないため Chromium で起動しました。")
+        install_submission_guard_on_context(context)
+        install_submission_guard(page)
         result = fill_campaign_page(
             page,
             campaign,
@@ -819,9 +826,46 @@ def cmd_pilot_manifest(args: argparse.Namespace) -> int:
 
 
 def cmd_pilot_run(args: argparse.Namespace) -> int:
-    ensure_runtime_dirs()
     manifest = load_pilot_manifest(Path(args.manifest))
+    build_check = pilot_build_preflight(
+        manifest,
+        manifest_path=Path(args.manifest),
+        candidates_path=Path(args.candidates),
+    )
+    if not build_check["valid"]:
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED_PILOT_BUILD",
+                    "blocked_reasons": build_check["errors"],
+                    "current_branch": build_check["current_branch"],
+                    "current_head": build_check["current_head"],
+                    "worktree_clean": build_check["worktree_clean"],
+                    "fingerprint_matches": build_check["fingerprint_matches"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
     candidates = load_apply_queue()
+    candidate_check = pilot_candidate_preflight(manifest, candidates)
+    if not candidate_check["valid"]:
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED_PILOT_CANDIDATES",
+                    "blocked_reasons": candidate_check["errors"],
+                    "missing_count": candidate_check["missing_count"],
+                    "site_mismatch_count": candidate_check["site_mismatch_count"],
+                    "ineligible_count": candidate_check["ineligible_count"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    ensure_runtime_dirs()
     profile = _load_profile_or_fail()
 
     def review(page, trial) -> None:
@@ -1978,6 +2022,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pilot_run = subparsers.add_parser("pilot-run", help="run a read-only five-site pilot without submission")
     pilot_run.add_argument("--manifest", required=True, help="pilot manifest path")
+    pilot_run.add_argument("--candidates", required=True, help="PII-free fixed candidate manifest used for the build fingerprint")
     pilot_run.add_argument("--browser", choices=("chrome", "chromium"), default="chrome", help="headed browser to use")
     pilot_run.set_defaults(func=cmd_pilot_run)
 

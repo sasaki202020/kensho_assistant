@@ -103,6 +103,28 @@ FIELD_NAME_HINTS: dict[str, list[str]] = {
 
 SEARCH_TERMS = ["サイト内検索", "検索キーワード", "search", "site_search"]
 
+APPLICATION_SIGNAL_FIELDS = {
+    "email",
+    "email_confirm",
+    "last_name",
+    "first_name",
+    "full_name",
+    "last_name_kana",
+    "first_name_kana",
+    "full_name_kana",
+    "postal_code",
+    "prefecture",
+    "city",
+    "address1",
+    "address2",
+    "phone",
+    "phone_confirm",
+    "birth_year",
+    "birth_month",
+    "birth_day",
+    "gender",
+}
+
 
 def _normalize(text: str) -> str:
     return " ".join((text or "").casefold().replace("　", " ").split())
@@ -420,10 +442,9 @@ def extract_quiz_items(page, limit: int = 5) -> list[dict[str, object]]:
     return items
 
 
-def detect_fields(page) -> list[DetectedField]:
+def _detect_fields_from_elements(elements) -> list[DetectedField]:
     fields: list[DetectedField] = []
     unknown_count = 0
-    elements = page.locator('input:not([type="hidden"]), select, textarea')
     for index in range(elements.count()):
         element = elements.nth(index)
         try:
@@ -435,3 +456,45 @@ def detect_fields(page) -> list[DetectedField]:
         except Exception:
             continue
     return fields
+
+
+def _form_scope_score(fields: list[DetectedField], submit_count: int) -> int:
+    signal_count = sum(
+        1
+        for field in fields
+        if field.field_name in APPLICATION_SIGNAL_FIELDS and field.confidence >= 0.75
+    )
+    manual_count = sum(
+        1
+        for field in fields
+        if field.field_name in {"survey_choice", "prize_choice", "free_text", "consent", "newsletter"}
+    )
+    required_count = sum(1 for field in fields if field.required)
+    return (signal_count * 10) + (manual_count * 2) + required_count + (5 if submit_count else 0)
+
+
+def _scoped_field_elements(page):
+    field_selector = 'input:not([type="hidden"]):visible, select:visible, textarea:visible'
+    forms = page.locator("form")
+    form_count = forms.count()
+    if form_count == 0:
+        return page.locator(field_selector)
+    if form_count == 1:
+        return forms.first.locator(field_selector)
+
+    candidates: list[tuple[int, int, object]] = []
+    for index in range(form_count):
+        form = forms.nth(index)
+        fields = _detect_fields_from_elements(form.locator(field_selector))
+        submit_count = form.locator('button[type="submit"], input[type="submit"], input[type="image"]').count()
+        candidates.append((_form_scope_score(fields, submit_count), index, form))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    if not candidates or candidates[0][0] <= 0:
+        return page.locator('input[data-kensho-empty-scope="true"]')
+    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+        return page.locator('input[data-kensho-empty-scope="true"]')
+    return candidates[0][2].locator(field_selector)
+
+
+def detect_fields(page) -> list[DetectedField]:
+    return _detect_fields_from_elements(_scoped_field_elements(page))

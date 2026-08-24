@@ -10,15 +10,25 @@ from typing import Iterable
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ATTESTATION_FIELDS = {"pilot_commit", "build_fingerprint_sha256"}
 ROOT_FILES = (
+    ".env.example",
+    "AGENTS.md",
     "__init__.py",
     "desktop_app.py",
     "main.py",
     "mail_importer.py",
+    "MIGRATION_PROVENANCE.md",
+    "README.md",
     "requirements.txt",
     "run_web.py",
 )
-SOURCE_DIRS = ("app", "config", "pilot", "scripts", "ui", "web")
+SOURCE_DIRS = ("app", "config", "extension", "pilot", "scripts", "ui", "web")
 RELATED_TESTS = (
+    "tests/test_cli_submission_guard.py",
+    "tests/test_extension_bridge.py",
+    "tests/test_extension_local_smoke.py",
+    "tests/test_extension_mvp.py",
+    "tests/test_field_mapping_safety.py",
+    "tests/test_form_scope.py",
     "tests/test_pilot_build_fingerprint.py",
     "tests/test_pilot_preflight.py",
     "tests/test_pilot_validation.py",

@@ -291,6 +291,142 @@ def test_unrelated_disabled_state_is_restored_during_rollback(browser_page) -> N
     assert browser_page.locator("#guardian-name").is_disabled() is False
 
 
+def test_dynamic_form_change_is_treated_as_incomplete_rollback(browser_page) -> None:
+    browser_page.goto((FIXTURES / "rollback_dynamic_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/redaction.js",
+        "shared/normalization.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+    )
+
+    result = browser_page.evaluate(
+        """async () => {
+          const analysis = window.KenshoExtension.FormDetector.scan(document);
+          const email = analysis.fields.find(field => field.fieldType === "email");
+          const scopedAnalysis = {...analysis, fields: [email]};
+          const preview = window.KenshoExtension.FormFiller.preview(
+            scopedAnalysis,
+            {email: "pii-test@example.invalid"}
+          );
+          const first = await window.KenshoExtension.FormFiller.fillAndVerify(
+            preview,
+            {email: "pii-test@example.invalid"},
+            analysis,
+            {templateApproved: true}
+          );
+          const second = await window.KenshoExtension.FormFiller.fillAndVerify(
+            preview,
+            {email: "pii-test@example.invalid"},
+            analysis,
+            {templateApproved: true}
+          );
+          return {
+            first,
+            second,
+            emailValue: document.querySelector("#email").value,
+            dynamicFieldExists: Boolean(document.querySelector("#dynamic-field")),
+          };
+        }"""
+    )
+
+    assert result["first"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
+    assert result["first"]["rollbackComplete"] is False
+    assert result["second"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
+    assert result["second"]["filledCount"] == 0
+    assert result["emailValue"] == ""
+    assert result["dynamicFieldExists"] is True
+
+
+def test_controlled_input_writeback_is_resynchronized_during_rollback(browser_page) -> None:
+    browser_page.goto((FIXTURES / "rollback_controlled_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/redaction.js",
+        "shared/normalization.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+    )
+
+    result = browser_page.evaluate(
+        """async () => {
+          const analysis = window.KenshoExtension.FormDetector.scan(document);
+          const preview = window.KenshoExtension.FormFiller.preview(
+            analysis,
+            {email: "pii-test@example.invalid", phone: "09000002741"}
+          );
+          const mappingDecisions = Object.fromEntries(
+            preview.items.map(item => [item.fieldId, {action: "approve", profileKey: item.fieldType}])
+          );
+          const filled = await window.KenshoExtension.FormFiller.fillAndVerify(
+            preview,
+            {email: "pii-test@example.invalid", phone: "09000002741"},
+            analysis,
+            {templateApproved: true, mappingDecisions}
+          );
+          await new Promise(resolve => setTimeout(resolve, 30));
+          return {
+            filled,
+            emailValue: document.querySelector("#email").value,
+            phoneValue: document.querySelector("#phone").value,
+          };
+        }"""
+    )
+
+    assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
+    assert result["filled"]["rollbackComplete"] is True
+    assert result["emailValue"] == ""
+    assert result["phoneValue"] == ""
+
+
+def test_manual_rollback_resynchronizes_controlled_form(browser_page) -> None:
+    browser_page.goto((FIXTURES / "rollback_controlled_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/redaction.js",
+        "shared/normalization.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+    )
+
+    result = browser_page.evaluate(
+        """async () => {
+          const analysis = window.KenshoExtension.FormDetector.scan(document);
+          const preview = window.KenshoExtension.FormFiller.preview(
+            analysis,
+            {email: "pii-test@example.invalid", phone: "09000002741"}
+          );
+          const filled = window.KenshoExtension.FormFiller.fill(
+            preview,
+            {email: "pii-test@example.invalid", phone: "09000002741"}
+          );
+          const rolled = window.KenshoExtension.FormFiller.rollback();
+          await new Promise(resolve => setTimeout(resolve, 30));
+          return {
+            filled,
+            rolled,
+            emailValue: document.querySelector("#email").value,
+            phoneValue: document.querySelector("#phone").value,
+          };
+        }"""
+    )
+
+    assert result["filled"]["filledCount"] == 2
+    assert result["rolled"]["rollbackComplete"] is True
+    assert result["emailValue"] == ""
+    assert result["phoneValue"] == ""
+
+
 def test_unrestorable_unrelated_state_blocks_all_future_fill(browser_page) -> None:
     browser_page.goto((FIXTURES / "mapping_safety_form.html").as_uri())
     _load_scripts(

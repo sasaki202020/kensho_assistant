@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from argparse import Namespace
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +12,9 @@ from kensho_assistant.app.pilot_validation import (
     build_pilot_plan,
     create_pilot_manifest,
     git_commit_sha,
+    pilot_candidate_preflight,
     pilot_structure_summary,
+    pilot_build_preflight,
     run_pilot_manifest,
     validate_pilot_manifest,
 )
@@ -22,7 +25,7 @@ from kensho_assistant.app.pilot_safety import (
     snapshot_storage,
 )
 from kensho_assistant.app.real_site_trials import TrialStore
-from kensho_assistant.main import build_parser, cmd_trial_report
+from kensho_assistant.main import build_parser, cmd_pilot_run, cmd_trial_report
 
 
 def test_git_commit_sha_is_resolved_from_project_root(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,6 +42,61 @@ def test_git_commit_sha_is_resolved_from_project_root(monkeypatch: pytest.Monkey
 
     assert git_commit_sha() == "pilot-commit-sha"
     assert observed["cwd"].name == "kensho_assistant"
+
+
+def test_pilot_build_preflight_rejects_dirty_or_unattested_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("kensho_assistant.app.pilot_validation.git_worktree_status", lambda: " M app/form_detector.py")
+    monkeypatch.setattr("kensho_assistant.app.pilot_validation.git_branch_name", lambda: "codex/high-value-kensho-v1")
+    monkeypatch.setattr("kensho_assistant.app.pilot_validation.git_commit_sha", lambda: "head-sha")
+
+    result = pilot_build_preflight(
+        {
+            "git_branch": "codex/high-value-kensho-v1",
+            "pilot_commit": "head-sha",
+            "build_fingerprint_sha256": "fingerprint-sha",
+        }
+    )
+
+    assert result["valid"] is False
+    assert "worktree_dirty" in result["errors"]
+    assert result["worktree_clean"] is False
+
+
+def test_pilot_build_preflight_requires_fingerprint_inputs_when_paths_are_used() -> None:
+    result = pilot_build_preflight(
+        {
+            "git_branch": "codex/high-value-kensho-v1",
+            "pilot_commit": "head-sha",
+            "build_fingerprint_sha256": "fingerprint-sha",
+        },
+        manifest_path=Path("pilot.json"),
+    )
+
+    assert result["valid"] is False
+    assert "fingerprint_inputs_missing" in result["errors"]
+
+
+def test_pilot_run_cli_blocks_before_profile_or_browser(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    manifest = create_pilot_manifest(_candidates(), limit_sites=5)
+    monkeypatch.setattr("kensho_assistant.main.load_pilot_manifest", lambda _path: manifest)
+    monkeypatch.setattr(
+        "kensho_assistant.main.pilot_build_preflight",
+        lambda _manifest, **_kwargs: {
+            "valid": False,
+            "errors": ["worktree_dirty"],
+            "current_branch": "codex/high-value-kensho-v1",
+            "current_head": "head-sha",
+            "worktree_clean": False,
+            "fingerprint_matches": None,
+        },
+    )
+    monkeypatch.setattr("kensho_assistant.main.ensure_runtime_dirs", lambda: (_ for _ in ()).throw(AssertionError("must block before runtime setup")))
+    monkeypatch.setattr("kensho_assistant.main._load_profile_or_fail", lambda: (_ for _ in ()).throw(AssertionError("must not load profile")))
+
+    result = cmd_pilot_run(Namespace(manifest="pilot.json", candidates="candidates.json", browser="chrome"))
+
+    assert result == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "BLOCKED_PILOT_BUILD"
 
 
 def _candidates(count: int = 5) -> list[dict[str, str]]:
@@ -68,6 +126,17 @@ def test_manifest_plans_five_sites_three_attempts_without_urls() -> None:
     text = json.dumps(manifest, ensure_ascii=False)
     assert "https://" not in text
     assert "secret@example.com" not in text
+
+
+def test_pilot_candidate_preflight_rejects_stale_manifest_bindings() -> None:
+    manifest = create_pilot_manifest(_candidates(), limit_sites=5)
+    current_candidates = _candidates(1)
+
+    result = pilot_candidate_preflight(manifest, current_candidates)
+
+    assert result["valid"] is False
+    assert result["missing_count"] == 4
+    assert "candidate_ref_missing" in result["errors"]
 
 
 class _Page:

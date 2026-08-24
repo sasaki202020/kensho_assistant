@@ -166,3 +166,38 @@ def test_encrypted_profile_does_not_leak_to_logs(tmp_path: Path, monkeypatch):
     assert "山田" not in text
     assert "09000001234" not in text
     assert "kensho-test@example.com" not in text
+
+
+def test_save_profile_encrypts_from_memory_without_plaintext_file(tmp_path: Path, monkeypatch):
+    key = Fernet.generate_key().decode("utf-8")
+    env_path = tmp_path / ".env"
+    external_profile = tmp_path / "local-app-data" / "profile.enc"
+    repository_plaintext = tmp_path / "repository" / "profile.json"
+    _write_env(env_path, key)
+    monkeypatch.setattr(profile_manager, "DOTENV_PATH", env_path)
+    monkeypatch.setattr(profile_manager, "PROFILE_ENC", external_profile)
+    monkeypatch.setattr(profile_manager, "PROFILE_JSON", repository_plaintext)
+    profile = {
+        "last_name": "PII_TEST_LAST",
+        "first_name": "PII_TEST_FIRST",
+        "last_name_kana": "テストセイ",
+        "first_name_kana": "テストメイ",
+        "postal_code": "000-0000",
+        "prefecture": "東京都",
+        "city": "テスト区",
+        "address1": "テスト1-1",
+        "address2": "テスト101",
+        "phone": "00000000000",
+        "email": "pii-test@example.invalid",
+        "gender": "未回答",
+        "birth_year": "1980",
+        "birth_month": "1",
+        "birth_day": "1",
+    }
+
+    target = profile_manager.save_profile(profile)
+
+    assert target == external_profile
+    assert target.exists()
+    assert not repository_plaintext.exists()
+    assert profile_manager.load_profile(target, encrypted=True) == profile

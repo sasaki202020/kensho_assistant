@@ -25,3 +25,4 @@ htmlcov/
 trace.zip
 storage_state*.json
 test-results/
+.worktrees/

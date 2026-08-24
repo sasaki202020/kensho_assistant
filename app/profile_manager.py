@@ -156,6 +156,27 @@ def encrypt_profile(
     return target
 
 
+def save_profile(profile: Mapping[str, str], *, overwrite: bool = False) -> Path:
+    """Encrypt a profile directly from memory without creating plaintext JSON."""
+    missing = profile_missing_fields(profile)
+    if missing:
+        raise ValueError(f"profile incomplete: {', '.join(missing)}")
+    if PROFILE_ENC.exists() and not overwrite:
+        raise FileExistsError("encrypted profile already exists")
+
+    values = {key: str(profile.get(key, "")) for key in REQUIRED_PROFILE_KEYS}
+    if not _load_env_values().get("KENSHO_PROFILE_KEY", "").strip():
+        generated_key = Fernet.generate_key() if Fernet else None
+        if generated_key is None:
+            raise RuntimeError("cryptography is required for profile encryption")
+        _write_env_key(generated_key.decode("utf-8"))
+
+    target = PROFILE_ENC
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(_encrypt_bytes(json.dumps(values, ensure_ascii=False).encode("utf-8")))
+    return target
+
+
 def decrypt_profile(
     source_path: str | Path | None = None,
     output_path: str | Path | None = None,

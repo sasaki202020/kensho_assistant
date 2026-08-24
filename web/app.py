@@ -95,7 +95,7 @@ from ..ui.data_loader import (
     update_apply_queue_status,
 )
 from ..app.research_engine import RESEARCH_CATEGORY_LABELS, annotate_research_rows
-from ..app.profile_manager import load_profile
+from ..app.profile_manager import load_profile, save_profile
 from ..app.run_mode import get_run_mode, normalize_run_mode
 from ..app.entry_url_resolver import target_url_for_campaign
 from ..app.prepare_all_status import load_prepare_all_status
@@ -1387,21 +1387,23 @@ def _render(request: Request, template_name: str, **context: object) -> HTMLResp
     return templates.TemplateResponse(request, template_name, common)
 
 
+def _main_cli_command(*args: str) -> list[str]:
+    return [sys.executable, "-m", "kensho_assistant.main", *args]
+
+
 def _run_safe_action(name: str) -> str:
     if name == "x_post_assistant":
         return _start_x_post_assistant()
     if name not in SAFE_WEB_ACTIONS:
         return "unsupported"
-    command = [sys.executable, str(PACKAGE_ROOT.parent / "main.py"), *SAFE_WEB_ACTIONS[name]]
+    command = _main_cli_command(*SAFE_WEB_ACTIONS[name])
     subprocess.run(command, check=False, capture_output=True, text=True)
     return "ok"
 
 
 def _start_chrome_prepare(campaign_id: str, allow_age_fill: bool = False) -> str:
     try:
-        command = [
-            sys.executable,
-            str(PACKAGE_ROOT.parent / "main.py"),
+        command = _main_cli_command(
             "prepare",
             "--campaign-id",
             campaign_id,
@@ -1410,7 +1412,8 @@ def _start_chrome_prepare(campaign_id: str, allow_age_fill: bool = False) -> str
             "--keep-open",
             "--no-screenshot",
             "--require-user-approved",
-        ]
+            "--yes-known-fields",
+        )
         if allow_age_fill:
             command.append("--allow-age-fill")
         creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
@@ -1434,9 +1437,7 @@ def _start_prepare_all(
     allow_age_fill: bool = False,
 ) -> str:
     try:
-        command = [
-            sys.executable,
-            str(PACKAGE_ROOT.parent / "main.py"),
+        command = _main_cli_command(
             "prepare-all",
             "--status",
             status,
@@ -1444,7 +1445,7 @@ def _start_prepare_all(
             str(max(int(limit), 0)),
             "--browser",
             browser,
-        ]
+        )
         if keep_open:
             command.append("--keep-open")
         if no_screenshot:
@@ -1471,9 +1472,7 @@ def _start_prepare_session(
     keep_open: bool = False,
 ) -> str:
     try:
-        command = [
-            sys.executable,
-            str(PACKAGE_ROOT.parent / "main.py"),
+        command = _main_cli_command(
             "prepare-session",
             "--status",
             status,
@@ -1481,7 +1480,7 @@ def _start_prepare_session(
             str(max(int(limit), 0)),
             "--browser",
             browser,
-        ]
+        )
         if keep_open:
             command.append("--keep-open")
         creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
@@ -1540,7 +1539,8 @@ def _start_x_campaign_prepare(candidate_id: str, target_url: str) -> str:
 def _prepare_command(campaign_id: str, allow_age_fill: bool = False) -> str:
     command = [
         "python",
-        "main.py",
+        "-m",
+        "kensho_assistant.main",
         "prepare",
         "--campaign-id",
         campaign_id,
@@ -1549,6 +1549,7 @@ def _prepare_command(campaign_id: str, allow_age_fill: bool = False) -> str:
         "--keep-open",
         "--no-screenshot",
         "--require-user-approved",
+        "--yes-known-fields",
     ]
     if allow_age_fill:
         command.append("--allow-age-fill")
@@ -3703,6 +3704,48 @@ def create_app() -> FastAPI:
                 ("普段使いChromeプロファイル", "使用しない"),
             ],
         )
+
+    @app.post("/profile/setup", response_class=HTMLResponse)
+    async def profile_setup(request: Request) -> HTMLResponse:
+        payload = await _request_payload(request)
+        profile = {key: str(payload.get(key, "") or "") for key in (
+            "last_name", "first_name", "last_name_kana", "first_name_kana",
+            "postal_code", "prefecture", "city", "address1", "address2",
+            "phone", "email", "gender", "birth_year", "birth_month", "birth_day",
+        )}
+        try:
+            save_profile(profile)
+        except FileExistsError:
+            return _render(
+                request,
+                "security.html",
+                page_title="設定",
+                active_page="settings",
+                report=load_release_report(),
+                storage=profile_storage_state(),
+                profile_preview=load_masked_profile_preview(),
+                auto_scan=load_auto_scan_report(),
+                browser_state=check_chrome_available(),
+                browser_checked_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+                security_items=[("プロフィール登録", "既存プロフィールあり。上書きは無効です")],
+                profile_setup_error="既存プロフィールは上書きしません。",
+            )
+        except (ValueError, RuntimeError) as error:
+            return _render(
+                request,
+                "security.html",
+                page_title="設定",
+                active_page="settings",
+                report=load_release_report(),
+                storage=profile_storage_state(),
+                profile_preview=load_masked_profile_preview(),
+                auto_scan=load_auto_scan_report(),
+                browser_state=check_chrome_available(),
+                browser_checked_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+                security_items=[("プロフィール登録", "未完了")],
+                profile_setup_error=str(error),
+            )
+        return RedirectResponse(url="/security", status_code=303)
 
     @app.post("/action/{name}")
     def action(name: str, request: Request, next_url: str = Form(default="/")) -> RedirectResponse:

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+  <body>
+    <form id="dynamic-form">
+      <label>メールアドレス <input id="email" name="email" type="email" autocomplete="email"></label>
+      <button id="submit-button" type="submit">応募する</button>
+    </form>
+    <script>
+      const form = document.querySelector("#dynamic-form");
+      const email = document.querySelector("#email");
+      email.addEventListener("input", () => {
+        if (document.querySelector("#dynamic-field")) return;
+        const wrapper = document.createElement("label");
+        wrapper.id = "dynamic-field-wrapper";
+        wrapper.textContent = "追加項目 ";
+        const input = document.createElement("input");
+        input.id = "dynamic-field";
+        input.name = "dynamic_field";
+        input.required = true;
+        wrapper.appendChild(input);
+        form.appendChild(wrapper);
+      });
+    </script>
+  </body>
+</html>

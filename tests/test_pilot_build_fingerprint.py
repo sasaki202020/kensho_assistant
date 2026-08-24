@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from kensho_assistant.pilot.build_fingerprint import build_fingerprint
+from kensho_assistant.pilot.build_fingerprint import build_fingerprint, default_pilot_files
 
 
 def test_build_fingerprint_is_repeatable_and_ignores_attestation_fields(tmp_path) -> None:
@@ -45,3 +46,12 @@ def test_build_fingerprint_changes_when_candidate_manifest_changes(tmp_path) -> 
 
     candidates.write_text(json.dumps({"sites": [{"site_id": "site-2"}]}), encoding="utf-8")
     assert build_fingerprint([source], manifest, candidates) != first
+
+
+def test_default_pilot_files_include_extension_and_form_safety_inputs() -> None:
+    labels = {path.relative_to(Path(__file__).resolve().parents[1]).as_posix() for path in default_pilot_files()}
+
+    assert "extension/content/form-filler.js" in labels
+    assert "extension/manifest.json" in labels
+    assert "tests/test_field_mapping_safety.py" in labels
+    assert "tests/test_form_scope.py" in labels

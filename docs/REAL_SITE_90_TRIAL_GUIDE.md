@@ -14,7 +14,7 @@
 ```powershell
 py -3 main.py pilot-manifest create --limit-sites 5
 py -3 main.py pilot-manifest validate --manifest <表示されたmanifestパス>
-py -3 main.py pilot-run --manifest <表示されたmanifestパス> --browser chrome
+py -3 main.py pilot-run --manifest <manifestパス> --candidates <PII-free候補manifestパス> --browser chrome
 py -3 main.py trial-report --manifest-id <manifest_id> --require-trials 15 --require-sites 5
 ```
 

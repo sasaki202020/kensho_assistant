@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from ..pilot.build_fingerprint import build_fingerprint, default_pilot_files
 from .auto_apply_engine import AutoApplyEngine
 from .entry_url_resolver import target_url_for_campaign
 from .real_site_trials import (
@@ -183,6 +184,147 @@ def git_commit_sha() -> str:
         return result.stdout.strip()
     except Exception:
         return "unavailable"
+
+
+def git_branch_name() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            check=True,
+            capture_output=True,
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() or "unavailable"
+    except Exception:
+        return "unavailable"
+
+
+def git_worktree_status() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            check=True,
+            capture_output=True,
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return "unavailable"
+
+
+def pilot_build_preflight(
+    manifest: Mapping[str, Any],
+    *,
+    manifest_path: Path | None = None,
+    candidates_path: Path | None = None,
+) -> dict[str, Any]:
+    current_branch = git_branch_name()
+    current_head = git_commit_sha()
+    worktree_status = git_worktree_status()
+    expected_branch = str(manifest.get("git_branch", "") or "").strip()
+    expected_head = str(manifest.get("pilot_commit", "") or "").strip()
+    expected_fingerprint = str(manifest.get("build_fingerprint_sha256", "") or "").strip()
+    errors: list[str] = []
+
+    if worktree_status == "unavailable":
+        errors.append("worktree_unavailable")
+    elif worktree_status:
+        errors.append("worktree_dirty")
+    if not expected_branch:
+        errors.append("manifest_git_branch_missing")
+    elif current_branch == "unavailable":
+        errors.append("git_branch_unavailable")
+    elif expected_branch != current_branch:
+        errors.append("git_branch_mismatch")
+    if not expected_head:
+        errors.append("manifest_pilot_commit_missing")
+    elif current_head == "unavailable":
+        errors.append("git_head_unavailable")
+    elif expected_head != current_head:
+        errors.append("git_head_mismatch")
+    if not expected_fingerprint:
+        errors.append("manifest_build_fingerprint_missing")
+    fingerprint_matches: bool | None = None
+    if manifest_path is not None or candidates_path is not None:
+        if manifest_path is None or candidates_path is None:
+            errors.append("fingerprint_inputs_missing")
+        else:
+            project_root = Path(__file__).resolve().parents[1]
+            resolved_inputs = [Path(manifest_path).resolve(), Path(candidates_path).resolve()]
+            if any(project_root not in path.parents and path != project_root for path in resolved_inputs):
+                errors.append("fingerprint_path_outside_project")
+            elif not all(path.is_file() for path in resolved_inputs):
+                errors.append("fingerprint_input_not_found")
+            elif expected_fingerprint:
+                try:
+                    actual_fingerprint = build_fingerprint(
+                        default_pilot_files(),
+                        resolved_inputs[0],
+                        resolved_inputs[1],
+                    )
+                    fingerprint_matches = actual_fingerprint == expected_fingerprint
+                    if not fingerprint_matches:
+                        errors.append("build_fingerprint_mismatch")
+                except Exception:
+                    errors.append("build_fingerprint_unavailable")
+
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "current_branch": current_branch,
+        "current_head": current_head,
+        "worktree_clean": worktree_status == "",
+        "expected_branch": expected_branch,
+        "expected_head": expected_head,
+        "has_build_fingerprint": bool(expected_fingerprint),
+        "fingerprint_matches": fingerprint_matches,
+    }
+
+
+def pilot_candidate_preflight(
+    manifest: Mapping[str, Any],
+    candidates: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    candidate_map: dict[str, Mapping[str, Any]] = {}
+    for row in candidates:
+        try:
+            candidate_map[_safe_candidate_ref(row)] = row
+        except ValueError:
+            continue
+    missing_count = 0
+    site_mismatch_count = 0
+    ineligible_count = 0
+    for entry in manifest.get("entries", []):
+        candidate = candidate_map.get(str(entry.get("candidate_ref", "")))
+        if candidate is None:
+            missing_count += 1
+            continue
+        try:
+            url = target_url_for_campaign(dict(candidate))
+            if safe_site_identifier(url) != str(entry.get("site_id", "")):
+                site_mismatch_count += 1
+        except Exception:
+            site_mismatch_count += 1
+        if str(candidate.get("queue_status", "") or "") not in {"APPROVED", "PREPARED", "HOLD"}:
+            ineligible_count += 1
+    errors: list[str] = []
+    if missing_count:
+        errors.append("candidate_ref_missing")
+    if site_mismatch_count:
+        errors.append("candidate_site_mismatch")
+    if ineligible_count:
+        errors.append("candidate_not_approved")
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "missing_count": missing_count,
+        "site_mismatch_count": site_mismatch_count,
+        "ineligible_count": ineligible_count,
+    }
 
 
 def pilot_structure_summary(records: Iterable[TrialRecord], manifest_id: str) -> dict[str, Any]:
