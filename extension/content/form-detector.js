@@ -179,7 +179,7 @@
     const applicationPurpose =
       /(?:^|[^a-z])(form|entry|apply|application|survey|login|auth|payment|captcha)(?:[^a-z]|$)/;
     const trackingPurpose =
-      /(?:^|[^a-z])(beacon|pixel|analytics|tracking|measurement)(?:[^a-z]|$)|\/match\/iframe(?:\/|$)/;
+      /(?:^|[^a-z])(beacon|pixel|analytics|tracking|measurement)(?:[^a-z]|$)|\/match\/iframe(?:[^a-z0-9]|$)/;
     return trackingPurpose.test(purpose) && !applicationPurpose.test(purpose);
   }
 
