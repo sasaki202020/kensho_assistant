@@ -396,12 +396,16 @@
         submitted_count_auto: 0,
       };
     }
+    const currentSecurity = root.KenshoExtension.FormDetector?.securityStatus?.(document);
     if (
       previewResult?.blocked ||
       analysis?.captchaDetected ||
       analysis?.loginRequired ||
       analysis?.unsupportedIframes > 0 ||
-      analysis?.unsupportedForm
+      analysis?.unsupportedForm ||
+      currentSecurity?.captchaDetected ||
+      currentSecurity?.loginRequired ||
+      currentSecurity?.unsupportedIframes > 0
     ) {
       return {status: "SAFE_STOP_HUMAN_REVIEW_REQUIRED", filledCount: 0, submitted_count_auto: 0};
     }

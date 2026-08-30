@@ -125,6 +125,67 @@
     return roots;
   }
 
+  function isExplicitlyHidden(frame) {
+    for (let element = frame; element && element.nodeType === 1; element = element.parentElement) {
+      if (element.hidden || element.getAttribute?.("aria-hidden") === "true") return true;
+      const style = globalThis.getComputedStyle?.(element);
+      if (style?.display === "none" || ["hidden", "collapse"].includes(style?.visibility)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function iframePurposeText(frame) {
+    let pathname = "";
+    try {
+      const source = frame.getAttribute?.("src") || "";
+      pathname = source ? new URL(source, globalThis.location?.href).pathname : "";
+    } catch (_error) {
+      pathname = "";
+    }
+    return [
+      pathname,
+      frame.getAttribute?.("title") || "",
+      frame.getAttribute?.("name") || "",
+      frame.getAttribute?.("id") || "",
+      frame.getAttribute?.("class") || "",
+    ]
+      .join(" ")
+      .toLowerCase();
+  }
+
+  function isIgnorableHiddenTrackingIframe(frame) {
+    if (!isExplicitlyHidden(frame) || frame.closest?.("form")) return false;
+    const purpose = iframePurposeText(frame);
+    const applicationPurpose =
+      /(?:^|[^a-z])(form|entry|apply|application|survey|login|auth|payment|captcha)(?:[^a-z]|$)/;
+    const trackingPurpose =
+      /(?:^|[^a-z])(beacon|pixel|analytics|tracking|measurement)(?:[^a-z]|$)|\/match\/iframe(?:\/|$)/;
+    return trackingPurpose.test(purpose) && !applicationPurpose.test(purpose);
+  }
+
+  function iframeSecurity(documentRoot, captchaSelector) {
+    let ignoredHiddenTrackingIframes = 0;
+    let unsupportedIframes = 0;
+    for (const frame of Array.from(documentRoot.querySelectorAll("iframe"))) {
+      if (frame.matches?.(captchaSelector)) continue;
+      let opaque = false;
+      try {
+        opaque = !frame.contentDocument;
+      } catch (_error) {
+        opaque = true;
+      }
+      if (!opaque) continue;
+      if (isIgnorableHiddenTrackingIframe(frame)) {
+        ignoredHiddenTrackingIframes += 1;
+      } else {
+        unsupportedIframes += 1;
+      }
+    }
+    return {unsupportedIframes, ignoredHiddenTrackingIframes};
+  }
+
   function detectSecurity(documentRoot, roots) {
     const documents = roots.filter((candidate) => candidate.nodeType === 9);
     const text = documents
@@ -140,14 +201,7 @@
         candidate.querySelector?.('input[type="password"], input[autocomplete="one-time-code"]')
       ) ||
       /ログイン|パスワード|ワンタイムコード|sms認証|メール認証/.test(text);
-    const unsupportedIframes = Array.from(documentRoot.querySelectorAll("iframe")).filter((frame) => {
-      if (frame.matches?.(captchaSelector)) return false;
-      try {
-        return !frame.contentDocument;
-      } catch (_error) {
-        return true;
-      }
-    }).length;
+    const iframeState = iframeSecurity(documentRoot, captchaSelector);
     const unsupportedCanvas = roots.some((candidate) =>
       Boolean(candidate.querySelector?.("form canvas"))
     );
@@ -157,10 +211,14 @@
     return {
       captchaDetected: Boolean(captchaDetected),
       loginRequired: Boolean(loginRequired),
-      unsupportedIframes,
+      ...iframeState,
       unsupportedCanvas,
       closedShadowMarker,
     };
+  }
+
+  function securityStatus(documentRoot) {
+    return detectSecurity(documentRoot, rootsFromDocument(documentRoot));
   }
 
   function scan(documentRoot) {
@@ -311,7 +369,7 @@
     };
   }
 
-  const api = Object.freeze({scan, resolveElement, templateFromAnalysis});
+  const api = Object.freeze({scan, resolveElement, securityStatus, templateFromAnalysis});
   root.KenshoExtension = root.KenshoExtension || {};
   root.KenshoExtension.FormDetector = api;
 

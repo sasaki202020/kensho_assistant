@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>非表示計測iframe付き標準フォーム</title>
+<form id="application-form">
+  <label>メール <input type="email" name="email" autocomplete="email"></label>
+</form>
+<iframe
+  id="tracking-frame"
+  hidden
+  title="analytics beacon"
+  sandbox
+  srcdoc="<p>tracking</p>"></iframe>

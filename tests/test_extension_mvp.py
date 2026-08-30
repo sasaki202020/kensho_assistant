@@ -854,6 +854,85 @@ def test_opaque_iframe_is_fail_closed_without_external_network(browser_page) -> 
     assert analysis["unsupportedIframes"] == 1
 
 
+def test_hidden_tracking_iframe_outside_form_does_not_block_analysis(browser_page) -> None:
+    browser_page.goto((FIXTURES / "hidden_tracking_iframe_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/field-types.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+    )
+
+    analysis = browser_page.evaluate(
+        "window.KenshoExtension.FormDetector.scan(document)"
+    )
+
+    assert analysis["unsupportedIframes"] == 0
+    assert analysis["ignoredHiddenTrackingIframes"] == 1
+    assert analysis["detectedFieldCount"] == 1
+
+
+@pytest.mark.parametrize("title", ["", "external application form"])
+def test_hidden_opaque_iframe_without_tracking_evidence_remains_blocked(
+    browser_page, title: str
+) -> None:
+    browser_page.goto((FIXTURES / "opaque_iframe_form.html").as_uri())
+    browser_page.locator("iframe").evaluate(
+        "(frame, title) => { frame.hidden = true; frame.title = title; }", title
+    )
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/field-types.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+    )
+
+    analysis = browser_page.evaluate(
+        "window.KenshoExtension.FormDetector.scan(document)"
+    )
+
+    assert analysis["unsupportedIframes"] == 1
+    assert analysis["ignoredHiddenTrackingIframes"] == 0
+
+
+def test_hidden_tracking_iframe_becoming_visible_is_blocked_on_recheck(browser_page) -> None:
+    browser_page.goto((FIXTURES / "hidden_tracking_iframe_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/field-types.js",
+        "shared/redaction.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+    )
+    initial = browser_page.evaluate(
+        "window.KenshoExtension.FormDetector.scan(document)"
+    )
+    browser_page.locator("#tracking-frame").evaluate(
+        "frame => { frame.hidden = false; frame.style.display = 'block'; }"
+    )
+    result = browser_page.evaluate(
+        """async analysis => {
+          const profile = {email: "fixture@example.invalid"};
+          const preview = window.KenshoExtension.FormFiller.previewMasked(
+            analysis, {email: "f***@example.invalid"}
+          );
+          return window.KenshoExtension.FormFiller.fillAndVerify(
+            preview, profile, analysis, {templateApproved: true}
+          );
+        }""",
+        initial,
+    )
+
+    assert initial["unsupportedIframes"] == 0
+    assert result["status"] == "SAFE_STOP_HUMAN_REVIEW_REQUIRED"
+    assert result["filledCount"] == 0
+    assert browser_page.locator('input[name="email"]').input_value() == ""
+
+
 def test_worker_epoch_change_stops_old_analysis_before_profile_delivery(
     browser_page,
 ) -> None:
