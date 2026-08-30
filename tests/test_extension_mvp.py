@@ -612,6 +612,72 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
     assert "セッション情報消去済み" in panel_text
 
 
+def test_overlay_expands_combined_name_before_requesting_bridge_profile(browser_page) -> None:
+    browser_page.goto((FIXTURES / "mapping_safety_form.html").as_uri())
+    browser_page.evaluate(
+        """() => {
+          window.requestedProfileKeys = null;
+          window.chrome = {
+            runtime: {
+              id: "test-extension",
+              getManifest() { return {version: "0.2.0"}; },
+              sendMessage(message, callback) {
+                if (message.type === "GET_SESSION_STATUS") {
+                  callback({ok: true, profileLoaded: true, workerEpoch: "worker-1"});
+                } else if (message.type === "GET_PROFILE_PREVIEW") {
+                  callback({
+                    ok: true,
+                    profile: {
+                      last_name: "P***",
+                      first_name: "P***",
+                      email: "p***@example.invalid"
+                    },
+                    workerEpoch: "worker-1"
+                  });
+                } else if (message.type === "GET_BRIDGE_CAPABILITY_STATUS") {
+                  callback({ok: true, available: false});
+                } else if (message.type === "REQUEST_BRIDGE_CAPABILITY") {
+                  window.requestedProfileKeys = message.profileKeys;
+                  callback({ok: false});
+                } else if (message.type === "CONSUME_SESSION_PROFILE") {
+                  callback({ok: false, workerEpoch: "worker-1"});
+                } else {
+                  callback({ok: true});
+                }
+              }
+            }
+          };
+          document.addEventListener("kensho-guard-status-request", () => {
+            document.dispatchEvent(new CustomEvent("kensho-guard-status", {
+              detail: {integrity: true, installedAtDocumentStart: true}
+            }));
+          });
+        }"""
+    )
+    _load_scripts(
+        browser_page,
+        "shared/field-types.js",
+        "shared/redaction.js",
+        "shared/normalization.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+        "content/overlay.js",
+    )
+    panel = browser_page.locator("#kensho-assistant-overlay-host")
+    panel.locator("#analyze").click()
+    panel.locator("#preview-button").click()
+    approve_buttons = panel.locator('button[data-kensho-mapping-action="approve"]')
+    while approve_buttons.count():
+        approve_buttons.first.click()
+    panel.locator("#fill").click()
+
+    requested = browser_page.evaluate("window.requestedProfileKeys")
+    assert "full_name" not in requested
+    assert {"last_name", "first_name"} <= set(requested)
+
+
 def test_overlay_buttons_work_while_submit_guard_is_active(browser_page) -> None:
     browser_page.add_init_script(path=EXTENSION / "content/submit-guard.js")
     browser_page.goto((FIXTURES / "standard_form.html").as_uri())

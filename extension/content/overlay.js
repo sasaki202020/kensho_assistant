@@ -235,12 +235,24 @@
   function confirmedProfileKeys() {
     if (!previewResult) return [];
     const keys = [];
+    const appendKey = (key) => {
+      if (key && key !== "unknown" && !keys.includes(key)) keys.push(key);
+    };
     for (const item of previewResult.items || []) {
       const decision = mappingDecisions[item.fieldId];
       if (decision?.action === "skip") continue;
       const key = decision?.profileKey || item.profileKey || item.fieldType;
-      if (!key || key === "unknown" || keys.includes(key)) continue;
-      keys.push(key);
+      if (key === "full_name") {
+        appendKey("last_name");
+        appendKey("first_name");
+        continue;
+      }
+      if (key === "full_name_kana") {
+        appendKey("last_name_kana");
+        appendKey("first_name_kana");
+        continue;
+      }
+      appendKey(key);
     }
     return keys;
   }
