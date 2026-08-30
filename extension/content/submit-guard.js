@@ -8,6 +8,8 @@
 
   let blockedAttempts = 0;
   const reasons = [];
+  let guardWriteBlockedAttempts = 0;
+  const guardWriteReasons = [];
   let integrity = true;
   const installedAtDocumentStart = document.readyState === "loading";
   const guardedRoots = new WeakSet();
@@ -31,6 +33,17 @@
       })
     );
     return false;
+  }
+
+  function recordGuardWrite(name) {
+    guardWriteBlockedAttempts += 1;
+    const reason = `guard_write_blocked:${name}`;
+    guardWriteReasons.push(reason);
+    document.dispatchEvent(
+      new CustomEvent("kensho-guard-write-blocked", {
+        detail: {reason, guardWriteBlockedAttempts},
+      })
+    );
   }
 
   function isSubmitControl(element) {
@@ -91,7 +104,7 @@
         return guardedMethod;
       },
       set() {
-        record(`guard_write_blocked:${name}`);
+        recordGuardWrite(name);
       },
     });
   }
@@ -123,6 +136,8 @@
       installedAtDocumentStart,
       blockedAttempts,
       reasons: reasons.slice(),
+      guardWriteBlockedAttempts,
+      guardWriteReasons: guardWriteReasons.slice(),
       submitted_count_auto: 0,
     };
   }

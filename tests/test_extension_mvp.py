@@ -477,7 +477,9 @@ def test_submit_guard_blocks_prototype_replacement_without_losing_integrity(brow
     )
 
     assert state["integrity"] is True
-    assert "guard_write_blocked:submit" in state["reasons"]
+    assert state["blockedAttempts"] == 0
+    assert state["guardWriteBlockedAttempts"] == 1
+    assert "guard_write_blocked:submit" in state["guardWriteReasons"]
     assert descriptor == {
         "configurable": False,
         "hasSetter": True,
@@ -645,6 +647,48 @@ def test_overlay_buttons_work_while_submit_guard_is_active(browser_page) -> None
     state = browser_page.evaluate("window.__KENSHO_SUBMIT_GUARD__.state()")
     assert "解析済み" in panel_text
     assert state["blockedAttempts"] == 0
+
+
+def test_guard_write_attempt_is_not_reported_as_auto_submit(browser_page) -> None:
+    browser_page.add_init_script(path=EXTENSION / "content/submit-guard.js")
+    browser_page.goto((FIXTURES / "standard_form.html").as_uri())
+    browser_page.evaluate(
+        """() => {
+          window.chrome = {
+            runtime: {
+              sendMessage(message, callback) {
+                if (message.type === "GET_SESSION_STATUS") {
+                  callback({ok: true, profileLoaded: true, workerEpoch: "worker-1"});
+                } else {
+                  callback({ok: true, profile: {}, workerEpoch: "worker-1"});
+                }
+              }
+            }
+          };
+        }"""
+    )
+    _load_scripts(
+        browser_page,
+        "shared/field-types.js",
+        "shared/redaction.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+        "content/form-filler.js",
+        "content/overlay.js",
+    )
+
+    browser_page.evaluate(
+        "HTMLFormElement.prototype.submit = function siteSubmitWrapper() {}"
+    )
+    browser_page.wait_for_timeout(300)
+
+    panel = browser_page.locator("#kensho-assistant-overlay-host")
+    status_text = panel.evaluate("host => host.shadowRoot.querySelector('#status').textContent")
+    state = browser_page.evaluate("window.__KENSHO_SUBMIT_GUARD__.state()")
+    assert "自動送信を遮断" not in status_text
+    assert state["integrity"] is True
+    assert state["blockedAttempts"] == 0
+    assert state["guardWriteBlockedAttempts"] == 1
 
 
 def test_captcha_stops_before_any_profile_fill(
