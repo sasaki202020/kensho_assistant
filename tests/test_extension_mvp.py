@@ -590,6 +590,7 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
         browser_page,
         "shared/field-types.js",
         "shared/redaction.js",
+        "shared/form-fingerprint.js",
         "content/field-matcher.js",
         "content/form-detector.js",
         "content/form-filler.js",
@@ -597,6 +598,7 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
     )
     panel = browser_page.locator("#kensho-assistant-overlay-host")
     panel.locator("#analyze").click()
+    assert panel.get_attribute("data-kensho-form-fingerprint")
     panel.locator("#preview-button").click()
     mapping_buttons = panel.locator('button[data-kensho-mapping-action="approve"]')
     for _ in range(mapping_buttons.count()):

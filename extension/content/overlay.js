@@ -332,6 +332,10 @@
       return;
     }
     analysis = root.KenshoExtension.FormDetector.scan(document);
+    host.setAttribute(
+      "data-kensho-form-fingerprint",
+      String(analysis.formFingerprint || "")
+    );
     previewResult = null;
     maskedProfile = null;
     mappingDecisions = {};

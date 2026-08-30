@@ -5,6 +5,7 @@ import json
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -106,23 +107,20 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                         external_requests.append(request.url)
 
                 page.on("request", record_request)
-                worker.evaluate(
-                    """async () => {
-                      const deadline = Date.now() + 10000;
-                      while (Date.now() < deadline) {
-                        if (!chrome.scripting?.getRegisteredContentScripts) {
-                          await new Promise(resolve => setTimeout(resolve, 50));
-                          continue;
-                        }
-                        const scripts = await chrome.scripting.getRegisteredContentScripts();
-                        if (scripts.filter(item => item.id.startsWith("kensho-")).length === 2) {
-                          return;
-                        }
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                      }
-                      throw new Error("dynamic_registration_timeout");
-                    }"""
-                )
+                registration_deadline = time.monotonic() + 10
+                while time.monotonic() < registration_deadline:
+                    registered_count = worker.evaluate(
+                        """async () => {
+                          if (!chrome.scripting?.getRegisteredContentScripts) return 0;
+                          const scripts = await chrome.scripting.getRegisteredContentScripts();
+                          return scripts.filter(item => item.id.startsWith("kensho-")).length;
+                        }"""
+                    )
+                    if registered_count == 2:
+                        break
+                    time.sleep(0.05)
+                else:
+                    raise RuntimeError("dynamic_registration_timeout")
                 page.goto(f"{origin}/{FIXTURE_PATH}", wait_until="domcontentloaded")
 
                 host = page.locator("#kensho-assistant-overlay-host")
