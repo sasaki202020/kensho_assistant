@@ -91,10 +91,7 @@
         return guardedMethod;
       },
       set() {
-        if (integrity) {
-          integrity = false;
-          record(`guard_modified:${name}`);
-        }
+        record(`guard_write_blocked:${name}`);
       },
     });
   }

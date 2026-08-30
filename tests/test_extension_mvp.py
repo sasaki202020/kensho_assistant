@@ -452,7 +452,7 @@ def test_late_guard_is_not_trusted_when_page_saved_native_submit(browser_page) -
     assert state["integrity"] is True
 
 
-def test_submit_guard_detects_prototype_tampering(browser_page) -> None:
+def test_submit_guard_blocks_prototype_replacement_without_losing_integrity(browser_page) -> None:
     browser_page.add_init_script(path=EXTENSION / "content/submit-guard.js")
     browser_page.goto((FIXTURES / "standard_form.html").as_uri())
 
@@ -462,8 +462,27 @@ def test_submit_guard_detects_prototype_tampering(browser_page) -> None:
     browser_page.wait_for_timeout(300)
     state = browser_page.evaluate("window.__KENSHO_SUBMIT_GUARD__.state()")
 
-    assert state["integrity"] is False
-    assert any(reason.startswith("guard_modified") for reason in state["reasons"])
+    descriptor = browser_page.evaluate(
+        """() => {
+          const value = Object.getOwnPropertyDescriptor(
+            HTMLFormElement.prototype,
+            "submit"
+          );
+          return {
+            configurable: value.configurable,
+            hasSetter: typeof value.set === "function",
+            guardedName: HTMLFormElement.prototype.submit.name,
+          };
+        }"""
+    )
+
+    assert state["integrity"] is True
+    assert "guard_write_blocked:submit" in state["reasons"]
+    assert descriptor == {
+        "configurable": False,
+        "hasSetter": True,
+        "guardedName": "guardedSubmit",
+    }
 
 
 def test_submit_guard_blocks_delayed_dynamic_and_prototype_call(browser_page) -> None:
