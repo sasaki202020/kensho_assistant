@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>応募フォームと動的補助UI</title>
+<form id="site-search">
+  <label>サイト内検索 <input type="search" name="q"></label>
+</form>
+<form id="application-form">
+  <label>お名前 <input name="applicant_name" autocomplete="name" required></label>
+  <label>メールアドレス <input name="email" type="email" autocomplete="email" required></label>
+  <button type="submit">応募する</button>
+</form>
+<div id="support-widget"></div>
+<script>
+  window.addSupportWidget = () => {
+    document.querySelector("#support-widget").innerHTML = `
+      <form id="support-form">
+        <label>お問い合わせ <input name="support_message"></label>
+        <button type="submit">送信</button>
+      </form>`;
+  };
+</script>

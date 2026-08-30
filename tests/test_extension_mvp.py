@@ -1222,3 +1222,33 @@ def test_extension_overlay_shadow_dom_is_excluded_from_form_fingerprint(browser_
 
     assert result["before"] == result["after"]
     assert result["fieldCount"] > 0
+
+
+def test_form_scope_ignores_unrelated_forms_added_after_analysis(browser_page) -> None:
+    browser_page.goto((FIXTURES / "form_scope_dynamic_widget.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/field-types.js",
+        "shared/form-fingerprint.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+    )
+
+    result = browser_page.evaluate(
+        """() => {
+          const before = window.KenshoExtension.FormDetector.scan(document);
+          window.addSupportWidget();
+          const after = window.KenshoExtension.FormDetector.scan(document);
+          return {
+            beforeFingerprint: before.formFingerprint,
+            afterFingerprint: after.formFingerprint,
+            beforeTypes: before.fields.map(field => field.fieldType),
+            afterTypes: after.fields.map(field => field.fieldType),
+          };
+        }"""
+    )
+
+    assert result["beforeFingerprint"] == result["afterFingerprint"]
+    assert result["beforeTypes"] == ["full_name", "email"]
+    assert result["afterTypes"] == ["full_name", "email"]

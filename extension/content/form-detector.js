@@ -143,6 +143,43 @@
     return roots;
   }
 
+  function formScore(form) {
+    const controls = Array.from(
+      form.querySelectorAll?.("input,select,textarea,button") || []
+    );
+    let recognizedFields = 0;
+    let requiredFields = 0;
+    let submitControls = 0;
+    for (const control of controls) {
+      const type = String(control.type || "").toLowerCase();
+      if (["submit", "image"].includes(type)) submitControls += 1;
+      if (control.required) requiredFields += 1;
+      if (["hidden", "file", "password", "checkbox", "submit", "button", "reset", "image"].includes(type)) {
+        continue;
+      }
+      const match = root.KenshoExtension.FieldMatcher.matchField(metadataFor(control));
+      if (match.fieldType !== "unknown" && match.fieldType !== "free_text") {
+        recognizedFields += 1;
+      }
+    }
+    return recognizedFields * 100 + requiredFields * 10 + submitControls * 5 + controls.length;
+  }
+
+  function formScopeRoots(roots) {
+    const forms = [];
+    const seen = new Set();
+    for (const candidateRoot of roots) {
+      for (const form of Array.from(candidateRoot.querySelectorAll?.("form") || [])) {
+        if (form.closest?.('[data-kensho-extension-root="true"]') || seen.has(form)) continue;
+        seen.add(form);
+        forms.push(form);
+      }
+    }
+    if (!forms.length) return roots;
+    forms.sort((left, right) => formScore(right) - formScore(left));
+    return [forms[0]];
+  }
+
   function isExplicitlyHidden(frame) {
     for (let element = frame; element && element.nodeType === 1; element = element.parentElement) {
       if (element.hidden || element.getAttribute?.("aria-hidden") === "true") return true;
@@ -242,10 +279,11 @@
   function scan(documentRoot) {
     elementRegistry.clear();
     const roots = rootsFromDocument(documentRoot);
+    const scopeRoots = formScopeRoots(roots);
     const fields = [];
     const manualReviewFields = [];
     const structuralFields = [];
-    for (const candidateRoot of roots) {
+    for (const candidateRoot of scopeRoots) {
       const elements = candidateRoot.querySelectorAll
         ? candidateRoot.querySelectorAll("input, select, textarea, button")
         : [];
