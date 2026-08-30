@@ -977,6 +977,46 @@ def test_hidden_tracking_iframe_becoming_visible_is_blocked_on_recheck(browser_p
     assert browser_page.locator('input[name="email"]').input_value() == ""
 
 
+def test_table_headers_produce_reviewable_japanese_field_mapping(browser_page) -> None:
+    browser_page.goto((FIXTURES / "table_header_form.html").as_uri())
+    _load_scripts(
+        browser_page,
+        "shared/config.js",
+        "shared/field-types.js",
+        "content/field-matcher.js",
+        "content/form-detector.js",
+    )
+
+    fields = browser_page.evaluate(
+        """() => window.KenshoExtension.FormDetector.scan(document).fields.map(field => ({
+          name: field.name,
+          fieldType: field.fieldType,
+          confidence: field.confidence,
+          valueTransform: field.valueTransform,
+          fillAllowed: field.fillAllowed
+        }))"""
+    )
+    by_name = {field["name"]: field for field in fields}
+
+    assert by_name["氏名"]["fieldType"] == "full_name"
+    assert by_name["フリガナ"]["fieldType"] == "full_name_kana"
+    assert by_name["誕生年"]["fieldType"] == "birth_year"
+    assert by_name["誕生月"]["fieldType"] == "birth_month"
+    assert by_name["誕生日"]["fieldType"] == "birth_day"
+    assert by_name["郵便番号1"]["fieldType"] == "postal_code"
+    assert by_name["郵便番号1"]["valueTransform"] == "postal_part_1"
+    assert by_name["郵便番号2"]["valueTransform"] == "postal_part_2"
+    assert by_name["県名"]["fieldType"] == "prefecture"
+    assert by_name["住所"]["fieldType"] == "street"
+    assert by_name["電話番号"]["fieldType"] == "phone"
+    assert by_name["メールアドレス"]["fieldType"] == "email"
+    assert all(by_name[name]["confidence"] >= 0.75 for name in [
+        "氏名", "フリガナ", "誕生年", "誕生月", "誕生日", "郵便番号1",
+        "郵便番号2", "県名", "住所", "電話番号", "メールアドレス"
+    ])
+    assert by_name["メールの希望"]["fillAllowed"] is False
+
+
 def test_worker_epoch_change_stops_old_analysis_before_profile_delivery(
     browser_page,
 ) -> None:

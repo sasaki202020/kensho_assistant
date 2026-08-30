@@ -17,14 +17,14 @@
     email: ["email", "e-mail", "mail", "メールアドレス"],
     phone: ["tel", "phone", "telephone", "電話番号", "携帯番号"],
     postal_code: ["postal-code", "zipcode", "zip", "郵便番号"],
-    prefecture: ["address-level1", "prefecture", "都道府県"],
+    prefecture: ["address-level1", "prefecture", "都道府県", "県名"],
     city: ["address-level2", "city", "市区町村"],
-    street: ["address-line1", "street", "番地", "町名"],
+    street: ["address-line1", "street", "住所", "番地", "町名"],
     building: ["address-line2", "building", "建物名", "マンション"],
     birth_date: ["bday", "birth", "birthday", "生年月日"],
-    birth_year: ["bday-year", "birth_year", "birthyear", "生年", "年"],
-    birth_month: ["bday-month", "birth_month", "birthmonth", "生月", "月"],
-    birth_day: ["bday-day", "birth_day", "birthday_day", "生日", "日"],
+    birth_year: ["bday-year", "birth_year", "birthyear", "誕生年", "生年", "年"],
+    birth_month: ["bday-month", "birth_month", "birthmonth", "誕生月", "生月", "月"],
+    birth_day: ["bday-day", "birth_day", "birthday_day", "誕生日", "生日", "日"],
     age: ["age", "年齢", "年代"],
     gender: ["sex", "gender", "性別"],
     free_text: [
@@ -74,6 +74,7 @@
       metadata.ariaLabel,
       metadata.placeholder,
       metadata.label,
+      metadata.groupLabel,
       metadata.surroundingText,
       ...(metadata.selectOptions || []),
     ]
@@ -93,6 +94,13 @@
     const placeholder = String(metadata.placeholder || "")
       .toLowerCase()
       .replace(/[\s:：*＊必須]/g, "");
+    const name = String(metadata.name || "").toLowerCase().replace(/[\s:：*＊必須]/g, "");
+    const groupLabel = String(metadata.groupLabel || "")
+      .toLowerCase()
+      .replace(/[\s:：*＊必須]/g, "");
+    const identityText = [metadata.name, metadata.id, metadata.autocomplete]
+      .map((value) => String(value || "").toLowerCase())
+      .join(" ");
 
     for (const signal of SIGNALS[fieldType]) {
       const normalizedSignal = signal.toLowerCase();
@@ -111,6 +119,22 @@
       if (placeholder === compactSignal) {
         score = Math.max(score, 0.74);
         reasons.push("placeholder_only_review");
+      }
+      if (name === compactSignal) {
+        score = Math.max(score, 0.78);
+        reasons.push("exact_name_review");
+      }
+      if (groupLabel === compactSignal) {
+        const samePurposeIdentity = identityText.includes(normalizedSignal);
+        score = Math.max(
+          score,
+          Number(metadata.groupControlCount || 0) === 1 || samePurposeIdentity ? 0.97 : 0.7
+        );
+        reasons.push(
+          Number(metadata.groupControlCount || 0) === 1 || samePurposeIdentity
+            ? "table_group_label"
+            : "table_group_label_review"
+        );
       }
     }
     const birthdayAutocomplete = {
@@ -141,12 +165,15 @@
       score += 0.4;
       reasons.push("input_type");
     }
-    const name = String(metadata.name || "").toLowerCase();
-    if (fieldType === "phone" && /(?:tel|phone)[-_]?[123]$/.test(name)) {
+    const rawName = String(metadata.name || "").toLowerCase();
+    if (fieldType === "phone" && /(?:tel|phone)[-_]?[123]$/.test(rawName)) {
       score += 0.4;
       reasons.push("split_phone_name");
     }
-    if (fieldType === "postal_code" && /(?:zip|postal)[-_]?[12]$/.test(name)) {
+    if (
+      fieldType === "postal_code" &&
+      /(?:(?:zip|postal)[-_]?[12]|郵便番号[-_]?[12])$/.test(rawName)
+    ) {
       score += 0.6;
       reasons.push("split_postal_name");
     }
@@ -184,6 +211,7 @@
       metadata.ariaLabel,
       metadata.placeholder,
       metadata.label,
+      metadata.groupLabel,
       ...(metadata.selectOptions || []),
     ]
       .map((value) => String(value || "").toLowerCase())

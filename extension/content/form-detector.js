@@ -21,6 +21,21 @@
     return parent ? String(parent.textContent || "").slice(0, 180) : "";
   }
 
+  function tableGroupMetadata(element) {
+    const row = element.closest?.("tr");
+    if (!row) return {groupLabel: "", groupControlCount: 0};
+    const headers = Array.from(row.children || []).filter(
+      (child) => String(child.tagName || "").toLowerCase() === "th"
+    );
+    const controls = Array.from(row.querySelectorAll("input,select,textarea")).filter(
+      (control) => String(control.type || "").toLowerCase() !== "hidden"
+    );
+    return {
+      groupLabel: headers.map((header) => String(header.textContent || "").trim()).join(" "),
+      groupControlCount: controls.length,
+    };
+  }
+
   function relativePath(element) {
     const segments = [];
     let current = element;
@@ -41,6 +56,7 @@
   }
 
   function metadataFor(element) {
+    const tableGroup = tableGroupMetadata(element);
     const radioOptions =
       String(element.type || "").toLowerCase() === "radio" && element.name
         ? Array.from(
@@ -60,6 +76,7 @@
       ariaLabel: element.getAttribute("aria-label") || "",
       placeholder: element.getAttribute("placeholder") || "",
       label: labelText(element).trim(),
+      ...tableGroup,
       surroundingText: surroundingText(element).trim(),
       required: Boolean(element.required),
       disabled: Boolean(element.disabled),
@@ -80,8 +97,9 @@
     const phoneMatch = name.match(/(?:tel|phone)[-_]?([123])$/);
     if (fieldType === "phone" && phoneMatch) return `phone_part_${phoneMatch[1]}`;
     const postalMatch = name.match(/(?:zip|postal)[-_]?([12])$/);
-    if (fieldType === "postal_code" && postalMatch) {
-      return `postal_part_${postalMatch[1]}`;
+    const japanesePostalMatch = name.match(/郵便番号[-_]?([12])$/);
+    if (fieldType === "postal_code" && (postalMatch || japanesePostalMatch)) {
+      return `postal_part_${(postalMatch || japanesePostalMatch)[1]}`;
     }
     if (fieldType === "last_name_kana" || fieldType === "first_name_kana") {
       return /かな|ひらがな/.test(label) ? "hiragana" : "katakana";
