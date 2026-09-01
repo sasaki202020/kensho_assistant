@@ -76,7 +76,7 @@ def _copy_source(source_dir: Path, destination: Path) -> None:
         shutil.copyfile(source, target)
 
 
-def _build_hash(root: Path) -> str:
+def build_hash(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
         relative = path.relative_to(root).as_posix().encode("utf-8")
@@ -86,6 +86,9 @@ def _build_hash(root: Path) -> str:
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return digest.hexdigest()
+
+
+_build_hash = build_hash
 
 
 def build_dedicated_extension(

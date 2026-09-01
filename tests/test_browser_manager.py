@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from kensho_assistant.app.browser_manager import check_browser_doctor, get_browser_profile_dir
+import pytest
+
+from kensho_assistant.app.browser_manager import (
+    check_browser_doctor,
+    dedicated_extension_page_state,
+    get_browser_profile_dir,
+    open_url_in_chrome,
+)
 
 
 def test_browser_profile_uses_dedicated_dir():
@@ -20,3 +27,47 @@ def test_browser_doctor_has_expected_shape():
         "keep_open_supported",
         "fallback_browser",
     }
+
+
+def test_dedicated_navigation_failure_closes_owned_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FailingPage:
+        def goto(self, *_args, **_kwargs):
+            raise RuntimeError("navigation failed")
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.pages = [FailingPage()]
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    context = FakeContext()
+    monkeypatch.setattr(
+        "kensho_assistant.app.browser_manager.launch_dedicated_kensho_context",
+        lambda *_args, **_kwargs: (context, "chromium", {}),
+    )
+
+    with pytest.raises(RuntimeError, match="navigation failed"):
+        open_url_in_chrome(
+            object(),
+            "about:blank",
+            use_dedicated_extension=True,
+            run_id="run-1",
+        )
+
+    assert context.closed is True
+
+
+def test_dedicated_page_state_requires_exactly_one_panel_and_guard() -> None:
+    class FakePage:
+        def evaluate(self, _script):
+            return {
+                "ready": True,
+                "panel_count": 2,
+                "submit_guard_count": 1,
+                "guard_state": {"submitted_count_auto": 0, "blockedAttempts": 0},
+            }
+
+    with pytest.raises(RuntimeError, match="dedicated_extension_not_ready"):
+        dedicated_extension_page_state(FakePage(), require_ready=True)

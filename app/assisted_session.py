@@ -14,7 +14,12 @@ from playwright.sync_api import sync_playwright
 
 from .apply_queue import _deadline_bucket, approved_queue_rows, mark_hold, mark_manual_submitted, mark_skipped
 from .auto_apply_engine import AutoApplyEngine
-from .browser_manager import close_browser_safely, open_url_in_chrome
+from .browser_manager import (
+    close_browser_safely,
+    dedicated_extension_page_state,
+    open_url_in_chrome,
+    validate_dedicated_target_url,
+)
 from .entry_url_resolver import target_url_for_campaign
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS, CapabilityBridge
 from .paths import ASSISTED_SESSION_DIR, ASSISTED_SESSION_STATE_JSON
@@ -949,14 +954,19 @@ def run_assisted_application_session(
     stop_requested = False
     browser_context = None
     actual_browser = browser
-    profile = load_profile()
     trial_store = TrialStore(REAL_SITE_TRIALS_JSONL) if record_trials else None
     trial_steps = TrialStepLogger(REAL_SITE_TRIAL_STEPS_JSONL) if record_trials else None
     candidate_ids = [candidate_id for candidate_id in candidate_ids if candidate_id]
     start_index = min(max(int(start_index), 1), len(candidate_ids))
 
     with sync_playwright() as playwright:
-        context, page, actual_browser = open_url_in_chrome(playwright, "about:blank", browser)
+        context, page, actual_browser = open_url_in_chrome(
+            playwright,
+            "about:blank",
+            browser,
+            use_dedicated_extension=True,
+            run_id=session_id,
+        )
         browser_context = context
         try:
             for index in range(start_index, len(candidate_ids) + 1):
@@ -1079,7 +1089,30 @@ def run_assisted_application_session(
                     continue
 
                 try:
+                    validate_dedicated_target_url(target_url)
+                except ValueError:
+                    candidate_finished_at = _now_iso()
+                    session_state.update(
+                        status="STOPPED",
+                        status_label=SESSION_STATUS_LABELS["STOPPED"],
+                        final_status="STOPPED",
+                        current_step="origin_not_approved",
+                        candidate_finished_at=candidate_finished_at,
+                        session_finished_at=candidate_finished_at,
+                        finished_at=candidate_finished_at,
+                        message="このサイトは専用拡張の許可originに含まれないため停止しました。",
+                        last_action="DEDICATED_ORIGIN_NOT_APPROVED",
+                        last_reason="DEDICATED_ORIGIN_NOT_APPROVED",
+                        submitted_count_auto=0,
+                    )
+                    save_assisted_session_state(session_state)
+                    failed += 1
+                    stop_requested = True
+                    break
+
+                try:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+                    dedicated_extension_page_state(page, require_ready=True)
                 except Exception as exc:
                     candidate_finished_at = _now_iso()
                     if trial_store:
@@ -1139,7 +1172,7 @@ def run_assisted_application_session(
                         AutoApplyEngine("dry_run"),
                         page,
                         campaign,
-                        profile,
+                        {},
                         mapping_confirmed=False,
                     )
                 except Exception as exc:
@@ -1275,7 +1308,7 @@ def run_assisted_application_session(
                                 AutoApplyEngine("dry_run"),
                                 page,
                                 campaign,
-                                profile,
+                                load_profile(),
                                 mapping_confirmed=True,
                             )
                             record = result.get("record", {}) if isinstance(result, dict) else {}
@@ -1563,7 +1596,7 @@ def run_assisted_application_session(
                 )
                 save_assisted_session_state(session_state)
         finally:
-            if browser_context and not (keep_open or stop_requested):
+            if browser_context:
                 close_browser_safely(browser_context)
 
     return {
