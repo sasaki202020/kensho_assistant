@@ -266,5 +266,9 @@ def test_start_script_uses_fresh_dedicated_profile_and_fixed_build_path() -> Non
     assert "--disable-extensions-except" in browser_manager
     assert "--load-extension" in browser_manager
     assert "build_dedicated_extension.py" not in script
+    assert '"--verify-only"' in script
+    assert "diagnostic_runner_requires_verify_only" in (
+        Path(__file__).parents[1] / "scripts" / "run_dedicated_chrome.py"
+    ).read_text(encoding="utf-8")
     assert "Stop-Process" not in script
     assert "Remove-Item" not in script

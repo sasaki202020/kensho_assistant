@@ -34,9 +34,9 @@ $RunnerArgs = @(
     (Join-Path $PSScriptRoot "run_dedicated_chrome.py"),
     "--project-root", $ProjectRoot,
     "--runtime-profiles-root", $RuntimeProfilesRoot,
-    "--url", $TargetUrl
+    "--url", $TargetUrl,
+    "--verify-only"
 )
-if ($VerifyOnly) { $RunnerArgs += "--verify-only" }
 if ($Headless) { $RunnerArgs += "--headless" }
 
 py -3.12 @RunnerArgs
