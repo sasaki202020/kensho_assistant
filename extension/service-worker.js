@@ -7,6 +7,8 @@ if (typeof importScripts === "function") {
 
 const SESSION_PROFILE_KEY = "kenshoSessionProfile";
 const BRIDGE_CAPABILITY_KEY = "kenshoBridgeCapability";
+const CONTROL_CAPABILITY_KEY = "kenshoControlCapability";
+const PROGRESS_CAPABILITY_KEY = "kenshoProgressCapability";
 const ACTIVE_TABS_KEY = "kenshoActiveTabs";
 const SCRIPT_PREFIXES = ["kensho-main-", "kensho-isolated-"];
 const ISOLATED_SCRIPT_FILES = [
@@ -40,10 +42,13 @@ const ALLOWED_PROFILE_KEYS = new Set([
   "building",
   "birth_date",
   "gender",
-  "free_text",
 ]);
 const FORBIDDEN_PROFILE_KEYS = /password|passcode|token|secret|cookie|otp|auth/i;
 let reconciliationQueue = Promise.resolve();
+
+function fixtureBridgeMode() {
+  return chrome?.runtime?.getManifest?.()?.version_name === "fixture-bridge";
+}
 const TEMPLATE_STORAGE_PREFIX = "kenshoFormTemplate:";
 
 function extensionIdentity(runtime = globalThis.chrome?.runtime) {
@@ -64,6 +69,8 @@ function isDuplicateExtensionIdentity(current, incoming) {
 async function clearSensitiveSessionState() {
   await chrome.storage.session.remove(SESSION_PROFILE_KEY);
   await chrome.storage.session.remove(BRIDGE_CAPABILITY_KEY);
+  await chrome.storage.session.remove(CONTROL_CAPABILITY_KEY);
+  await chrome.storage.session.remove(PROGRESS_CAPABILITY_KEY);
 }
 
 function validateProfile(profile) {
@@ -358,7 +365,50 @@ async function consumeBridgeProfile(message, senderUrl) {
   if (!response.ok) throw new Error("bridge_rejected");
   const body = await response.json();
   const profile = validateProfile(body?.payload || {});
+  if (!body?.progress_token) throw new Error("missing_progress_capability");
+  await chrome.storage.session.set({
+    [PROGRESS_CAPABILITY_KEY]: {
+      token: String(body.progress_token),
+      session_id: String(capability.session_id || ""),
+      candidate_id: String(capability.candidate_id || ""),
+      origin,
+      fingerprint: String(capability.fingerprint || ""),
+    },
+  });
   return profile;
+}
+
+async function controlCapability(sessionId) {
+  const stored = await chrome.storage.session.get(CONTROL_CAPABILITY_KEY);
+  const capability = stored[CONTROL_CAPABILITY_KEY] || {};
+  if (!capability.token || String(capability.session_id || "") !== String(sessionId || "")) {
+    throw new Error("control_capability_unavailable");
+  }
+  return String(capability.token);
+}
+
+async function revokeBridgeCapabilities() {
+  const statusResponse = await fetch("http://127.0.0.1:8787/api/session/status", {
+    method: "GET",
+    cache: "no-store",
+  });
+  if (!statusResponse.ok) throw new Error("session_unavailable");
+  const state = await statusResponse.json();
+  const controlToken = await controlCapability(state.session_id);
+  const response = await fetch(
+    "http://127.0.0.1:8787/api/session/extension-capability/revoke",
+    {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      cache: "no-store",
+      body: JSON.stringify({
+        session_id: String(state.session_id || ""),
+        control_token: controlToken,
+      }),
+    }
+  );
+  if (!response.ok) throw new Error("capability_revoke_failed");
+  return response.json();
 }
 
 async function configureSessionStorage() {
@@ -415,6 +465,7 @@ async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = [])
   }
   if (!statusResponse.ok) throw new Error("session_unavailable");
   const state = await statusResponse.json();
+  const controlToken = await controlCapability(state.session_id);
   const capabilityController = new AbortController();
   const capabilityTimeoutId = setTimeout(() => capabilityController.abort(), 1000);
   let response;
@@ -430,6 +481,7 @@ async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = [])
         origin: location.origin,
         fingerprint: String(fingerprint || ""),
         profile_keys: requestedProfileKeys,
+        control_token: controlToken,
       }),
     });
   } finally {
@@ -439,6 +491,92 @@ async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = [])
   const capability = await response.json();
   await setBridgeCapability(capability, {id: chrome.runtime.id});
   return {available: true};
+}
+
+async function reportExtensionProgress(senderUrl, fingerprint, event, details = {}) {
+  const location = templateLocationForUrl(senderUrl || "");
+  const safeEvent = String(event || "");
+  const allowedEvents = new Set([
+    "post_fill_verified",
+    "rollback_required",
+    "rollback_complete",
+    "rollback_incomplete",
+    "unsupported_form",
+    "failed_safe",
+  ]);
+  const allowedDetailKeys = new Set([
+    "filled_count",
+    "unrelated_changed_count",
+    "target_mismatch_count",
+    "rollback_complete",
+  ]);
+  if (
+    !location ||
+    !String(fingerprint || "") ||
+    !allowedEvents.has(safeEvent) ||
+    !details ||
+    typeof details !== "object" ||
+    Object.keys(details).some((key) => !allowedDetailKeys.has(key))
+  ) {
+    throw new Error("invalid_extension_progress");
+  }
+  const statusResponse = await fetch("http://127.0.0.1:8787/api/session/status", {
+    method: "GET",
+    cache: "no-store",
+  });
+  if (!statusResponse.ok) throw new Error("session_unavailable");
+  const state = await statusResponse.json();
+  const controlToken = await controlCapability(state.session_id);
+  const storedProgress = await chrome.storage.session.get(PROGRESS_CAPABILITY_KEY);
+  const progress = storedProgress[PROGRESS_CAPABILITY_KEY] || {};
+  if (
+    !progress.token ||
+    String(progress.session_id || "") !== String(state.session_id || "") ||
+    String(progress.candidate_id || "") !== String(state.active_candidate_id || state.candidate_id || "") ||
+    String(progress.origin || "") !== location.origin ||
+    String(progress.fingerprint || "") !== String(fingerprint || "")
+  ) {
+    throw new Error("progress_capability_unavailable");
+  }
+  const operationId = globalThis.crypto?.randomUUID?.() ||
+    `extension-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const request = {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    cache: "no-store",
+    body: JSON.stringify({
+      session_id: String(state.session_id || ""),
+      candidate_id: String(state.active_candidate_id || state.candidate_id || ""),
+      origin: location.origin,
+      fingerprint: String(fingerprint || ""),
+      event: safeEvent,
+      operation_id: operationId,
+      control_token: controlToken,
+      progress_token: String(progress.token),
+      details,
+    }),
+  };
+  let response = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetch("http://127.0.0.1:8787/api/session/extension-progress", request);
+      if (response.ok || response.status < 500) break;
+    } catch (_error) {
+      response = null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+  }
+  if (!response) throw new Error("extension_progress_unavailable");
+  if (!response.ok) throw new Error("extension_progress_rejected");
+  const body = await response.json();
+  if (safeEvent === "post_fill_verified" && body.progress_token) {
+    await chrome.storage.session.set({
+      [PROGRESS_CAPABILITY_KEY]: {...progress, token: String(body.progress_token)},
+    });
+  } else if (safeEvent !== "rollback_required") {
+    await chrome.storage.session.remove(PROGRESS_CAPABILITY_KEY);
+  }
+  return body;
 }
 
 async function originAccessState(senderUrl) {
@@ -463,11 +601,17 @@ async function requestOriginAccess(senderUrl, tabId) {
 async function disableOrigin(senderUrl) {
   const originPattern = originPatternForUrl(senderUrl);
   if (!originPattern) return { removed: false, error: "unsupported_origin" };
+  if (!fixtureBridgeMode()) {
+    const revoked = await revokeBridgeCapabilities();
+    if (!revoked?.ok) return {removed: false, error: "capability_revoke_failed"};
+  }
   const ids = Object.values(scriptIdsForOrigin(originPattern));
   await chrome.scripting.unregisterContentScripts({ ids }).catch(() => {});
   const removed = await chrome.permissions.remove({ origins: [originPattern] });
   await chrome.storage.session.remove(SESSION_PROFILE_KEY);
   await chrome.storage.session.remove(BRIDGE_CAPABILITY_KEY);
+  await chrome.storage.session.remove(CONTROL_CAPABILITY_KEY);
+  await chrome.storage.session.remove(PROGRESS_CAPABILITY_KEY);
   return { removed, originPattern };
 }
 
@@ -519,21 +663,11 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         sendResponse({ok: true, duplicate: true});
         return;
       }
-      if (message?.type === "SET_SESSION_PROFILE") {
-        const profile = validateProfile(message.profile);
-        await chrome.storage.session.set({ [SESSION_PROFILE_KEY]: profile });
-        sendResponse({ ok: true, fieldCount: Object.keys(profile).length });
-        return;
-      }
-      if (message?.type === "GET_PROFILE_PREVIEW") {
-        sendResponse({ ok: true, profile: await profilePreview(), workerEpoch: WORKER_EPOCH });
-        return;
-      }
-      if (message?.type === "CONSUME_SESSION_PROFILE") {
-        sendResponse({ ok: true, profile: await consumeProfile(), workerEpoch: WORKER_EPOCH });
-        return;
-      }
       if (message?.type === "CONSUME_BRIDGE_PROFILE") {
+        if (fixtureBridgeMode()) {
+          sendResponse({ok: true, profile: await consumeProfile(), workerEpoch: WORKER_EPOCH});
+          return;
+        }
         const profile = await consumeBridgeProfile(message, sender?.url || sender?.tab?.url || "");
         sendResponse({ ok: true, profile, workerEpoch: WORKER_EPOCH });
         return;
@@ -543,6 +677,13 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         return;
       }
       if (message?.type === "REQUEST_BRIDGE_CAPABILITY") {
+        if (fixtureBridgeMode()) {
+          await chrome.storage.session.set({
+            [BRIDGE_CAPABILITY_KEY]: {fixture: true, origin: sender?.url || sender?.tab?.url || ""},
+          });
+          sendResponse({ok: true, available: true});
+          return;
+        }
         sendResponse({
           ok: true,
           ...(await requestBridgeCapability(
@@ -553,15 +694,42 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         });
         return;
       }
+      if (message?.type === "REPORT_EXTENSION_PROGRESS") {
+        if (fixtureBridgeMode()) {
+          sendResponse({ok: true, workflow_state: "HUMAN_ACTION_REQUIRED", submitted_count_auto: 0});
+          return;
+        }
+        sendResponse({
+          ok: true,
+          ...(await reportExtensionProgress(
+            sender?.url || sender?.tab?.url || "",
+            message.fingerprint || "",
+            message.event || "",
+            message.details || {}
+          )),
+        });
+        return;
+      }
       if (message?.type === "GET_BRIDGE_CAPABILITY_STATUS") {
         const stored = await chrome.storage.session.get(BRIDGE_CAPABILITY_KEY);
         sendResponse({ok: true, available: Boolean(stored[BRIDGE_CAPABILITY_KEY])});
         return;
       }
       if (message?.type === "CLEAR_SESSION_PROFILE") {
+        let revoked = false;
+        try {
+          const result = fixtureBridgeMode()
+            ? {ok: true}
+            : await revokeBridgeCapabilities();
+          revoked = Boolean(result?.ok);
+        } catch (_error) {
+          revoked = false;
+        }
         await chrome.storage.session.remove(SESSION_PROFILE_KEY);
         await chrome.storage.session.remove(BRIDGE_CAPABILITY_KEY);
-        sendResponse({ ok: true });
+        await chrome.storage.session.remove(CONTROL_CAPABILITY_KEY);
+        await chrome.storage.session.remove(PROGRESS_CAPABILITY_KEY);
+        sendResponse({ ok: revoked });
         return;
       }
       if (message?.type === "GET_FORM_TEMPLATE") {
@@ -649,6 +817,7 @@ if (typeof module !== "undefined" && module.exports) {
     consumeBridgeProfile,
     setBridgeCapability,
     requestBridgeCapability,
+    reportExtensionProgress,
     getFormTemplate,
     saveFormTemplate,
     templateLocationForUrl,

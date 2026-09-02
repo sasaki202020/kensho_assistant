@@ -23,12 +23,16 @@ from ..app.assisted_session import (
     extension_bridge_status,
     issue_extension_capability,
     load_assisted_session_state,
+    record_extension_progress,
+    revoke_extension_capabilities,
     request_assisted_session_action,
+    validate_extension_control_token,
 )
 from ..app.assisted_session import SESSION_ACTIVE_STATUSES, SESSION_HOLD_REASONS, SESSION_STALE_SECONDS
 from ..app.engine import run_prepared_campaign_dry_run
 from ..app.paths import APP_DIR, FORM_ANALYSIS_DIR, PACKAGE_ROOT, PRE_SUBMIT_CHECKS_DIR, REAL_SITE_TRIALS_JSONL, SELF_TEST_LOG_MD
 from ..app.real_site_trials import TrialStore, summarize_trials
+from ..app.session_state_machine import InvalidSessionTransition
 from ..app.browser_manager import check_chrome_available, close_browser_safely, open_url_in_chrome
 from ..app.entry_logger import load_entries
 from ..app.entry_history import export_entry_history_csv, load_entry_history, load_win_mail_candidates, summarize_entry_history, summarize_win_mail_candidates
@@ -1626,7 +1630,19 @@ def create_app() -> FastAPI:
             if tailscale_request:
                 if not _request_is_same_origin(request):
                     return PlainTextResponse("Forbidden", status_code=403)
-            elif source and not (_trusted_local_origin(source) or _request_is_same_origin(request)):
+            elif (
+                source
+                and not (_trusted_local_origin(source) or _request_is_same_origin(request))
+                and not (
+                    request.url.path
+                    in {
+                        "/api/session/extension-capability",
+                        "/api/session/extension-capability/revoke",
+                        "/api/session/extension-progress",
+                    }
+                    and re.fullmatch(r"chrome-extension://[a-z]{32}", source)
+                )
+            ):
                 return PlainTextResponse("Forbidden", status_code=403)
         return await call_next(request)
 
@@ -2974,6 +2990,12 @@ def create_app() -> FastAPI:
         client_host = str(request.client.host if request.client else "")
         if client_host not in {"127.0.0.1", "::1"}:
             raise HTTPException(status_code=403, detail="loopback_only")
+        active_state = load_assisted_session_state()
+        expected_extension_origin = "chrome-extension://" + str(
+            active_state.get("extension_id", "") or ""
+        )
+        if not active_state.get("extension_id") or request.headers.get("origin", "") != expected_extension_origin:
+            raise HTTPException(status_code=403, detail="extension_origin_rejected")
         try:
             body = await request.json()
         except Exception as exc:
@@ -2984,6 +3006,13 @@ def create_app() -> FastAPI:
         workflow_state = str(state.get("workflow_state", "") or "").upper()
         if workflow_state not in {"MAPPING_CONFIRMED", "FILLED", "POST_FILL_VERIFIED", "HUMAN_ACTION_REQUIRED"}:
             raise HTTPException(status_code=409, detail="mapping_not_confirmed")
+        try:
+            validate_extension_control_token(
+                str(body.get("session_id", "") or ""),
+                str(body.get("control_token", "") or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="control_token_rejected") from exc
         profile_keys = body.get("profile_keys", [])
         if not isinstance(profile_keys, list) or not profile_keys:
             raise HTTPException(status_code=400, detail="profile_keys_required")
@@ -2999,6 +3028,78 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=403, detail="capability_rejected") from exc
         return result
+
+    @app.post("/api/session/extension-progress")
+    async def api_extension_progress(request: Request) -> dict[str, object]:
+        client_host = str(request.client.host if request.client else "")
+        if client_host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(status_code=403, detail="loopback_only")
+        active_state = load_assisted_session_state()
+        expected_extension_origin = "chrome-extension://" + str(
+            active_state.get("extension_id", "") or ""
+        )
+        if not active_state.get("extension_id") or request.headers.get("origin", "") != expected_extension_origin:
+            raise HTTPException(status_code=403, detail="extension_origin_rejected")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="invalid_request") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("details", {}), dict):
+            raise HTTPException(status_code=400, detail="invalid_request")
+        try:
+            validate_extension_control_token(
+                str(body.get("session_id", "") or ""),
+                str(body.get("control_token", "") or ""),
+            )
+            state = record_extension_progress(
+                session_id=str(body.get("session_id", "") or ""),
+                candidate_id=str(body.get("candidate_id", "") or ""),
+                origin=str(body.get("origin", "") or ""),
+                fingerprint=str(body.get("fingerprint", "") or ""),
+                event=str(body.get("event", "") or ""),
+                operation_id=str(body.get("operation_id", "") or ""),
+                progress_token=str(body.get("progress_token", "") or ""),
+                details=body.get("details", {}),
+            )
+        except (InvalidSessionTransition, ValueError) as exc:
+            raise HTTPException(status_code=409, detail="extension_progress_rejected") from exc
+        return {
+            "ok": True,
+            "workflow_state": str(state.get("workflow_state", "") or ""),
+            "progress_token": str(state.get("_extension_progress_token", "") or ""),
+            "submitted_count_auto": 0,
+        }
+
+    @app.post("/api/session/extension-capability/revoke")
+    async def api_extension_capability_revoke(request: Request) -> dict[str, object]:
+        client_host = str(request.client.host if request.client else "")
+        if client_host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(status_code=403, detail="loopback_only")
+        active_state = load_assisted_session_state()
+        expected_extension_origin = "chrome-extension://" + str(
+            active_state.get("extension_id", "") or ""
+        )
+        if not active_state.get("extension_id") or request.headers.get("origin", "") != expected_extension_origin:
+            raise HTTPException(status_code=403, detail="extension_origin_rejected")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="invalid_request") from exc
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="invalid_request")
+        session_id = str(body.get("session_id", "") or "")
+        try:
+            validate_extension_control_token(
+                session_id,
+                str(body.get("control_token", "") or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="control_token_rejected") from exc
+        return {
+            "ok": True,
+            "revoked_count": revoke_extension_capabilities(session_id),
+            "submitted_count_auto": 0,
+        }
 
     @app.post("/queue/session/{queue_id}/manual-submitted")
     def queue_session_manual_submitted(

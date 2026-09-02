@@ -15,6 +15,37 @@ from .paths import CHROME_USER_DATA_DIR, PACKAGE_ROOT
 _OWNED_RUNTIME_PROFILES: dict[int, Path] = {}
 
 
+def provision_extension_control_token(
+    context,
+    session_id: str,
+    token: str,
+    extension_id: str,
+) -> None:
+    """Place a short-lived control token directly in the dedicated worker session."""
+    workers = list(getattr(context, "service_workers", []) or [])
+    worker = workers[0] if workers else context.wait_for_event("serviceworker", timeout=10000)
+    expected_prefix = f"chrome-extension://{str(extension_id or '').strip()}/"
+    if not str(getattr(worker, "url", "") or "").startswith(expected_prefix):
+        raise RuntimeError("dedicated_extension_worker_mismatch")
+    worker.evaluate(
+        """async ({sessionId, token}) => {
+          await chrome.storage.session.set({
+            kenshoControlCapability: {session_id: sessionId, token}
+          });
+        }""",
+        {"sessionId": str(session_id), "token": str(token)},
+    )
+
+
+def clear_extension_control_token(context) -> None:
+    workers = list(getattr(context, "service_workers", []) or [])
+    if not workers:
+        return
+    workers[0].evaluate(
+        "async () => chrome.storage.session.remove(['kenshoControlCapability', 'kenshoProgressCapability'])"
+    )
+
+
 def get_browser_profile_dir() -> Path:
     CHROME_USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
     return CHROME_USER_DATA_DIR
@@ -165,6 +196,8 @@ def dedicated_extension_page_state(page, *, require_ready: bool = False) -> dict
         """() => ({
           ready: document.documentElement.dataset.kenshoExtensionReady === 'true',
           panel_count: document.querySelectorAll('[data-kensho-extension-root="true"]').length,
+          extension_id: document.querySelector('[data-kensho-extension-root="true"]')
+            ?.getAttribute('data-kensho-extension-id') || '',
           submit_guard_count: document.documentElement.dataset.kenshoSubmitGuard === 'true' ? 1 : 0,
           guard_state: window.__KENSHO_SUBMIT_GUARD__?.state?.() || null
         })"""

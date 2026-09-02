@@ -139,14 +139,14 @@ def test_extension_can_be_loaded_as_unpacked_manifest_v3(tmp_path: Path) -> None
             extension_id = worker.url.split("/")[2]
             options = context.new_page()
             options.goto(f"chrome-extension://{extension_id}/options/options.html")
-            options.locator('input[name="email"]').fill("pii-test@example.invalid")
-            options.locator('button[type="submit"]').click()
+            assert options.locator('input[name="email"]').count() == 0
+            assert "bridge-only" in (options.locator("#status").text_content() or "")
             stored = worker.evaluate(
                 """async () => (await chrome.storage.session.get(
                   "kenshoSessionProfile"
                 )).kenshoSessionProfile"""
             )
-            assert stored == {"email": "pii-test@example.invalid"}
+            assert stored is None
             options.locator("#clear").click()
             cleared = worker.evaluate(
                 """async () => (await chrome.storage.session.get(
@@ -556,20 +556,18 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
                   sendMessage(message, callback) {
                     if (message.type === "GET_SESSION_STATUS") {
                       callback({ok: true, profileLoaded: true, workerEpoch: "worker-1"});
-                    } else if (message.type === "GET_PROFILE_PREVIEW") {
-                      callback({
-                        ok: true,
-                        profile: {
-                          last_name: "P***",
-                          first_name: "P***",
-                          email: "p***@example.invalid"
-                        },
-                        workerEpoch: "worker-1"
-                      });
-                    } else if (message.type === "CONSUME_SESSION_PROFILE") {
+                    } else if (message.type === "GET_FORM_TEMPLATE") {
+                      callback({ok: true, matched: false});
+                    } else if (message.type === "SAVE_FORM_TEMPLATE") {
+                      callback({ok: true, saved: true});
+                    } else if (message.type === "GET_BRIDGE_CAPABILITY_STATUS") {
+                      callback({ok: true, available: true});
+                    } else if (message.type === "CONSUME_BRIDGE_PROFILE") {
                       const profile = sessionProfile;
                       sessionProfile = null;
                       callback({ok: true, profile, workerEpoch: "worker-1"});
+                    } else if (message.type === "REPORT_EXTENSION_PROGRESS") {
+                      callback({ok: true, workflow_state: "HUMAN_ACTION_REQUIRED"});
                     } else if (message.type === "CLEAR_SESSION_PROFILE") {
                       sessionProfile = null;
                       callback({ok: true});
@@ -603,15 +601,15 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
     mapping_buttons = panel.locator('button[data-kensho-mapping-action="approve"]')
     for _ in range(mapping_buttons.count()):
         panel.locator('button[data-kensho-mapping-action="approve"]').first.click()
+    panel.locator("#save-template").click()
     panel_text = panel.evaluate("host => host.shadowRoot.textContent")
     assert "pii-test@example.invalid" not in panel_text
-    assert "p***@example.invalid" in panel_text
+    assert "***@***" in panel_text
     panel.locator("#fill").click()
     assert browser_page.locator('input[name="email"]').input_value() == "pii-test@example.invalid"
     panel.locator("#clear").click()
     assert browser_page.locator('input[name="email"]').input_value() == ""
-    panel_text = panel.evaluate("host => host.shadowRoot.textContent")
-    assert "セッション情報消去済み" in panel_text
+    assert panel.get_attribute("data-kensho-status") == "blocked"
 
 
 def test_overlay_expands_combined_name_before_requesting_bridge_profile(browser_page) -> None:
@@ -626,16 +624,10 @@ def test_overlay_expands_combined_name_before_requesting_bridge_profile(browser_
               sendMessage(message, callback) {
                 if (message.type === "GET_SESSION_STATUS") {
                   callback({ok: true, profileLoaded: true, workerEpoch: "worker-1"});
-                } else if (message.type === "GET_PROFILE_PREVIEW") {
-                  callback({
-                    ok: true,
-                    profile: {
-                      last_name: "P***",
-                      first_name: "P***",
-                      email: "p***@example.invalid"
-                    },
-                    workerEpoch: "worker-1"
-                  });
+                    } else if (message.type === "GET_FORM_TEMPLATE") {
+                      callback({ok: true, matched: false});
+                    } else if (message.type === "SAVE_FORM_TEMPLATE") {
+                      callback({ok: true, saved: true});
                 } else if (message.type === "GET_BRIDGE_CAPABILITY_STATUS") {
                   callback({ok: true, available: false});
                 } else if (message.type === "REQUEST_BRIDGE_CAPABILITY") {
@@ -673,6 +665,7 @@ def test_overlay_expands_combined_name_before_requesting_bridge_profile(browser_
     approve_buttons = panel.locator('button[data-kensho-mapping-action="approve"]')
     while approve_buttons.count():
         approve_buttons.first.click()
+    panel.locator("#save-template").click()
     panel.locator("#fill").click()
 
     requested = browser_page.evaluate("window.requestedProfileKeys")
@@ -1110,7 +1103,7 @@ def test_table_headers_produce_reviewable_japanese_field_mapping(browser_page) -
     assert by_name["メールの希望"]["fillAllowed"] is False
 
 
-def test_worker_epoch_change_stops_old_analysis_before_profile_delivery(
+def test_worker_epoch_change_stops_before_bridge_profile_delivery(
     browser_page,
 ) -> None:
     browser_page.goto((FIXTURES / "standard_form.html").as_uri())
@@ -1121,12 +1114,18 @@ def test_worker_epoch_change_stops_old_analysis_before_profile_delivery(
               sendMessage(message, callback) {
                 if (message.type === "GET_SESSION_STATUS") {
                   callback({ok: true, profileLoaded: true, workerEpoch: "worker-1"});
-                } else if (message.type === "GET_PROFILE_PREVIEW") {
-                  callback({
-                    ok: true,
-                    profile: {email: "p***@example.invalid"},
-                    workerEpoch: "worker-2"
-                  });
+                    } else if (message.type === "GET_FORM_TEMPLATE") {
+                      callback({ok: true, matched: false});
+                    } else if (message.type === "SAVE_FORM_TEMPLATE") {
+                      callback({ok: true, saved: true});
+                    } else if (message.type === "GET_BRIDGE_CAPABILITY_STATUS") {
+                      callback({ok: true, available: true});
+                    } else if (message.type === "CONSUME_BRIDGE_PROFILE") {
+                      callback({
+                        ok: true,
+                        profile: {email: "pii-test@example.invalid"},
+                        workerEpoch: "worker-2"
+                      });
                 } else {
                   callback({ok: false});
                 }
@@ -1154,9 +1153,13 @@ def test_worker_epoch_change_stops_old_analysis_before_profile_delivery(
     panel = browser_page.locator("#kensho-assistant-overlay-host")
     panel.locator("#analyze").click()
     panel.locator("#preview-button").click()
+    approve_buttons = panel.locator('button[data-kensho-mapping-action="approve"]')
+    while approve_buttons.count():
+        approve_buttons.first.click()
+    panel.locator("#save-template").click()
+    panel.locator("#fill").click()
 
-    panel_text = panel.evaluate("host => host.shadowRoot.textContent")
-    assert "プロフィールの再読込が必要" in panel_text
+    assert panel.get_attribute("data-kensho-status") == "blocked"
     assert browser_page.locator('input[name="email"]').input_value() == ""
 
 

@@ -3,38 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>懸賞入力補助 - 一時プロフィール</title>
+  <title>懸賞入力補助 - セキュリティ設定</title>
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
   <main>
-    <h1>一時プロフィール</h1>
-    <p>入力値はこのChromeセッション中だけメモリに保持されます。ブラウザ再起動時に消去されます。</p>
-    <form id="profile-form" autocomplete="off">
-      <div class="grid">
-        <label>姓<input name="last_name"></label>
-        <label>名<input name="first_name"></label>
-        <label>姓カナ<input name="last_name_kana"></label>
-        <label>名カナ<input name="first_name_kana"></label>
-        <label>メールアドレス<input name="email" type="email"></label>
-        <label>電話番号<input name="phone" type="tel"></label>
-        <label>郵便番号<input name="postal_code"></label>
-        <label>都道府県<input name="prefecture"></label>
-        <label>市区町村<input name="city"></label>
-        <label>番地<input name="street"></label>
-        <label>建物名<input name="building"></label>
-        <label>生年月日<input name="birth_date" type="date"></label>
-        <label>性別<input name="gender"></label>
-      </div>
-      <label>自由記入候補<textarea name="free_text"></textarea></label>
-      <div class="actions">
-        <button type="submit">セッションへ読み込む</button>
-        <button type="button" id="clear">セッション情報を消去</button>
-        <button type="button" id="reload-extension">拡張機能を更新</button>
-      </div>
-    </form>
-    <p id="status" role="status">未読込</p>
-    <p class="note">パスワード、認証コード、Cookieは入力しないでください。最終送信と規約同意は拡張機能では行いません。</p>
+    <h1>セキュリティ設定</h1>
+    <p>プロフィールはこの画面へ入力しません。応募準備中にローカルアプリから一回限りのbridgeで必要項目だけ受け取ります。</p>
+    <div class="actions">
+      <button type="button" id="clear">一時セッション情報を消去</button>
+      <button type="button" id="reload-extension">拡張機能を更新</button>
+    </div>
+    <p id="status" role="status">bridge-onlyモード</p>
+    <p class="note">パスワード、認証コード、Cookie、自由記述は受け取りません。最終送信と規約同意は拡張機能では行いません。</p>
   </main>
   <script src="options.js"></script>
 </body>

@@ -1,16 +1,43 @@
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
+
+import pytest
 
 from kensho_assistant.app.assisted_session import (
     classify_completion_snapshot,
+    clear_extension_control_token,
     clear_assisted_session_action,
     load_assisted_session_state,
     request_assisted_session_action,
+    register_extension_control_token,
     run_assisted_application_session,
     save_assisted_session_state,
+    validate_extension_control_token,
 )
+
+
+def test_assisted_session_runner_has_no_direct_profile_fill_path() -> None:
+    source = inspect.getsource(run_assisted_application_session)
+
+    assert "load_profile()" not in source
+    assert 'AutoApplyEngine("dry_run"),\n                                page,\n                                campaign,\n                                load_profile()' not in source
+
+
+def test_extension_control_token_is_memory_only_and_clearable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.ASSISTED_SESSION_STATE_JSON",
+        tmp_path / "session.json",
+    )
+    token = register_extension_control_token("session-control")
+    validate_extension_control_token("session-control", token)
+    save_assisted_session_state({"session_id": "session-control", "submitted_count_auto": 0})
+    assert token not in (tmp_path / "session.json").read_text(encoding="utf-8")
+    clear_extension_control_token("session-control")
+    with pytest.raises(ValueError, match="invalid_extension_control_token"):
+        validate_extension_control_token("session-control", token)
 
 
 def test_assisted_session_state_roundtrip(tmp_path, monkeypatch) -> None:

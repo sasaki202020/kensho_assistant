@@ -40,7 +40,7 @@ def test_first_seen_form_requires_explicit_mapping_before_real_fill(browser_page
     )
 
     result = browser_page.evaluate(
-        """() => {
+        """async () => {
           const analysis = window.KenshoExtension.FormDetector.scan(document);
           const preview = window.KenshoExtension.FormFiller.previewMasked(
             analysis,
@@ -77,7 +77,7 @@ def test_post_fill_reset_rolls_back_every_changed_field(browser_page) -> None:
     )
 
     result = browser_page.evaluate(
-        """() => {
+        """async () => {
           const analysis = window.KenshoExtension.FormDetector.scan(document);
           const email = analysis.fields.find(field => field.fieldType === "email");
           const preview = window.KenshoExtension.FormFiller.preview(
@@ -87,17 +87,19 @@ def test_post_fill_reset_rolls_back_every_changed_field(browser_page) -> None:
           const mappingDecisions = Object.fromEntries(
             preview.items.map(item => [item.fieldId, {action: "approve", profileKey: item.fieldType}])
           );
-          return window.KenshoExtension.FormFiller.fillAndVerify(
+          const filled = await window.KenshoExtension.FormFiller.fillAndVerify(
             preview,
             {email: "pii-test@example.invalid"},
             analysis,
             {templateApproved: true, mappingDecisions}
           );
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
+          return {filled, rolled};
         }"""
     )
 
-    assert result["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
-    assert result["rollbackComplete"] is True
+    assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+    assert result["rolled"]["rollbackComplete"] is True
     assert browser_page.locator("#email").input_value() == ""
 
 
@@ -115,7 +117,7 @@ def test_form_fingerprint_change_rolls_back_and_blocks_fill(browser_page) -> Non
     )
 
     result = browser_page.evaluate(
-        """() => {
+        """async () => {
           const analysis = window.KenshoExtension.FormDetector.scan(document);
           const preview = window.KenshoExtension.FormFiller.preview(
             analysis,
@@ -125,17 +127,19 @@ def test_form_fingerprint_change_rolls_back_and_blocks_fill(browser_page) -> Non
           const mappingDecisions = Object.fromEntries(
             preview.items.map(item => [item.fieldId, {action: "approve", profileKey: item.fieldType}])
           );
-          return window.KenshoExtension.FormFiller.fillAndVerify(
+          const filled = await window.KenshoExtension.FormFiller.fillAndVerify(
             preview,
             {email: "pii-test@example.invalid"},
             analysis,
             {templateApproved: true, mappingDecisions}
           );
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
+          return {filled, rolled};
         }"""
     )
 
-    assert result["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
-    assert result["rollbackComplete"] is True
+    assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+    assert result["rolled"]["rollbackComplete"] is True
     assert browser_page.locator("#email").input_value() == ""
 
 
@@ -271,7 +275,7 @@ def test_unrelated_disabled_state_is_restored_during_rollback(browser_page) -> N
           document.querySelector("#email").addEventListener("input", () => {
             document.querySelector("#guardian-name").disabled = true;
           });
-          return window.KenshoExtension.FormFiller.fillAndVerify(
+          const filled = await window.KenshoExtension.FormFiller.fillAndVerify(
             preview,
             {email: "pii-test@example.invalid"},
             analysis,
@@ -282,11 +286,13 @@ def test_unrelated_disabled_state_is_restored_during_rollback(browser_page) -> N
               }
             }
           );
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
+          return {filled, rolled};
         }"""
     )
 
-    assert result["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
-    assert result["rollbackComplete"] is True
+    assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+    assert result["rolled"]["rollbackComplete"] is True
     assert browser_page.locator("#email").input_value() == ""
     assert browser_page.locator("#guardian-name").is_disabled() is False
 
@@ -319,6 +325,7 @@ def test_dynamic_form_change_is_treated_as_incomplete_rollback(browser_page) -> 
             analysis,
             {templateApproved: true}
           );
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
           const second = await window.KenshoExtension.FormFiller.fillAndVerify(
             preview,
             {email: "pii-test@example.invalid"},
@@ -327,6 +334,7 @@ def test_dynamic_form_change_is_treated_as_incomplete_rollback(browser_page) -> 
           );
           return {
             first,
+            rolled,
             second,
             emailValue: document.querySelector("#email").value,
             dynamicFieldExists: Boolean(document.querySelector("#dynamic-field")),
@@ -334,8 +342,8 @@ def test_dynamic_form_change_is_treated_as_incomplete_rollback(browser_page) -> 
         }"""
     )
 
-    assert result["first"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
-    assert result["first"]["rollbackComplete"] is False
+    assert result["first"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+    assert result["rolled"]["rollbackComplete"] is False
     assert result["second"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
     assert result["second"]["filledCount"] == 0
     assert result["emailValue"] == ""
@@ -371,17 +379,18 @@ def test_controlled_input_writeback_is_resynchronized_during_rollback(browser_pa
             analysis,
             {templateApproved: true, mappingDecisions}
           );
-          await new Promise(resolve => setTimeout(resolve, 30));
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
           return {
             filled,
+            rolled,
             emailValue: document.querySelector("#email").value,
             phoneValue: document.querySelector("#phone").value,
           };
         }"""
     )
 
-    assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
-    assert result["filled"]["rollbackComplete"] is True
+    assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+    assert result["rolled"]["rollbackComplete"] is True
     assert result["emailValue"] == ""
     assert result["phoneValue"] == ""
 
@@ -410,8 +419,7 @@ def test_manual_rollback_resynchronizes_controlled_form(browser_page) -> None:
             preview,
             {email: "pii-test@example.invalid", phone: "09000002741"}
           );
-          const rolled = window.KenshoExtension.FormFiller.rollback();
-          await new Promise(resolve => setTimeout(resolve, 30));
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
           return {
             filled,
             rolled,
@@ -475,6 +483,7 @@ def test_unrestorable_unrelated_state_blocks_all_future_fill(browser_page) -> No
               }
             }
           );
+          const rolled = await window.KenshoExtension.FormFiller.rollbackAndVerifyLast();
           const second = await window.KenshoExtension.FormFiller.fillAndVerify(
             preview,
             {email: "pii-test@example.invalid"},
@@ -486,11 +495,11 @@ def test_unrestorable_unrelated_state_blocks_all_future_fill(browser_page) -> No
               }
             }
           );
-          return {first, second};
+          return {first, rolled, second};
         }"""
     )
 
-    assert result["first"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
-    assert result["first"]["rollbackComplete"] is False
+    assert result["first"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+    assert result["rolled"]["rollbackComplete"] is False
     assert result["second"]["status"] == "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED"
     assert result["second"]["filledCount"] == 0

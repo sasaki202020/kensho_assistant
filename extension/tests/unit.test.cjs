@@ -281,9 +281,18 @@ test("registration reconciliation restores missing scripts and removes stale scr
 
 test("disabling an origin unregisters both scripts before removing permission", async () => {
   const actions = [];
+  delete global.chrome;
+  delete require.cache[require.resolve("../service-worker.js")];
+  const { disableOrigin } = require("../service-worker.js");
   global.chrome = {
+    runtime: {getManifest: () => ({version_name: "production"})},
     storage: {
       session: {
+        get: async (key) => ({
+          [key]: key === "kenshoControlCapability"
+            ? {session_id: "session-1", token: "control-token"}
+            : null,
+        }),
         remove: async (key) => actions.push(`storage:${key}`),
       },
     },
@@ -298,15 +307,21 @@ test("disabling an origin unregisters both scripts before removing permission", 
       },
     },
   };
-  delete require.cache[require.resolve("../service-worker.js")];
-  const { disableOrigin } = require("../service-worker.js");
-
+  global.fetch = async (url) => {
+    if (String(url).endsWith("/api/session/status")) {
+      return {ok: true, json: async () => ({session_id: "session-1"})};
+    }
+    actions.push("server:revoke");
+    return {ok: true, json: async () => ({ok: true, revoked_count: 1})};
+  };
   const result = await disableOrigin("https://example.invalid/apply?secret=1");
 
   assert.equal(result.removed, true);
-  assert.match(actions[0], /^scripts:/);
-  assert.equal(actions[1], "permission:https://example.invalid/*");
-  assert.equal(actions[2], "storage:kenshoSessionProfile");
+  assert.equal(actions[0], "server:revoke");
+  assert.match(actions[1], /^scripts:/);
+  assert.equal(actions[2], "permission:https://example.invalid/*");
+  assert.equal(actions[3], "storage:kenshoSessionProfile");
+  delete global.fetch;
   delete global.chrome;
 });
 
@@ -509,6 +524,11 @@ test("bridge capability requests include only confirmed profile keys", async () 
     storage: {
       session: {
         set: async (value) => Object.assign(stored, value),
+        get: async (key) => ({
+          [key]: key === "kenshoControlCapability"
+            ? {session_id: "session-1", token: "fixture-control-token"}
+            : stored[key],
+        }),
       },
     },
   };
@@ -544,9 +564,131 @@ test("bridge capability requests include only confirmed profile keys", async () 
   );
 
   assert.deepEqual(capabilityBody.profile_keys, ["email", "postal_code"]);
+  assert.equal(capabilityBody.control_token, "fixture-control-token");
   assert.equal(JSON.stringify(capabilityBody).includes("phone"), false);
   delete global.fetch;
   delete global.chrome;
+});
+
+test("bridge allowlist excludes free text and other manual-only fields", () => {
+  delete global.chrome;
+  delete require.cache[require.resolve("../service-worker.js")];
+  const {ALLOWED_PROFILE_KEYS} = require("../service-worker.js");
+
+  assert.equal(ALLOWED_PROFILE_KEYS.has("free_text"), false);
+  assert.equal(ALLOWED_PROFILE_KEYS.has("consent"), false);
+  assert.equal(ALLOWED_PROFILE_KEYS.has("manual_review"), false);
+});
+
+test("production overlay has no legacy session-profile fallback", () => {
+  const fs = require("node:fs");
+  const overlaySource = fs.readFileSync(
+    require.resolve("../content/overlay.js"),
+    "utf8"
+  );
+
+  assert.equal(overlaySource.includes("CONSUME_SESSION_PROFILE"), false);
+  assert.match(overlaySource, /bridge[^\n]*\u5b89\u5168\u505c\u6b62|bridge[^\n]*fail/i);
+});
+
+test("legacy session-profile messages are unavailable in the production worker", () => {
+  const fs = require("node:fs");
+  const workerSource = fs.readFileSync(require.resolve("../service-worker.js"), "utf8");
+
+  assert.equal(workerSource.includes('message?.type === "SET_SESSION_PROFILE"'), false);
+  assert.equal(workerSource.includes('message?.type === "CONSUME_SESSION_PROFILE"'), false);
+});
+
+test("mapping preview is PII-free and does not read a legacy profile", () => {
+  const fs = require("node:fs");
+  const workerSource = fs.readFileSync(require.resolve("../service-worker.js"), "utf8");
+  const overlaySource = fs.readFileSync(
+    require.resolve("../content/overlay.js"),
+    "utf8"
+  );
+
+  assert.equal(workerSource.includes('message?.type === "GET_PROFILE_PREVIEW"'), false);
+  assert.equal(overlaySource.includes('type: "GET_PROFILE_PREVIEW"'), false);
+  assert.match(overlaySource, /function mappingPreviewProfile\(\)/);
+});
+
+test("verified fill reports only PII-free progress through the service worker", async () => {
+  const requests = [];
+  const stored = {
+    kenshoControlCapability: {session_id: "session-1", token: "fixture-control-token"},
+    kenshoProgressCapability: {
+      token: "fixture-progress-token",
+      session_id: "session-1",
+      candidate_id: "candidate-1",
+      origin: "https://example.invalid",
+      fingerprint: "fingerprint-1",
+    },
+  };
+  global.chrome = {
+    storage: {
+      session: {
+        get: async (key) => ({[key]: stored[key]}),
+        set: async (value) => Object.assign(stored, value),
+        remove: async (key) => { delete stored[key]; },
+      },
+    },
+  };
+  global.fetch = async (url, options = {}) => {
+    requests.push({url, options});
+    if (String(url).endsWith("/api/session/status")) {
+      return {
+        ok: true,
+        json: async () => ({session_id: "session-1", active_candidate_id: "candidate-1"}),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        workflow_state: "HUMAN_ACTION_REQUIRED",
+        progress_token: "rollback-progress-token",
+      }),
+    };
+  };
+  delete require.cache[require.resolve("../service-worker.js")];
+  const {reportExtensionProgress} = require("../service-worker.js");
+
+  const result = await reportExtensionProgress(
+    "https://example.invalid/apply",
+    "fingerprint-1",
+    "post_fill_verified",
+    {filled_count: 3, unrelated_changed_count: 0}
+  );
+
+  assert.equal(result.workflow_state, "HUMAN_ACTION_REQUIRED");
+  const body = JSON.parse(requests[1].options.body);
+  assert.deepEqual(body.details, {filled_count: 3, unrelated_changed_count: 0});
+  assert.equal(body.control_token, "fixture-control-token");
+  assert.equal(body.progress_token, "fixture-progress-token");
+  assert.equal(stored.kenshoProgressCapability.token, "rollback-progress-token");
+  assert.equal(JSON.stringify(body).includes("example@example"), false);
+  delete global.fetch;
+  delete global.chrome;
+});
+
+test("overlay requires a confirmed template before requesting bridge PII", () => {
+  const fs = require("node:fs");
+  const source = fs.readFileSync(require.resolve("../content/overlay.js"), "utf8");
+  const guardIndex = source.indexOf('templateState !== "matched"');
+  const requestIndex = source.indexOf('type: "REQUEST_BRIDGE_CAPABILITY"');
+
+  assert.notEqual(guardIndex, -1);
+  assert.notEqual(requestIndex, -1);
+  assert.ok(guardIndex < requestIndex);
+});
+
+test("manual rollback uses verified rollback and reports terminal state", () => {
+  const fs = require("node:fs");
+  const source = fs.readFileSync(require.resolve("../content/overlay.js"), "utf8");
+
+  assert.match(source, /rollbackAndVerifyLast\(\)/);
+  assert.match(source, /"rollback_complete"/);
+  assert.match(source, /"rollback_incomplete"/);
 });
 
 test("Japanese normalization formats kana, postal code, phone, and split birthday", () => {

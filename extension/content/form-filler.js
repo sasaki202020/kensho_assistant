@@ -250,6 +250,7 @@
     if (previewResult.blocked) {
       return {filledCount: 0, blocked: true, submitted_count_auto: 0};
     }
+    lastFillSnapshot = controlSnapshot();
     let filledCount = 0;
     for (const item of previewResult.items || []) {
       if (
@@ -343,6 +344,8 @@
     return detector?.scan ? detector.scan(document).formFingerprint : "";
   }
 
+  let lastFillSnapshot = [];
+
   function rollback(emitEvents = true) {
     let restoredCount = 0;
     for (const [element, original] of originals.entries()) {
@@ -387,6 +390,21 @@
     return result;
   }
 
+  async function rollbackAndVerifyLast() {
+    const snapshot = lastFillSnapshot;
+    if (!snapshot.length) {
+      return {restoredCount: 0, rollbackComplete: false, submitted_count_auto: 0};
+    }
+    const result = await rollbackAndVerify(snapshot);
+    if (!result.rollbackComplete) verificationBlocked = true;
+    if (result.rollbackComplete) lastFillSnapshot = [];
+    return result;
+  }
+
+  function hasRollbackSnapshot() {
+    return lastFillSnapshot.length > 0;
+  }
+
   async function fillAndVerify(previewResult, profile, analysis, options = {}) {
     if (verificationBlocked) {
       return {
@@ -419,6 +437,7 @@
       return {status: "HUMAN_MAPPING_REQUIRED", filledCount: 0, submitted_count_auto: 0};
     }
     const snapshot = controlSnapshot();
+    lastFillSnapshot = snapshot;
     let filledCount = 0;
     for (const item of previewResult?.items || []) {
       const decision = mappingDecisions[item.fieldId];
@@ -429,14 +448,10 @@
       const value = valueForItem(item, profile);
       if (value === undefined || value === "") continue;
       if (!setElementValue(element, value, true)) {
-        const rolled = await rollbackAndVerify(snapshot);
-        if (!rolled.rollbackComplete) verificationBlocked = true;
         return {
-          status: rolled.rollbackComplete
-            ? "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
-            : "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED",
+          status: "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED",
           filledCount,
-          rollbackComplete: rolled.rollbackComplete,
+          rollbackComplete: false,
           submitted_count_auto: 0,
         };
       }
@@ -490,14 +505,10 @@
       unrelatedChangedCount,
     };
     if (fingerprintChanged || targetMismatchFieldIds.length || unrelatedChangedCount) {
-      const rolled = await rollbackAndVerify(snapshot);
-      if (!rolled.rollbackComplete) verificationBlocked = true;
       return {
-        status: rolled.rollbackComplete
-          ? "POST_FILL_VERIFICATION_FAILED_ROLLED_BACK"
-            : "ROLLBACK_INCOMPLETE_HUMAN_REVIEW_REQUIRED",
+        status: "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED",
         filledCount,
-        rollbackComplete: rolled.rollbackComplete,
+        rollbackComplete: false,
         verification,
         submitted_count_auto: 0,
       };
@@ -521,6 +532,8 @@
     fill,
     fillAndVerify,
     rollback,
+    rollbackAndVerifyLast,
+    hasRollbackSnapshot,
     valueForItem,
     profileValueForField,
   });

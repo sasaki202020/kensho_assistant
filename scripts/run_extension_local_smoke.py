@@ -52,6 +52,7 @@ def _build_smoke_extension(destination: Path, origin: str) -> Path:
     # The temporary build models one explicit prior origin grant. Injection still
     # comes only from the production dynamic registration path.
     manifest["host_permissions"] = [f"{origin}/*"]
+    manifest["version_name"] = "fixture-bridge"
     manifest.pop("content_scripts", None)
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -226,6 +227,7 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                 if host.locator("#approve-safe").is_enabled():
                     host.locator("#approve-safe").click()
                 _approve_all_visible_mappings(host)
+                host.locator("#save-template").click()
                 host.locator("#fill").click()
                 page.wait_for_timeout(1500)
                 fill_status = host.locator("#status").text_content() or ""

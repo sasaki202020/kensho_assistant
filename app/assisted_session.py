@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hmac
 import os
+import secrets
 import threading
 import time
 import uuid
@@ -15,9 +17,11 @@ from playwright.sync_api import sync_playwright
 from .apply_queue import _deadline_bucket, approved_queue_rows, mark_hold, mark_manual_submitted, mark_skipped
 from .auto_apply_engine import AutoApplyEngine
 from .browser_manager import (
+    clear_extension_control_token as clear_browser_extension_control_token,
     close_browser_safely,
     dedicated_extension_page_state,
     open_url_in_chrome,
+    provision_extension_control_token,
     validate_dedicated_target_url,
 )
 from .entry_url_resolver import target_url_for_campaign
@@ -25,7 +29,7 @@ from .extension_bridge import ALLOWED_PAYLOAD_KEYS, CapabilityBridge
 from .paths import ASSISTED_SESSION_DIR, ASSISTED_SESSION_STATE_JSON
 from .paths import REAL_SITE_TRIAL_STEPS_JSONL, REAL_SITE_TRIALS_JSONL
 from .privacy_guard import redact_personal_info
-from .profile_manager import load_profile
+from .profile_manager import load_profile  # compatibility seam; runner never calls it
 from .real_site_trials import (
     ErrorCategory,
     TrialStepLogger,
@@ -80,6 +84,39 @@ SESSION_HOLD_REASONS = [
 _STATE_LOCK = threading.RLock()
 _SESSION_STATE_MACHINE = SessionStateMachine()
 _EXTENSION_BRIDGE = CapabilityBridge(ttl_seconds=60)
+_EXTENSION_CONTROL_TOKENS: dict[str, tuple[str, float]] = {}
+_EXTENSION_PROGRESS_RESPONSES: dict[tuple[str, str], str] = {}
+
+
+def register_extension_control_token(session_id: str) -> str:
+    session = str(session_id or "").strip()
+    if not session:
+        raise ValueError("session_required")
+    token = secrets.token_urlsafe(32)
+    with _STATE_LOCK:
+        _EXTENSION_CONTROL_TOKENS[session] = (token, time.monotonic() + 60)
+    return token
+
+
+def validate_extension_control_token(session_id: str, token: str) -> None:
+    session = str(session_id or "").strip()
+    supplied = str(token or "")
+    with _STATE_LOCK:
+        record = _EXTENSION_CONTROL_TOKENS.get(session)
+    if (
+        not record
+        or time.monotonic() >= record[1]
+        or not hmac.compare_digest(record[0], supplied)
+    ):
+        raise ValueError("invalid_extension_control_token")
+
+
+def clear_extension_control_token(session_id: str) -> None:
+    session = str(session_id or "").strip()
+    with _STATE_LOCK:
+        _EXTENSION_CONTROL_TOKENS.pop(session, None)
+        for key in [key for key in _EXTENSION_PROGRESS_RESPONSES if key[0] == session]:
+            _EXTENSION_PROGRESS_RESPONSES.pop(key, None)
 
 
 COMPLETION_TERMS = (
@@ -218,9 +255,199 @@ def issue_extension_capability(
     return {"host": host, "port": port, **issued, "submitted_count_auto": 0}
 
 
+_EXTENSION_PROGRESS_DETAIL_KEYS = frozenset(
+    {
+        "filled_count",
+        "unrelated_changed_count",
+        "target_mismatch_count",
+        "rollback_complete",
+    }
+)
+
+
+def record_extension_progress(
+    *,
+    session_id: str,
+    candidate_id: str,
+    origin: str,
+    fingerprint: str,
+    event: str,
+    operation_id: str,
+    progress_token: str = "",
+    details: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Record a PII-free, bound progress event from the extension adapter."""
+    state = load_assisted_session_state()
+    session = str(session_id or "").strip()
+    candidate = str(candidate_id or "").strip()
+    safe_origin = str(origin or "").strip()
+    form_fingerprint = str(fingerprint or "").strip()
+    operation = str(operation_id or "").strip()
+    progress_event = str(event or "").strip().lower()
+    progress_details = dict(details or {})
+    if (
+        not session
+        or not candidate
+        or not form_fingerprint
+        or not operation
+        or progress_event not in {
+            "post_fill_verified",
+            "rollback_required",
+            "rollback_complete",
+            "rollback_incomplete",
+            "unsupported_form",
+            "failed_safe",
+        }
+        or any(key not in _EXTENSION_PROGRESS_DETAIL_KEYS for key in progress_details)
+    ):
+        raise ValueError("invalid_extension_progress")
+    if progress_event == "post_fill_verified":
+        filled_count = progress_details.get("filled_count", 0)
+        unrelated_count = progress_details.get("unrelated_changed_count", 0)
+        mismatch_count = progress_details.get("target_mismatch_count", 0)
+        if (
+            isinstance(filled_count, bool)
+            or isinstance(unrelated_count, bool)
+            or isinstance(mismatch_count, bool)
+            or not isinstance(filled_count, int)
+            or not isinstance(unrelated_count, int)
+            or not isinstance(mismatch_count, int)
+            or not 1 <= filled_count <= 500
+            or unrelated_count != 0
+            or mismatch_count != 0
+            or "rollback_complete" in progress_details
+        ):
+            raise ValueError("invalid_extension_progress")
+    if progress_event in {"rollback_complete", "rollback_incomplete"}:
+        expected_complete = progress_event == "rollback_complete"
+        if progress_details.get("rollback_complete") is not expected_complete:
+            raise ValueError("invalid_extension_progress")
+    if str(state.get("session_id", "") or "") != session:
+        raise ValueError("invalid_extension_progress_binding")
+    if str(state.get("active_candidate_id", "") or "") != candidate:
+        raise ValueError("invalid_extension_progress_binding")
+    current_url = urlsplit(str(state.get("current_url", "") or ""))
+    supplied_origin = urlsplit(safe_origin)
+    if (
+        supplied_origin.scheme not in {"http", "https"}
+        or not supplied_origin.netloc
+        or supplied_origin.path not in {"", "/"}
+        or supplied_origin.query
+        or supplied_origin.fragment
+        or (current_url.scheme, current_url.netloc)
+        != (supplied_origin.scheme, supplied_origin.netloc)
+    ):
+        raise ValueError("invalid_extension_progress_binding")
+    existing_fingerprint = str(state.get("form_fingerprint", "") or "")
+    if existing_fingerprint and existing_fingerprint != form_fingerprint:
+        raise ValueError("invalid_extension_progress_binding")
+    handled = state.get("extension_operation_ids", [])
+    if not isinstance(handled, list):
+        handled = []
+    operation_records = state.get("extension_operations", [])
+    if not isinstance(operation_records, list):
+        operation_records = []
+    prior = next(
+        (
+            item
+            for item in operation_records
+            if isinstance(item, dict) and item.get("operation_id") == operation
+        ),
+        None,
+    )
+    if operation in handled:
+        if prior and prior.get("event") == progress_event:
+            replay = dict(state)
+            with _STATE_LOCK:
+                replay_token = _EXTENSION_PROGRESS_RESPONSES.get((session, operation), "")
+            if replay_token:
+                replay["_extension_progress_token"] = replay_token
+            return replay
+        raise ValueError("duplicate_extension_progress")
+
+    terminal_progress = progress_event != "rollback_required"
+    _EXTENSION_BRIDGE.validate_progress(
+        token=progress_token,
+        session_id=session,
+        candidate_id=candidate,
+        origin=safe_origin,
+        fingerprint=form_fingerprint,
+        consume=terminal_progress,
+    )
+
+    updated = dict(state)
+    if progress_event == "post_fill_verified":
+        for transition_event in ("filled", "post_fill_verified", "human_action_required"):
+            updated = _workflow_event(
+                updated,
+                transition_event,
+                session_id=session,
+                candidate_id=candidate,
+            )
+    elif progress_event == "rollback_required" and str(
+        updated.get("workflow_state", "") or ""
+    ).upper() == "MAPPING_CONFIRMED":
+        updated = _workflow_event(
+            updated,
+            "filled",
+            session_id=session,
+            candidate_id=candidate,
+        )
+        updated = _workflow_event(
+            updated,
+            "rollback_required",
+            session_id=session,
+            candidate_id=candidate,
+        )
+    else:
+        updated = _workflow_event(
+            updated,
+            progress_event,
+            session_id=session,
+            candidate_id=candidate,
+        )
+    updated["form_fingerprint"] = form_fingerprint
+    updated["extension_operation_ids"] = [*handled[-31:], operation]
+    updated["extension_operations"] = [
+        *operation_records[-31:],
+        {"operation_id": operation, "event": progress_event},
+    ]
+    updated["filled_field_count"] = int(progress_details.get("filled_count", 0) or 0)
+    updated["unrelated_changed_count"] = int(
+        progress_details.get("unrelated_changed_count", 0) or 0
+    )
+    updated["submitted_count_auto"] = 0
+    updated["current_step"] = progress_event
+    updated["last_action"] = progress_event.upper()
+    updated["last_reason"] = ""
+    if progress_event == "post_fill_verified":
+        updated.update(
+            status="AWAITING_USER_SUBMIT",
+            status_label=SESSION_STATUS_LABELS["AWAITING_USER_SUBMIT"],
+            final_status="HUMAN_ACTION_REQUIRED",
+            message="拡張機能の入力後検証が完了しました。本人確認と手動送信を待っています。",
+        )
+    save_assisted_session_state(updated)
+    if progress_event == "post_fill_verified":
+        next_progress_token = _EXTENSION_BRIDGE.issue_progress(
+            session_id=session,
+            candidate_id=candidate,
+            origin=safe_origin,
+            fingerprint=form_fingerprint,
+        )
+        with _STATE_LOCK:
+            _EXTENSION_PROGRESS_RESPONSES[(session, operation)] = next_progress_token
+        updated["_extension_progress_token"] = next_progress_token
+    return updated
+
+
 def consume_extension_capability(**kwargs: str) -> dict[str, object]:
     """Consume a capability without exposing the bridge internals."""
     return _EXTENSION_BRIDGE.consume(**kwargs)
+
+
+def revoke_extension_capabilities(session_id: str) -> int:
+    return _EXTENSION_BRIDGE.revoke_session(session_id)
 
 
 def stop_extension_bridge() -> None:
@@ -823,6 +1050,52 @@ def _wait_for_user_decision(
         time.sleep(max(float(poll_interval_sec), 0.0))
 
 
+def _wait_for_extension_verified_result(
+    *,
+    campaign: Mapping[str, object],
+    poll_interval_sec: float,
+    timeout_sec: float = 1800.0,
+) -> tuple[dict[str, object], str, dict[str, object]]:
+    """Wait for the extension's PII-free verified-fill event."""
+    deadline = time.monotonic() + max(float(timeout_sec), 1.0)
+    while time.monotonic() < deadline:
+        state = load_assisted_session_state()
+        requested_action = str(state.get("requested_action", "") or "").strip().lower()
+        if requested_action in {"stop", "hold"}:
+            clear_assisted_session_action()
+            return {}, requested_action, {
+                "reason": f"user requested {requested_action}",
+                "hold_reason": str(state.get("requested_hold_reason", "") or ""),
+                "operation_id": str(state.get("requested_operation_id", "") or ""),
+            }
+        workflow_state = str(state.get("workflow_state", "") or "").upper()
+        if workflow_state == "HUMAN_ACTION_REQUIRED":
+            filled_count = int(state.get("filled_field_count", 0) or 0)
+            return (
+                {
+                    "record": {
+                        "campaign_id": str(campaign.get("campaign_id", "") or ""),
+                        "status": "AWAITING_USER_SUBMIT",
+                        "submitted_count_auto": 0,
+                        "mapping_review_required": False,
+                        "filled_field_count": filled_count,
+                        "unresolved_required_fields_count": 0,
+                        "review_items": [],
+                        "needs_review_reasons": [],
+                    },
+                    "filled_fields": ["verified"] * filled_count,
+                    "missing_fields": [],
+                    "pre_submit_check": {"status": "AWAITING_USER_SUBMIT"},
+                },
+                "",
+                {},
+            )
+        if workflow_state in {"ROLLBACK_REQUIRED", "UNSUPPORTED_FORM", "FAILED_SAFE"}:
+            raise InvalidSessionTransition(f"extension_progress_failed:{workflow_state}")
+        time.sleep(max(float(poll_interval_sec), 0.1))
+    raise TimeoutError("extension_progress_timeout")
+
+
 def run_assisted_application_session(
     *,
     status_filter: str = "APPROVED,PREPARED",
@@ -1112,7 +1385,11 @@ def run_assisted_application_session(
 
                 try:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
-                    dedicated_extension_page_state(page, require_ready=True)
+                    extension_state = dedicated_extension_page_state(page, require_ready=True)
+                    session_state["extension_id"] = str(
+                        extension_state.get("extension_id", "") or ""
+                    )
+                    save_assisted_session_state(session_state)
                 except Exception as exc:
                     candidate_finished_at = _now_iso()
                     if trial_store:
@@ -1304,33 +1581,52 @@ def run_assisted_application_session(
                                 session_id=session_id,
                                 candidate_id=campaign_id,
                             )
-                            result = _run_session_engine(
-                                AutoApplyEngine("dry_run"),
-                                page,
-                                campaign,
-                                load_profile(),
-                                mapping_confirmed=True,
+                            session_state.update(
+                                status="FILLING",
+                                status_label=SESSION_STATUS_LABELS["FILLING"],
+                                current_step="extension_fill",
+                                final_status="MAPPING_CONFIRMED",
+                                message="拡張機能で「入力を実行」を押してください。入力後検証が完了するまで待機します。",
+                                submitted_count_auto=0,
                             )
+                            save_assisted_session_state(session_state)
+                            control_token = register_extension_control_token(session_id)
+                            provision_extension_control_token(
+                                browser_context,
+                                session_id,
+                                control_token,
+                                str(session_state.get("extension_id", "") or ""),
+                            )
+                            result, extension_decision, extension_snapshot = (
+                                _wait_for_extension_verified_result(
+                                    campaign=campaign,
+                                    poll_interval_sec=poll_interval_sec,
+                                )
+                            )
+                            if extension_decision:
+                                decision = extension_decision
+                                snapshot = extension_snapshot
+                                record = {}
+                                record_status = ""
+                                continue_after_extension = False
+                            else:
+                                continue_after_extension = True
+                                session_state = load_assisted_session_state()
                             record = result.get("record", {}) if isinstance(result, dict) else {}
-                            if bool(record.get("mapping_review_required", False)):
-                                raise InvalidSessionTransition("mapping_confirmation_not_applied")
-                            session_state = _record_engine_workflow_state(
-                                session_state,
-                                result,
-                                session_id=session_id,
-                                candidate_id=campaign_id,
-                            )
-                            session_state = _record_state_from_result(
-                                state=session_state,
-                                result=result,
-                                page=page,
-                                campaign=campaign,
-                                index=index,
-                                total=len(candidate_ids),
-                            )
-                            record_status = str(record.get("status", "") or "").strip().upper()
-                            decision = ""
-                            snapshot = {}
+                            if continue_after_extension:
+                                session_state = _record_state_from_result(
+                                    state=session_state,
+                                    result=result,
+                                    page=page,
+                                    campaign=campaign,
+                                    index=index,
+                                    total=len(candidate_ids),
+                                )
+                                session_state["workflow_state"] = "HUMAN_ACTION_REQUIRED"
+                                save_assisted_session_state(session_state)
+                                record_status = str(record.get("status", "") or "").strip().upper()
+                                decision = ""
+                                snapshot = {}
                         except Exception:
                             session_state.update(
                                 status="STOPPED",
@@ -1596,6 +1892,13 @@ def run_assisted_application_session(
                 )
                 save_assisted_session_state(session_state)
         finally:
+            clear_extension_control_token(session_id)
+            stop_extension_bridge()
+            if browser_context:
+                try:
+                    clear_browser_extension_control_token(browser_context)
+                except Exception:
+                    pass
             if browser_context:
                 close_browser_safely(browser_context)
 

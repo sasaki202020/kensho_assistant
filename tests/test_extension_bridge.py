@@ -7,7 +7,11 @@ from http.client import HTTPConnection
 
 import pytest
 
-from kensho_assistant.app.extension_bridge import CapabilityBridge
+from kensho_assistant.app.extension_bridge import ALLOWED_PAYLOAD_KEYS, CapabilityBridge
+
+
+def test_bridge_payload_allowlist_excludes_manual_free_text() -> None:
+    assert "free_text" not in ALLOWED_PAYLOAD_KEYS
 
 
 def _bridge() -> CapabilityBridge:
@@ -47,6 +51,46 @@ def test_capability_is_bound_and_consumed_once() -> None:
             origin="https://example.test",
             fingerprint="fp-1",
         )
+
+
+def test_progress_token_is_released_only_after_profile_consumption() -> None:
+    bridge = _bridge()
+    binding = {
+        "session_id": "session-1",
+        "candidate_id": "candidate-1",
+        "origin": "https://example.test",
+        "fingerprint": "fp-1",
+    }
+    issued = bridge.issue(**binding, payload={"email": "fixture@example.invalid"})
+
+    assert "progress_token" not in issued
+    consumed = bridge.consume(**binding, token=issued["token"])
+    progress_token = consumed["progress_token"]
+    bridge.validate_progress(**binding, token=progress_token, consume=True)
+    with pytest.raises(ValueError, match="invalid_progress_capability"):
+        bridge.validate_progress(**binding, token=progress_token, consume=True)
+
+
+def test_expired_unconsumed_profile_payload_is_purged(monkeypatch) -> None:
+    now = [100.0]
+    monkeypatch.setattr("kensho_assistant.app.extension_bridge.time.monotonic", lambda: now[0])
+    bridge = CapabilityBridge(ttl_seconds=1)
+    first = bridge.issue(
+        session_id="session-1",
+        candidate_id="candidate-1",
+        origin="https://example.test",
+        fingerprint="fp-1",
+        payload={"email": "fixture@example.invalid"},
+    )
+    now[0] = 102.0
+    bridge.issue(
+        session_id="session-2",
+        candidate_id="candidate-2",
+        origin="https://example.test",
+        fingerprint="fp-2",
+        payload={"email": "other@example.invalid"},
+    )
+    assert first["token"] not in bridge._issued
 
 
 @pytest.mark.parametrize(

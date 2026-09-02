@@ -156,6 +156,30 @@
     });
   }
 
+  async function rollbackAndReport(filledCount) {
+    if (!analysis) return {ok: false, result: {rollbackComplete: false, restoredCount: 0}};
+    const required = await sendMessage({
+      type: "REPORT_EXTENSION_PROGRESS",
+      fingerprint: analysis.formFingerprint,
+      event: "rollback_required",
+      details: {filled_count: Number(filledCount || 0)},
+    });
+    if (!required?.ok) {
+      return {ok: false, result: {rollbackComplete: false, restoredCount: 0}};
+    }
+    const result = await root.KenshoExtension.FormFiller.rollbackAndVerifyLast();
+    const completed = await sendMessage({
+      type: "REPORT_EXTENSION_PROGRESS",
+      fingerprint: analysis.formFingerprint,
+      event: result.rollbackComplete ? "rollback_complete" : "rollback_incomplete",
+      details: {
+        filled_count: Number(filledCount || result.restoredCount || 0),
+        rollback_complete: Boolean(result.rollbackComplete),
+      },
+    });
+    return {ok: Boolean(completed?.ok), result};
+  }
+
   document.addEventListener(INSTANCE_EVENT, (event) => {
     let other = null;
     try {
@@ -255,6 +279,24 @@
       appendKey(key);
     }
     return keys;
+  }
+
+  function mappingPreviewProfile() {
+    return {
+      last_name: "***",
+      first_name: "***",
+      last_name_kana: "***",
+      first_name_kana: "***",
+      email: "***@***",
+      phone: "***-***-****",
+      postal_code: "***-****",
+      prefecture: "設定済み",
+      city: "設定済み",
+      street: "設定済み",
+      building: "設定済み",
+      birth_date: "****-**-**",
+      gender: "設定済み",
+    };
   }
 
   function renderPreview(result) {
@@ -396,18 +438,7 @@
       setStatus("先にフォーム解析が必要", true);
       return;
     }
-    const response = await sendMessage({ type: "GET_PROFILE_PREVIEW" });
-    if (workerEpoch && response.workerEpoch !== workerEpoch) {
-      await sendMessage({ type: "CLEAR_SESSION_PROFILE" });
-      stopped = true;
-      setStatus("プロフィールの再読込が必要", true);
-      return;
-    }
-    if (!response.ok || !response.profile) {
-      setStatus("一時プロフィール未設定", true);
-      return;
-    }
-    maskedProfile = response.profile;
+    maskedProfile = mappingPreviewProfile();
     previewResult = root.KenshoExtension.FormFiller.previewMasked(
       analysis,
       maskedProfile,
@@ -507,6 +538,10 @@
       setStatus("送信ガード未確認・安全停止", true);
       return;
     }
+    if (templateState !== "matched") {
+      setStatus("確認済みの欄対応が必要・実PIIは取得していません", true);
+      return;
+    }
     let bridgeStatus = await sendMessage({type: "GET_BRIDGE_CAPABILITY_STATUS"});
     if (!bridgeStatus?.available) {
       const requested = await sendMessage({
@@ -518,13 +553,16 @@
         bridgeStatus = await sendMessage({type: "GET_BRIDGE_CAPABILITY_STATUS"});
       }
     }
-    const response = bridgeStatus?.available
-      ? await sendMessage({
-          type: "CONSUME_BRIDGE_PROFILE",
-          origin: window.location.origin,
-          fingerprint: analysis.formFingerprint,
-        })
-      : await sendMessage({type: "CONSUME_SESSION_PROFILE"});
+    if (!bridgeStatus?.available) {
+      stopped = true;
+      setStatus("プロフィールbridge未接続・安全停止", true);
+      return;
+    }
+    const response = await sendMessage({
+      type: "CONSUME_BRIDGE_PROFILE",
+      origin: window.location.origin,
+      fingerprint: analysis.formFingerprint,
+    });
     if (workerEpoch && response.workerEpoch !== workerEpoch) {
       stopped = true;
       setStatus("Service Worker再起動・安全停止", true);
@@ -546,20 +584,65 @@
       JSON.stringify(filled.verification || {})
     );
     if (filled.status === "POST_FILL_VERIFICATION_PASSED") {
+      const progress = await sendMessage({
+        type: "REPORT_EXTENSION_PROGRESS",
+        fingerprint: analysis.formFingerprint,
+        event: "post_fill_verified",
+        details: {
+          filled_count: Number(filled.filledCount || 0),
+          unrelated_changed_count: Number(
+            filled.verification?.unrelatedChangedCount || 0
+          ),
+          target_mismatch_count: Array.isArray(
+            filled.verification?.targetMismatchFieldIds
+          )
+            ? filled.verification.targetMismatchFieldIds.length
+            : 0,
+        },
+      });
+      if (!progress?.ok) {
+        const rollbackReport = await rollbackAndReport(filled.filledCount);
+        stopped = true;
+        setStatus(
+          rollbackReport.result.rollbackComplete
+            ? "進行状態を正本へ記録できずロールバック・安全停止"
+            : "進行状態を正本へ記録できずロールバック不完全・人間確認必須",
+          true
+        );
+        return;
+      }
       setStatus(`入力済み（${filled.filledCount}項目）・人間確認待ち`);
     } else if (filled.status === "HUMAN_MAPPING_REQUIRED") {
       setStatus("入力前確認が必要・欄対応を承認してください", true);
-    } else if (filled.status.includes("ROLLED_BACK")) {
-      setStatus("入力検証不一致・全項目をロールバックしました", true);
+    } else if (filled.status.includes("ROLLBACK_REQUIRED")) {
+      const report = await rollbackAndReport(filled.filledCount);
+      stopped = true;
+      setStatus(
+        report.ok && report.result.rollbackComplete
+          ? "入力検証不一致・全項目をロールバックしました"
+          : "ロールバック不完全または正本へ記録できず人間確認必須",
+        true
+      );
     } else {
+      await sendMessage({
+        type: "REPORT_EXTENSION_PROGRESS",
+        fingerprint: analysis.formFingerprint,
+        event: "failed_safe",
+        details: {filled_count: Number(filled.filledCount || 0)},
+      });
       stopped = true;
       setStatus("安全停止・人間確認が必要", true);
     }
   });
 
-  shadow.getElementById("rollback").addEventListener("click", () => {
-    const result = root.KenshoExtension.FormFiller.rollback();
-    setStatus(`入力を元に戻しました（${result.restoredCount}項目）`);
+  shadow.getElementById("rollback").addEventListener("click", async () => {
+    const report = await rollbackAndReport(0);
+    if (!report.ok || !report.result.rollbackComplete) {
+      stopped = true;
+      setStatus("ロールバック不完全または正本へ記録できず人間確認必須", true);
+      return;
+    }
+    setStatus(`入力を元に戻しました（${report.result.restoredCount}項目）`);
   });
 
   shadow.getElementById("open-profile").addEventListener("click", async () => {
@@ -573,8 +656,20 @@
   });
 
   shadow.getElementById("clear").addEventListener("click", async () => {
-    root.KenshoExtension.FormFiller.rollback();
-    await sendMessage({ type: "CLEAR_SESSION_PROFILE" });
+    if (root.KenshoExtension.FormFiller.hasRollbackSnapshot()) {
+      const report = await rollbackAndReport(0);
+      if (!report.ok || !report.result.rollbackComplete) {
+        stopped = true;
+        setStatus("セッション消去前のロールバックを確認できず人間確認必須", true);
+        return;
+      }
+    }
+    const cleared = await sendMessage({ type: "CLEAR_SESSION_PROFILE" });
+    if (!cleared?.ok) {
+      stopped = true;
+      setStatus("セッション保存領域を消去できず安全停止", true);
+      return;
+    }
     analysis = null;
     previewResult = null;
     maskedProfile = null;
@@ -597,7 +692,14 @@
   });
 
   shadow.getElementById("disable-origin").addEventListener("click", async () => {
-    root.KenshoExtension.FormFiller.rollback();
+    if (root.KenshoExtension.FormFiller.hasRollbackSnapshot()) {
+      const report = await rollbackAndReport(0);
+      if (!report.ok || !report.result.rollbackComplete) {
+        stopped = true;
+        setStatus("権限解除前のロールバックを確認できず人間確認必須", true);
+        return;
+      }
+    }
     const response = await sendMessage({ type: "DISABLE_ORIGIN_ACCESS" });
     if (!response.ok || !response.removed) {
       setStatus("サイト権限を解除できません", true);

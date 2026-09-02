@@ -27,7 +27,6 @@ ALLOWED_PAYLOAD_KEYS = frozenset(
         "building",
         "birth_date",
         "gender",
-        "free_text",
     }
 )
 
@@ -66,9 +65,23 @@ class CapabilityBridge:
             raise ValueError("invalid_ttl")
         self.ttl_seconds = int(ttl_seconds)
         self._issued: dict[str, dict[str, Any]] = {}
+        self._progress: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+
+    def _purge_expired_locked(self) -> None:
+        now = time.monotonic()
+        self._issued = {
+            token: record
+            for token, record in self._issued.items()
+            if now < float(record["expires_at"])
+        }
+        self._progress = {
+            token: record
+            for token, record in self._progress.items()
+            if now < float(record["expires_at"])
+        }
 
     def issue(
         self,
@@ -87,13 +100,16 @@ class CapabilityBridge:
             raise ValueError("invalid_capability_binding")
         safe_payload = _validate_payload(payload)
         token = secrets.token_urlsafe(32)
+        progress_token = secrets.token_urlsafe(32)
         with self._lock:
+            self._purge_expired_locked()
             self._issued[token] = {
                 "session_id": session,
                 "candidate_id": candidate,
                 "origin": safe_origin,
                 "fingerprint": fp,
                 "payload": safe_payload,
+                "progress_token": progress_token,
                 "expires_at": time.monotonic() + self.ttl_seconds,
             }
         return {
@@ -117,6 +133,7 @@ class CapabilityBridge:
         supplied = str(token or "")
         safe_origin = _validate_origin(origin)
         with self._lock:
+            self._purge_expired_locked()
             record = self._issued.pop(supplied, None)
         if not record:
             raise ValueError("invalid_capability")
@@ -130,7 +147,83 @@ class CapabilityBridge:
             raise ValueError("invalid_capability")
         if not hmac.compare_digest(str(record["fingerprint"]), str(fingerprint or "")):
             raise ValueError("invalid_capability")
-        return {"payload": record["payload"]}
+        progress_token = str(record["progress_token"])
+        with self._lock:
+            self._progress[progress_token] = {
+                "session_id": record["session_id"],
+                "candidate_id": record["candidate_id"],
+                "origin": record["origin"],
+                "fingerprint": record["fingerprint"],
+                "expires_at": record["expires_at"],
+            }
+        return {"payload": record["payload"], "progress_token": progress_token}
+
+    def validate_progress(
+        self,
+        *,
+        token: str,
+        session_id: str,
+        candidate_id: str,
+        origin: str,
+        fingerprint: str,
+        consume: bool,
+    ) -> None:
+        supplied = str(token or "")
+        safe_origin = _validate_origin(origin)
+        with self._lock:
+            self._purge_expired_locked()
+            record = self._progress.get(supplied)
+        if not record or time.monotonic() >= float(record["expires_at"]):
+            raise ValueError("invalid_progress_capability")
+        checks = (
+            (str(record["session_id"]), str(session_id or "")),
+            (str(record["candidate_id"]), str(candidate_id or "")),
+            (str(record["origin"]), safe_origin),
+            (str(record["fingerprint"]), str(fingerprint or "")),
+        )
+        if any(not hmac.compare_digest(expected, actual) for expected, actual in checks):
+            raise ValueError("invalid_progress_capability")
+        if consume:
+            with self._lock:
+                if self._progress.pop(supplied, None) is None:
+                    raise ValueError("invalid_progress_capability")
+
+    def issue_progress(
+        self,
+        *,
+        session_id: str,
+        candidate_id: str,
+        origin: str,
+        fingerprint: str,
+    ) -> str:
+        safe_origin = _validate_origin(origin)
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._purge_expired_locked()
+            self._progress[token] = {
+                "session_id": str(session_id or ""),
+                "candidate_id": str(candidate_id or ""),
+                "origin": safe_origin,
+                "fingerprint": str(fingerprint or ""),
+                "expires_at": time.monotonic() + self.ttl_seconds,
+            }
+        return token
+
+    def revoke_session(self, session_id: str) -> int:
+        session = str(session_id or "").strip()
+        if not session:
+            return 0
+        removed = 0
+        with self._lock:
+            for registry in (self._issued, self._progress):
+                for token in [
+                    token
+                    for token, record in registry.items()
+                    if hmac.compare_digest(str(record["session_id"]), session)
+                ]:
+                    registry.pop(token, None)
+                    removed += 1
+        return removed
 
     def start(self) -> tuple[str, int]:
         with self._lock:
@@ -219,6 +312,7 @@ class CapabilityBridge:
             self._server = None
             self._thread = None
             self._issued.clear()
+            self._progress.clear()
         if server is not None:
             server.shutdown()
             server.server_close()

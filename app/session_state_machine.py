@@ -90,6 +90,7 @@ _EVENT_TARGETS: dict[str, dict[str, str]] = {
     },
     "HUMAN_ACTION_REQUIRED": {
         "user_reported_submitted": "USER_REPORTED_SUBMITTED",
+        "rollback_required": "ROLLBACK_REQUIRED",
         "held": "HELD",
         "skipped": "SKIPPED",
         "failed_safe": "FAILED_SAFE",

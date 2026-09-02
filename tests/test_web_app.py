@@ -999,6 +999,7 @@ def test_extension_capability_requires_mapping_before_profile_load(monkeypatch) 
             "workflow_state": "MAPPING_REVIEW_REQUIRED",
             "session_id": "session-1",
             "active_candidate_id": "candidate-1",
+            "extension_id": "a" * 32,
         },
     )
     monkeypatch.setattr(
@@ -1009,6 +1010,7 @@ def test_extension_capability_requires_mapping_before_profile_load(monkeypatch) 
     with TestClient(app, client=("127.0.0.1", 50000)) as client:
         response = client.post(
             "/api/session/extension-capability",
+            headers={"Origin": f"chrome-extension://{'a' * 32}"},
             json={
                 "session_id": "session-1",
                 "candidate_id": "candidate-1",
@@ -1019,6 +1021,39 @@ def test_extension_capability_requires_mapping_before_profile_load(monkeypatch) 
         )
 
     assert response.status_code == 409
+    assert profile_loads == []
+
+
+def test_extension_capability_rejects_missing_control_token_before_profile_load(monkeypatch) -> None:
+    profile_loads = []
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {
+            "workflow_state": "MAPPING_CONFIRMED",
+            "session_id": "session-1",
+            "active_candidate_id": "candidate-1",
+            "extension_id": "a" * 32,
+        },
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_profile",
+        lambda: profile_loads.append(True) or {},
+    )
+    app = create_app()
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        response = client.post(
+            "/api/session/extension-capability",
+            headers={"Origin": f"chrome-extension://{'a' * 32}"},
+            json={
+                "session_id": "session-1",
+                "candidate_id": "candidate-1",
+                "origin": "https://example.invalid",
+                "fingerprint": "fingerprint-1",
+                "profile_keys": ["email"],
+            },
+        )
+
+    assert response.status_code == 403
     assert profile_loads == []
 
 
@@ -1039,26 +1074,102 @@ def test_extension_capability_passes_only_requested_profile_keys(monkeypatch) ->
             "workflow_state": "MAPPING_CONFIRMED",
             "session_id": "session-1",
             "active_candidate_id": "candidate-1",
+            "extension_id": "a" * 32,
         },
     )
     monkeypatch.setattr("kensho_assistant.web.app.load_profile", lambda: fictional_profile)
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.validate_extension_control_token",
+        lambda _session_id, _token: None,
+    )
     monkeypatch.setattr("kensho_assistant.web.app.issue_extension_capability", fake_issue)
     app = create_app()
     with TestClient(app, client=("127.0.0.1", 50000)) as client:
         response = client.post(
             "/api/session/extension-capability",
+            headers={"Origin": f"chrome-extension://{'a' * 32}"},
             json={
                 "session_id": "session-1",
                 "candidate_id": "candidate-1",
                 "origin": "https://example.invalid",
                 "fingerprint": "fingerprint-1",
                 "profile_keys": ["email"],
+                "control_token": "fixture-control-token",
             },
         )
 
     assert response.status_code == 200
     assert issued["profile_keys"] == ["email"]
     assert issued["profile"] is fictional_profile
+
+
+def test_extension_progress_is_loopback_bound_and_pii_free(monkeypatch) -> None:
+    recorded = {}
+
+    def fake_record(**kwargs):
+        recorded.update(kwargs)
+        return {"workflow_state": "HUMAN_ACTION_REQUIRED", "submitted_count_auto": 0}
+
+    monkeypatch.setattr("kensho_assistant.web.app.record_extension_progress", fake_record)
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.validate_extension_control_token",
+        lambda _session_id, _token: None,
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {"extension_id": "a" * 32},
+    )
+    app = create_app()
+    payload = {
+        "session_id": "session-1",
+        "candidate_id": "candidate-1",
+        "origin": "https://example.invalid",
+        "fingerprint": "fingerprint-1",
+        "event": "post_fill_verified",
+        "operation_id": "operation-1",
+        "control_token": "fixture-control-token",
+        "progress_token": "fixture-progress-token",
+        "details": {"filled_count": 3, "unrelated_changed_count": 0},
+    }
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        response = client.post(
+            "/api/session/extension-progress",
+            headers={"Origin": f"chrome-extension://{'a' * 32}"},
+            json=payload,
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "workflow_state": "HUMAN_ACTION_REQUIRED",
+        "progress_token": "",
+        "submitted_count_auto": 0,
+    }
+    expected_record = dict(payload)
+    expected_record.pop("control_token")
+    assert recorded == expected_record
+
+
+def test_extension_progress_rejects_non_loopback_and_pii(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.record_extension_progress",
+        lambda **kwargs: calls.append(kwargs) or {},
+    )
+    app = create_app()
+    payload = {
+        "session_id": "session-1",
+        "candidate_id": "candidate-1",
+        "origin": "https://example.invalid",
+        "fingerprint": "fingerprint-1",
+        "event": "post_fill_verified",
+        "operation_id": "operation-1",
+        "details": {"email": "fictional@example.invalid"},
+    }
+    with TestClient(app, client=("192.0.2.1", 50000)) as client:
+        response = client.post("/api/session/extension-progress", json=payload)
+    assert response.status_code == 403
+    assert calls == []
 
 
 def test_web_app_manual_submitted_ignores_stale_session_id(monkeypatch) -> None:
