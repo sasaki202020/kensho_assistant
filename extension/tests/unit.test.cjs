@@ -290,7 +290,7 @@ test("disabling an origin unregisters both scripts before removing permission", 
       session: {
         get: async (key) => ({
           [key]: key === "kenshoControlCapability"
-            ? {session_id: "session-1", token: "control-token"}
+            ? {session_id: "session-1", token: "control-token", tab_id: 7}
             : null,
         }),
         remove: async (key) => actions.push(`storage:${key}`),
@@ -314,7 +314,10 @@ test("disabling an origin unregisters both scripts before removing permission", 
     actions.push("server:revoke");
     return {ok: true, json: async () => ({ok: true, revoked_count: 1})};
   };
-  const result = await disableOrigin("https://example.invalid/apply?secret=1");
+  const result = await disableOrigin(
+    "https://example.invalid/apply?secret=1",
+    {tab: {id: 7}}
+  );
 
   assert.equal(result.removed, true);
   assert.equal(actions[0], "server:revoke");
@@ -526,7 +529,7 @@ test("bridge capability requests include only confirmed profile keys", async () 
         set: async (value) => Object.assign(stored, value),
         get: async (key) => ({
           [key]: key === "kenshoControlCapability"
-            ? {session_id: "session-1", token: "fixture-control-token"}
+            ? {session_id: "session-1", token: "fixture-control-token", tab_id: 7}
             : stored[key],
         }),
       },
@@ -558,7 +561,7 @@ test("bridge capability requests include only confirmed profile keys", async () 
   };
 
   await requestBridgeCapability(
-    "https://example.invalid/apply",
+    {url: "https://example.invalid/apply", tab: {id: 7}},
     "fingerprint-1",
     ["email", "postal_code"]
   );
@@ -615,7 +618,11 @@ test("mapping preview is PII-free and does not read a legacy profile", () => {
 test("verified fill reports only PII-free progress through the service worker", async () => {
   const requests = [];
   const stored = {
-    kenshoControlCapability: {session_id: "session-1", token: "fixture-control-token"},
+    kenshoControlCapability: {
+      session_id: "session-1",
+      token: "fixture-control-token",
+      tab_id: 7,
+    },
     kenshoProgressCapability: {
       token: "fixture-progress-token",
       session_id: "session-1",
@@ -654,7 +661,7 @@ test("verified fill reports only PII-free progress through the service worker", 
   const {reportExtensionProgress} = require("../service-worker.js");
 
   const result = await reportExtensionProgress(
-    "https://example.invalid/apply",
+    {url: "https://example.invalid/apply", tab: {id: 7}},
     "fingerprint-1",
     "post_fill_verified",
     {filled_count: 3, unrelated_changed_count: 0}
@@ -689,6 +696,104 @@ test("manual rollback uses verified rollback and reports terminal state", () => 
   assert.match(source, /rollbackAndVerifyLast\(\)/);
   assert.match(source, /"rollback_complete"/);
   assert.match(source, /"rollback_incomplete"/);
+});
+
+test("expired coordination cannot prevent local rollback", () => {
+  const fs = require("node:fs");
+  const overlay = fs.readFileSync(require.resolve("../content/overlay.js"), "utf8");
+  const required = overlay.indexOf('event: "rollback_required"');
+  const rollback = overlay.indexOf("rollbackAndVerifyLast()", required);
+  const coordinationFailure = overlay.indexOf("coordinationFailed: true", rollback);
+  assert.ok(required >= 0);
+  assert.ok(rollback > required);
+  assert.ok(coordinationFailure > rollback);
+});
+
+test("control capability is bound to the active candidate tab", () => {
+  const fs = require("node:fs");
+  const worker = fs.readFileSync(require.resolve("../service-worker.js"), "utf8");
+  assert.match(worker, /capability\.tab_id !== sender\?\.tab\?\.id/);
+  assert.match(worker, /controlCapability\(state\.session_id, sender\)/);
+});
+
+test("bridge capability remains bound to the requesting tab through consume", () => {
+  const fs = require("node:fs");
+  const worker = fs.readFileSync(require.resolve("../service-worker.js"), "utf8");
+  assert.match(worker, /tab_id: sender\?\.tab\?\.id/);
+  assert.match(worker, /capability\.tab_id !== sender\?\.tab\?\.id/);
+  assert.match(worker, /consumeBridgeProfile\(message, sender\)/);
+});
+
+test("a different tab cannot consume or erase the one-shot bridge capability", async () => {
+  const capability = {
+    token: "one-shot-token",
+    host: "127.0.0.1",
+    port: 45678,
+    origin: "https://example.invalid",
+    session_id: "session-1",
+    candidate_id: "candidate-1",
+    fingerprint: "fingerprint-1",
+    tab_id: 7,
+  };
+  let removed = false;
+  let requests = 0;
+  global.chrome = {
+    storage: {session: {
+      get: async () => ({kenshoBridgeCapability: capability}),
+      remove: async () => { removed = true; },
+      set: async () => {},
+    }},
+  };
+  global.fetch = async () => {
+    requests += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        payload: {email: "fixture@example.invalid"},
+        progress_token: "progress-token",
+      }),
+    };
+  };
+  delete require.cache[require.resolve("../service-worker.js")];
+  const {consumeBridgeProfile} = require("../service-worker.js");
+
+  await assert.rejects(
+    consumeBridgeProfile(
+      {fingerprint: "fingerprint-1"},
+      {url: "https://example.invalid/apply", tab: {id: 8}}
+    ),
+    /invalid_bridge_binding/
+  );
+  assert.equal(removed, false);
+  assert.equal(requests, 0);
+  const profile = await consumeBridgeProfile(
+    {fingerprint: "fingerprint-1"},
+    {url: "https://example.invalid/apply", tab: {id: 7}}
+  );
+  assert.equal(profile.email, "fixture@example.invalid");
+  assert.equal(removed, true);
+  assert.equal(requests, 1);
+  delete global.fetch;
+  delete global.chrome;
+});
+
+test("coordination safe stop validates the active tab binding", () => {
+  const fs = require("node:fs");
+  const worker = fs.readFileSync(require.resolve("../service-worker.js"), "utf8");
+  const safeStop = worker.indexOf("async function reportCoordinationFailure");
+  const validation = worker.indexOf("controlCapability(state.session_id, sender)", safeStop);
+  const request = worker.indexOf("/api/session/extension-safe-stop", safeStop);
+  assert.ok(validation > safeStop);
+  assert.ok(request > validation);
+});
+
+test("expired rollback reports a canonical safe stop after local restoration", () => {
+  const fs = require("node:fs");
+  const overlay = fs.readFileSync(require.resolve("../content/overlay.js"), "utf8");
+  const rollback = overlay.indexOf("rollbackAndVerifyLast()");
+  const safeStop = overlay.indexOf('type: "REPORT_COORDINATION_FAILURE"', rollback);
+  assert.ok(rollback >= 0);
+  assert.ok(safeStop > rollback);
 });
 
 test("Japanese normalization formats kana, postal code, phone, and split birthday", () => {

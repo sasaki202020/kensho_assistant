@@ -339,14 +339,24 @@ async function consumeProfile() {
   return stored[SESSION_PROFILE_KEY] || null;
 }
 
-async function consumeBridgeProfile(message, senderUrl) {
+async function consumeBridgeProfile(message, sender) {
+  const senderUrl = sender?.url || sender?.tab?.url || "";
   const location = templateLocationForUrl(senderUrl || "");
   const stored = await chrome.storage.session.get(BRIDGE_CAPABILITY_KEY);
   const capability = stored[BRIDGE_CAPABILITY_KEY] || {};
   const host = String(capability.host || message?.host || "");
   const port = Number(capability.port || message?.port || 0);
   const origin = String(capability.origin || message?.origin || "");
-  if (!location || location.origin !== origin || host !== "127.0.0.1" || !Number.isInteger(port) || port < 1 || port > 65535) {
+  if (
+    !location ||
+    location.origin !== origin ||
+    host !== "127.0.0.1" ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535 ||
+    !Number.isInteger(capability.tab_id) ||
+    capability.tab_id !== sender?.tab?.id
+  ) {
     throw new Error("invalid_bridge_binding");
   }
   await chrome.storage.session.remove(BRIDGE_CAPABILITY_KEY);
@@ -378,23 +388,28 @@ async function consumeBridgeProfile(message, senderUrl) {
   return profile;
 }
 
-async function controlCapability(sessionId) {
+async function controlCapability(sessionId, sender) {
   const stored = await chrome.storage.session.get(CONTROL_CAPABILITY_KEY);
   const capability = stored[CONTROL_CAPABILITY_KEY] || {};
-  if (!capability.token || String(capability.session_id || "") !== String(sessionId || "")) {
+  if (
+    !capability.token ||
+    String(capability.session_id || "") !== String(sessionId || "") ||
+    !Number.isInteger(capability.tab_id) ||
+    capability.tab_id !== sender?.tab?.id
+  ) {
     throw new Error("control_capability_unavailable");
   }
   return String(capability.token);
 }
 
-async function revokeBridgeCapabilities() {
+async function revokeBridgeCapabilities(sender) {
   const statusResponse = await fetch("http://127.0.0.1:8787/api/session/status", {
     method: "GET",
     cache: "no-store",
   });
   if (!statusResponse.ok) throw new Error("session_unavailable");
   const state = await statusResponse.json();
-  const controlToken = await controlCapability(state.session_id);
+  const controlToken = await controlCapability(state.session_id, sender);
   const response = await fetch(
     "http://127.0.0.1:8787/api/session/extension-capability/revoke",
     {
@@ -436,12 +451,14 @@ async function setBridgeCapability(message, sender) {
       session_id: String(message.session_id || ""),
       candidate_id: String(message.candidate_id || ""),
       fingerprint: String(message.fingerprint || ""),
+      tab_id: sender?.tab?.id,
     },
   });
   return {stored: true};
 }
 
-async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = []) {
+async function requestBridgeCapability(sender, fingerprint, profileKeys = []) {
+  const senderUrl = sender?.url || sender?.tab?.url || "";
   const location = templateLocationForUrl(senderUrl || "");
   if (!location) throw new Error("invalid_bridge_binding");
   const requestedProfileKeys = [...new Set(profileKeys.map((key) => String(key || "").trim()))];
@@ -465,7 +482,7 @@ async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = [])
   }
   if (!statusResponse.ok) throw new Error("session_unavailable");
   const state = await statusResponse.json();
-  const controlToken = await controlCapability(state.session_id);
+  const controlToken = await controlCapability(state.session_id, sender);
   const capabilityController = new AbortController();
   const capabilityTimeoutId = setTimeout(() => capabilityController.abort(), 1000);
   let response;
@@ -489,11 +506,12 @@ async function requestBridgeCapability(senderUrl, fingerprint, profileKeys = [])
   }
   if (!response.ok) throw new Error("capability_unavailable");
   const capability = await response.json();
-  await setBridgeCapability(capability, {id: chrome.runtime.id});
+  await setBridgeCapability(capability, {id: chrome.runtime.id, tab: sender?.tab});
   return {available: true};
 }
 
-async function reportExtensionProgress(senderUrl, fingerprint, event, details = {}) {
+async function reportExtensionProgress(sender, fingerprint, event, details = {}) {
+  const senderUrl = sender?.url || sender?.tab?.url || "";
   const location = templateLocationForUrl(senderUrl || "");
   const safeEvent = String(event || "");
   const allowedEvents = new Set([
@@ -526,7 +544,7 @@ async function reportExtensionProgress(senderUrl, fingerprint, event, details = 
   });
   if (!statusResponse.ok) throw new Error("session_unavailable");
   const state = await statusResponse.json();
-  const controlToken = await controlCapability(state.session_id);
+  const controlToken = await controlCapability(state.session_id, sender);
   const storedProgress = await chrome.storage.session.get(PROGRESS_CAPABILITY_KEY);
   const progress = storedProgress[PROGRESS_CAPABILITY_KEY] || {};
   if (
@@ -579,6 +597,30 @@ async function reportExtensionProgress(senderUrl, fingerprint, event, details = 
   return body;
 }
 
+async function reportCoordinationFailure(sender, fingerprint) {
+  const location = templateLocationForUrl(sender?.url || sender?.tab?.url || "");
+  if (!location || !String(fingerprint || "")) throw new Error("invalid_safe_stop_binding");
+  const statusResponse = await fetch("http://127.0.0.1:8787/api/session/status", {
+    method: "GET", cache: "no-store",
+  });
+  if (!statusResponse.ok) throw new Error("session_unavailable");
+  const state = await statusResponse.json();
+  await controlCapability(state.session_id, sender);
+  const response = await fetch("http://127.0.0.1:8787/api/session/extension-safe-stop", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    cache: "no-store",
+    body: JSON.stringify({
+      session_id: String(state.session_id || ""),
+      candidate_id: String(state.active_candidate_id || state.candidate_id || ""),
+      origin: location.origin,
+      fingerprint: String(fingerprint || ""),
+    }),
+  });
+  if (!response.ok) throw new Error("safe_stop_rejected");
+  return response.json();
+}
+
 async function originAccessState(senderUrl) {
   const originPattern = originPatternForUrl(senderUrl);
   if (!originPattern) return { allowed: false, originPattern: null };
@@ -598,11 +640,11 @@ async function requestOriginAccess(senderUrl, tabId) {
   return { granted: true, originPattern };
 }
 
-async function disableOrigin(senderUrl) {
+async function disableOrigin(senderUrl, sender) {
   const originPattern = originPatternForUrl(senderUrl);
   if (!originPattern) return { removed: false, error: "unsupported_origin" };
   if (!fixtureBridgeMode()) {
-    const revoked = await revokeBridgeCapabilities();
+    const revoked = await revokeBridgeCapabilities(sender);
     if (!revoked?.ok) return {removed: false, error: "capability_revoke_failed"};
   }
   const ids = Object.values(scriptIdsForOrigin(originPattern));
@@ -668,7 +710,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
           sendResponse({ok: true, profile: await consumeProfile(), workerEpoch: WORKER_EPOCH});
           return;
         }
-        const profile = await consumeBridgeProfile(message, sender?.url || sender?.tab?.url || "");
+        const profile = await consumeBridgeProfile(message, sender);
         sendResponse({ ok: true, profile, workerEpoch: WORKER_EPOCH });
         return;
       }
@@ -687,7 +729,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         sendResponse({
           ok: true,
           ...(await requestBridgeCapability(
-            sender?.url || sender?.tab?.url || "",
+            sender,
             message.fingerprint || "",
             Array.isArray(message.profileKeys) ? message.profileKeys : []
           )),
@@ -702,12 +744,16 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         sendResponse({
           ok: true,
           ...(await reportExtensionProgress(
-            sender?.url || sender?.tab?.url || "",
+            sender,
             message.fingerprint || "",
             message.event || "",
             message.details || {}
           )),
         });
+        return;
+      }
+      if (message?.type === "REPORT_COORDINATION_FAILURE") {
+        sendResponse({ok: true, ...(await reportCoordinationFailure(sender, message.fingerprint || ""))});
         return;
       }
       if (message?.type === "GET_BRIDGE_CAPABILITY_STATUS") {
@@ -720,7 +766,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         try {
           const result = fixtureBridgeMode()
             ? {ok: true}
-            : await revokeBridgeCapabilities();
+            : await revokeBridgeCapabilities(sender);
           revoked = Boolean(result?.ok);
         } catch (_error) {
           revoked = false;
@@ -775,7 +821,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         return;
       }
       if (message?.type === "DISABLE_ORIGIN_ACCESS") {
-        const result = await disableOrigin(sender?.url || sender?.tab?.url || "");
+        const result = await disableOrigin(sender?.url || sender?.tab?.url || "", sender);
         if (result.removed && sender?.tab?.id) {
           setTimeout(() => chrome.tabs.reload(sender.tab.id).catch(() => {}), 100);
         }
@@ -818,6 +864,7 @@ if (typeof module !== "undefined" && module.exports) {
     setBridgeCapability,
     requestBridgeCapability,
     reportExtensionProgress,
+    reportCoordinationFailure,
     getFormTemplate,
     saveFormTemplate,
     templateLocationForUrl,

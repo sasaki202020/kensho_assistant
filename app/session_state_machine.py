@@ -99,6 +99,7 @@ _EVENT_TARGETS: dict[str, dict[str, str]] = {
     "ROLLBACK_REQUIRED": {
         "rollback_complete": "FAILED_SAFE",
         "rollback_incomplete": "ROLLBACK_REQUIRED",
+        "failed_safe": "FAILED_SAFE",
     },
     "UNSUPPORTED_FORM": {"held": "HELD", "skipped": "SKIPPED"},
     "HELD": {"candidate_locked": "CANDIDATE_LOCKED"},

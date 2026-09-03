@@ -235,6 +235,25 @@ def issue_extension_capability(
         raise ValueError("invalid_capability_binding")
     if str(state.get("active_candidate_id", "") or "") != str(candidate_id or ""):
         raise ValueError("invalid_capability_binding")
+    if str(state.get("workflow_state", "") or "").upper() != "MAPPING_CONFIRMED":
+        raise ValueError("invalid_capability_binding")
+    current_url = urlsplit(str(state.get("current_url", "") or ""))
+    supplied_origin = urlsplit(str(origin or "").strip())
+    if (
+        supplied_origin.scheme not in {"http", "https"}
+        or not supplied_origin.netloc
+        or supplied_origin.path not in {"", "/"}
+        or supplied_origin.query
+        or supplied_origin.fragment
+        or (current_url.scheme, current_url.netloc)
+        != (supplied_origin.scheme, supplied_origin.netloc)
+    ):
+        raise ValueError("invalid_capability_binding")
+    expected_fingerprint = str(state.get("form_fingerprint", "") or "").strip()
+    if not expected_fingerprint or not hmac.compare_digest(
+        expected_fingerprint, str(fingerprint or "").strip()
+    ):
+        raise ValueError("invalid_capability_binding")
     keys = [str(key or "").strip() for key in profile_keys if str(key or "").strip()]
     if not keys or any(key not in ALLOWED_PAYLOAD_KEYS for key in keys):
         raise ValueError("invalid_capability_payload")
@@ -448,6 +467,52 @@ def consume_extension_capability(**kwargs: str) -> dict[str, object]:
 
 def revoke_extension_capabilities(session_id: str) -> int:
     return _EXTENSION_BRIDGE.revoke_session(session_id)
+
+
+def mark_extension_coordination_failed(
+    *, session_id: str, candidate_id: str, origin: str, fingerprint: str
+) -> dict[str, object]:
+    """Apply a monotonic safe-stop when short-lived coordination expires."""
+    state = load_assisted_session_state()
+    session = str(session_id or "").strip()
+    candidate = str(candidate_id or "").strip()
+    current_url = urlsplit(str(state.get("current_url", "") or ""))
+    supplied_origin = urlsplit(str(origin or "").strip())
+    if (
+        str(state.get("session_id", "") or "") != session
+        or str(state.get("active_candidate_id", "") or "") != candidate
+        or supplied_origin.scheme not in {"http", "https"}
+        or not supplied_origin.netloc
+        or supplied_origin.path not in {"", "/"}
+        or supplied_origin.query
+        or supplied_origin.fragment
+        or (current_url.scheme, current_url.netloc)
+        != (supplied_origin.scheme, supplied_origin.netloc)
+        or not hmac.compare_digest(
+            str(state.get("form_fingerprint", "") or ""),
+            str(fingerprint or "").strip(),
+        )
+    ):
+        raise ValueError("invalid_coordination_failure_binding")
+    current = str(state.get("workflow_state", "") or "").upper()
+    if current != "FAILED_SAFE":
+        state = _workflow_event(
+            state, "failed_safe", session_id=session, candidate_id=candidate
+        )
+    state.update(
+        status="STOPPED",
+        status_label=SESSION_STATUS_LABELS["STOPPED"],
+        final_status="FAILED_SAFE",
+        current_step="extension_coordination_failed",
+        last_action="EXTENSION_COORDINATION_FAILED",
+        last_reason="extension_coordination_expired",
+        message="拡張機能との安全な同期が失効したため停止しました。応募済みにはしていません。",
+        submitted_count_auto=0,
+        candidate_marked_submitted=False,
+    )
+    save_assisted_session_state(state)
+    revoke_extension_capabilities(session)
+    return state
 
 
 def stop_extension_bridge() -> None:

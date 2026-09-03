@@ -91,3 +91,5 @@ def test_control_token_is_provisioned_directly_to_service_worker() -> None:
     )
     assert calls[0][1] == {"sessionId": "session-1", "token": "secret-token"}
     assert "chrome.storage.session.set" in calls[0][0]
+    assert "chrome.tabs.query" in calls[0][0]
+    assert "tab_id: tabId" in calls[0][0]

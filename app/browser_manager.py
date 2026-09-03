@@ -29,8 +29,11 @@ def provision_extension_control_token(
         raise RuntimeError("dedicated_extension_worker_mismatch")
     worker.evaluate(
         """async ({sessionId, token}) => {
+          const tabs = await chrome.tabs.query({active: true, currentWindow: true});
+          const tabId = tabs[0]?.id;
+          if (!Number.isInteger(tabId)) throw new Error('active_tab_binding_unavailable');
           await chrome.storage.session.set({
-            kenshoControlCapability: {session_id: sessionId, token}
+            kenshoControlCapability: {session_id: sessionId, token, tab_id: tabId}
           });
         }""",
         {"sessionId": str(session_id), "token": str(token)},

@@ -164,10 +164,16 @@
       event: "rollback_required",
       details: {filled_count: Number(filledCount || 0)},
     });
-    if (!required?.ok) {
-      return {ok: false, result: {rollbackComplete: false, restoredCount: 0}};
-    }
+    // An expired coordination token must never strand PII in the page. The
+    // canonical intent is attempted first, then local restoration is mandatory.
     const result = await root.KenshoExtension.FormFiller.rollbackAndVerifyLast();
+    if (!required?.ok) {
+      await sendMessage({
+        type: "REPORT_COORDINATION_FAILURE",
+        fingerprint: analysis.formFingerprint,
+      });
+      return {ok: false, result, coordinationFailed: true};
+    }
     const completed = await sendMessage({
       type: "REPORT_EXTENSION_PROGRESS",
       fingerprint: analysis.formFingerprint,

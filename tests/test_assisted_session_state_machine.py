@@ -8,9 +8,46 @@ from kensho_assistant.app.session_state_machine import (
 )
 from kensho_assistant.app.assisted_session import (
     _begin_candidate_workflow,
+    load_assisted_session_state,
+    mark_extension_coordination_failed,
     record_extension_progress,
     save_assisted_session_state,
 )
+
+
+@pytest.mark.parametrize("workflow_state", ["HUMAN_ACTION_REQUIRED", "ROLLBACK_REQUIRED"])
+def test_coordination_failure_downgrades_submission_wait_to_failed_safe(
+    monkeypatch, tmp_path, workflow_state
+) -> None:
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.ASSISTED_SESSION_STATE_JSON",
+        tmp_path / "session.json",
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.revoke_extension_capabilities",
+        lambda _session: 1,
+    )
+    save_assisted_session_state(
+        {
+            "workflow_state": workflow_state,
+            "session_id": "session-1",
+            "active_candidate_id": "candidate-1",
+            "candidate_id": "candidate-1",
+            "current_url": "https://example.invalid/apply",
+            "form_fingerprint": "fingerprint-1",
+            "submitted_count_auto": 0,
+        }
+    )
+    state = mark_extension_coordination_failed(
+        session_id="session-1",
+        candidate_id="candidate-1",
+        origin="https://example.invalid",
+        fingerprint="fingerprint-1",
+    )
+    assert state["workflow_state"] == "FAILED_SAFE"
+    assert state["candidate_marked_submitted"] is False
+    assert state["submitted_count_auto"] == 0
+    assert load_assisted_session_state()["workflow_state"] == "FAILED_SAFE"
 
 
 @pytest.fixture(autouse=True)

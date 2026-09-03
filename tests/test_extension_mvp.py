@@ -609,6 +609,10 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
     assert browser_page.locator('input[name="email"]').input_value() == "pii-test@example.invalid"
     panel.locator("#clear").click()
     assert browser_page.locator('input[name="email"]').input_value() == ""
+    browser_page.wait_for_function(
+        """() => document.querySelector('#kensho-assistant-overlay-host')
+          ?.getAttribute('data-kensho-status') === 'blocked'"""
+    )
     assert panel.get_attribute("data-kensho-status") == "blocked"
 
 

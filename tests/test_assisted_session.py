@@ -13,10 +13,72 @@ from kensho_assistant.app.assisted_session import (
     load_assisted_session_state,
     request_assisted_session_action,
     register_extension_control_token,
+    issue_extension_capability,
     run_assisted_application_session,
     save_assisted_session_state,
     validate_extension_control_token,
 )
+
+
+def test_extension_capability_requires_canonical_origin_fingerprint_and_state(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.ASSISTED_SESSION_STATE_JSON",
+        tmp_path / "session.json",
+    )
+    base = {
+        "workflow_state": "MAPPING_CONFIRMED",
+        "session_id": "session-1",
+        "active_candidate_id": "candidate-1",
+        "current_url": "https://example.invalid/apply",
+        "form_fingerprint": "fingerprint-1",
+        "submitted_count_auto": 0,
+    }
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session._EXTENSION_BRIDGE.start",
+        lambda: ("127.0.0.1", 45678),
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session._EXTENSION_BRIDGE.issue",
+        lambda **_kwargs: {"token": "safe-token"},
+    )
+
+    save_assisted_session_state(base)
+    issued = issue_extension_capability(
+        session_id="session-1",
+        candidate_id="candidate-1",
+        origin="https://example.invalid",
+        fingerprint="fingerprint-1",
+        profile={"email": "fixture@example.invalid"},
+        profile_keys=["email"],
+    )
+    assert issued["token"] == "safe-token"
+
+    for changed in (
+        {"origin": "https://other.invalid"},
+        {"fingerprint": "fingerprint-2"},
+    ):
+        with pytest.raises(ValueError, match="invalid_capability_binding"):
+            issue_extension_capability(
+                session_id="session-1",
+                candidate_id="candidate-1",
+                origin=changed.get("origin", "https://example.invalid"),
+                fingerprint=changed.get("fingerprint", "fingerprint-1"),
+                profile={"email": "fixture@example.invalid"},
+                profile_keys=["email"],
+            )
+
+    save_assisted_session_state({**base, "workflow_state": "HUMAN_ACTION_REQUIRED"})
+    with pytest.raises(ValueError, match="invalid_capability_binding"):
+        issue_extension_capability(
+            session_id="session-1",
+            candidate_id="candidate-1",
+            origin="https://example.invalid",
+            fingerprint="fingerprint-1",
+            profile={"email": "fixture@example.invalid"},
+            profile_keys=["email"],
+        )
 
 
 def test_assisted_session_runner_has_no_direct_profile_fill_path() -> None:

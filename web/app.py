@@ -23,6 +23,7 @@ from ..app.assisted_session import (
     extension_bridge_status,
     issue_extension_capability,
     load_assisted_session_state,
+    mark_extension_coordination_failed,
     record_extension_progress,
     revoke_extension_capabilities,
     request_assisted_session_action,
@@ -3004,7 +3005,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="invalid_request")
         state = load_assisted_session_state()
         workflow_state = str(state.get("workflow_state", "") or "").upper()
-        if workflow_state not in {"MAPPING_CONFIRMED", "FILLED", "POST_FILL_VERIFIED", "HUMAN_ACTION_REQUIRED"}:
+        if workflow_state != "MAPPING_CONFIRMED":
             raise HTTPException(status_code=409, detail="mapping_not_confirmed")
         try:
             validate_extension_control_token(
@@ -3100,6 +3101,27 @@ def create_app() -> FastAPI:
             "revoked_count": revoke_extension_capabilities(session_id),
             "submitted_count_auto": 0,
         }
+
+    @app.post("/api/session/extension-safe-stop")
+    async def api_extension_safe_stop(request: Request) -> dict[str, object]:
+        client_host = str(request.client.host if request.client else "")
+        if client_host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(status_code=403, detail="loopback_only")
+        active_state = load_assisted_session_state()
+        expected_origin = "chrome-extension://" + str(active_state.get("extension_id", "") or "")
+        if not active_state.get("extension_id") or request.headers.get("origin", "") != expected_origin:
+            raise HTTPException(status_code=403, detail="extension_origin_rejected")
+        try:
+            body = await request.json()
+            state = mark_extension_coordination_failed(
+                session_id=str(body.get("session_id", "") or ""),
+                candidate_id=str(body.get("candidate_id", "") or ""),
+                origin=str(body.get("origin", "") or ""),
+                fingerprint=str(body.get("fingerprint", "") or ""),
+            )
+        except (AttributeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail="safe_stop_rejected") from exc
+        return {"ok": True, "workflow_state": state["workflow_state"], "submitted_count_auto": 0}
 
     @app.post("/queue/session/{queue_id}/manual-submitted")
     def queue_session_manual_submitted(
