@@ -387,6 +387,17 @@
     return elementRegistry.get(fieldId) || null;
   }
 
+  function fingerprint(documentRoot) {
+    // A pre-fill recheck must not invalidate the preview's element registry.
+    const fields = [];
+    for (const scope of formScopeRoots(rootsFromDocument(documentRoot))) {
+      for (const element of scope.querySelectorAll("input, select, textarea, button")) {
+        fields.push(metadataFor(element));
+      }
+    }
+    return root.KenshoExtension.FormFingerprint.computeFormFingerprint({fields}).fingerprint;
+  }
+
   function templateFromAnalysis(analysis, mappingDecisions, location = globalThis.location) {
     const fingerprintApi = root.KenshoExtension.FormFingerprint;
     const fields = (analysis?.fields || [])
@@ -421,11 +432,12 @@
       fingerprint: analysis.formFingerprint,
       structureFingerprint: analysis.structureFingerprint,
       extensionVersion: "0.2.0",
+      humanConfirmedAt: new Date().toISOString(),
       fields,
     };
   }
 
-  const api = Object.freeze({scan, resolveElement, securityStatus, templateFromAnalysis});
+  const api = Object.freeze({scan, fingerprint, resolveElement, securityStatus, templateFromAnalysis});
   root.KenshoExtension = root.KenshoExtension || {};
   root.KenshoExtension.FormDetector = api;
 

@@ -33,6 +33,7 @@ def test_extension_capability_requires_canonical_origin_fingerprint_and_state(
         "active_candidate_id": "candidate-1",
         "current_url": "https://example.invalid/apply",
         "form_fingerprint": "fingerprint-1",
+        "confirmed_profile_keys": ["email"],
         "submitted_count_auto": 0,
     }
     monkeypatch.setattr(
@@ -54,6 +55,13 @@ def test_extension_capability_requires_canonical_origin_fingerprint_and_state(
         profile_keys=["email"],
     )
     assert issued["token"] == "safe-token"
+
+    with pytest.raises(ValueError, match="invalid_capability_payload"):
+        issue_extension_capability(
+            session_id="session-1", candidate_id="candidate-1",
+            origin="https://example.invalid", fingerprint="fingerprint-1",
+            profile={"phone": "00000000000"}, profile_keys=["phone"],
+        )
 
     for changed in (
         {"origin": "https://other.invalid"},
@@ -86,6 +94,21 @@ def test_assisted_session_runner_has_no_direct_profile_fill_path() -> None:
 
     assert "load_profile()" not in source
     assert 'AutoApplyEngine("dry_run"),\n                                page,\n                                campaign,\n                                load_profile()' not in source
+
+
+def test_candidate_lock_discards_previous_mapping_binding() -> None:
+    from kensho_assistant.app.assisted_session import _begin_candidate_workflow
+
+    previous = {
+        "workflow_state": "HELD", "active_candidate_id": "old",
+        "session_id": "session", "form_fingerprint": "old-fingerprint",
+        "confirmed_profile_keys": ["email"],
+    }
+    current = _begin_candidate_workflow(previous, session_id="session", candidate_id="new")
+    assert current["active_candidate_id"] == "new"
+    assert not current.get("form_fingerprint")
+    assert not current.get("confirmed_profile_keys")
+    assert previous["form_fingerprint"] == "old-fingerprint"
 
 
 def test_extension_control_token_is_memory_only_and_clearable(tmp_path, monkeypatch) -> None:

@@ -19,6 +19,7 @@ from .auto_apply_engine import AutoApplyEngine
 from .browser_manager import (
     clear_extension_control_token as clear_browser_extension_control_token,
     close_browser_safely,
+    confirmed_extension_mapping,
     dedicated_extension_page_state,
     open_url_in_chrome,
     provision_extension_control_token,
@@ -256,6 +257,9 @@ def issue_extension_capability(
         raise ValueError("invalid_capability_binding")
     keys = [str(key or "").strip() for key in profile_keys if str(key or "").strip()]
     if not keys or any(key not in ALLOWED_PAYLOAD_KEYS for key in keys):
+        raise ValueError("invalid_capability_payload")
+    approved_keys = state.get("confirmed_profile_keys", [])
+    if not isinstance(approved_keys, list) or not set(keys).issubset(approved_keys):
         raise ValueError("invalid_capability_payload")
     payload: dict[str, str] = {}
     for key in keys:
@@ -826,6 +830,8 @@ def _begin_candidate_workflow(
         result = _SESSION_STATE_MACHINE.release_candidate(result, active)
     result["workflow_state"] = "IDLE"
     result["session_id"] = str(session_id or "").strip()
+    result.pop("form_fingerprint", None)
+    result.pop("confirmed_profile_keys", None)
     return _SESSION_STATE_MACHINE.lock_candidate(result, candidate)
 
 
@@ -1640,6 +1646,11 @@ def run_assisted_application_session(
                             snapshot=snapshot,
                         )
                         try:
+                            mapping_binding = confirmed_extension_mapping(
+                                browser_context, page,
+                                str(session_state.get("extension_id", "") or ""),
+                                str(session_state.get("current_url", "") or ""),
+                            )
                             session_state = _workflow_event(
                                 session_state,
                                 "mapping_confirmed",
@@ -1647,6 +1658,8 @@ def run_assisted_application_session(
                                 candidate_id=campaign_id,
                             )
                             session_state.update(
+                                form_fingerprint=mapping_binding["fingerprint"],
+                                confirmed_profile_keys=mapping_binding["profile_keys"],
                                 status="FILLING",
                                 status_label=SESSION_STATUS_LABELS["FILLING"],
                                 current_step="extension_fill",
@@ -1661,6 +1674,8 @@ def run_assisted_application_session(
                                 session_id,
                                 control_token,
                                 str(session_state.get("extension_id", "") or ""),
+                                binding=mapping_binding,
+                                expected_url=str(session_state.get("current_url", "") or ""),
                             )
                             result, extension_decision, extension_snapshot = (
                                 _wait_for_extension_verified_result(

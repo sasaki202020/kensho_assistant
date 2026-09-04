@@ -122,3 +122,24 @@ node --test extension\tests\unit.test.cjs
 ```
 
 テストはローカルHTMLだけを使用し、外部サイトへ接続しません。
+
+### assisted_sessionとの実接続テスト
+
+リポジトリのルートで実行します。
+
+```powershell
+$env:PYTHONPATH = Split-Path -Parent (Get-Location).Path
+py -3.13 -m pytest tests/test_assisted_extension_integration.py -q
+```
+
+`run_extension_local_smoke.py`の`fixture-bridge`とは別に、実Web API、実Service Worker、
+実loopback bridgeを接続して9項目の入力、入力後検証、全項目rollback、session clearを検証します。
+起動・ビルド照合・一時プロファイル削除も正式な専用ブラウザ経路を使用します。
+実プロフィール、実候補、通常履歴は使用せず、一時ディレクトリ内の架空データだけを使います。
+候補の供給、旧Python解析境界、人間操作待ちと結果待ちはテスト用callbackです。
+Web画面の人間承認操作そのもの、本番polling、実サイト互換性の合格を意味しません。
+
+否定ケースは、フォーム変更、未承認template、version変更、重複タブ、
+token配布前後の再読み込みです。いずれもプロフィール取得前に停止します。
+Chrome自身の一時フォーム保存も考慮し、終了後はruntimeディレクトリが空であることと、
+テスト保存領域にセンチネルがUTF-8/UTF-16LEで残らないことを確認します。

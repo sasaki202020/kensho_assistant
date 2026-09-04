@@ -20,15 +20,36 @@ ISOLATED worldの`isolated-guard.js`はclick、Enter、submitイベントを捕�
 
 ## PIIライフサイクル
 
-PIIは`chrome.storage.session`にのみ保存し、アクセスレベルは
-`TRUSTED_CONTEXTS`のままとする。プレビュー要求ではマスク値だけを返す。
-「入力を実行」の明示操作時だけ必要なプロフィールをcontent scriptへ返し、
-入力処理直後にcontent script側の参照を破棄する。trustedな
-`chrome.storage.session`内の値は、複数フォームで再利用できるよう
-明示的なセッション消去、Chrome終了、拡張機能の無効化・更新まで保持する。
+正規の入力経路では、プロフィール原本はローカルアプリだけが扱う。
+プレビューは固定マスクを用い、「入力を実行」の明示操作時だけ、承認済みの
+項目値を一回限りのloopback bridgeから取得してcontent scriptへ渡す。
+入力処理直後に参照を破棄する。旧セッションプロフィールへのfallbackは行わない。
+tokenを扱う`chrome.storage.session`のアクセスレベルは`TRUSTED_CONTEXTS`とする。
 
 local/sync storage、Web Storage、IndexedDB、HTML、ログ、スクリーンショット、
 traceへPIIを保存しない。
+
+Chrome自体はフォーム値を一時プロファイルのセッションファイルに記録する可能性がある。
+専用経路は試行ごとの一時プロファイルを使い、終了時に全体を削除する。
+削除後も残る場合は`dedicated_profile_cleanup_failed`で失敗とする。
+ブラウザ異常終了時の残存と、通常Chromeプロファイルでの保存防止は、この削除検証と
+同一視しない。実サイトPhase 5Aでは試行後の残存検査が別途必要。
+
+## 項目確認とbridgeの接続
+
+Web側の項目確認後、専用Service Workerから値を含まない承認情報だけを取得する。
+対象URLのタブは1つに限定し、保存済みテンプレートのorigin、pathname、version、
+承認日時と現在のform fingerprintを検証する。再計算で入力用のelement registryを壊さない。
+`assisted_session`はそのfingerprintと承認済み項目名を入力前に記録する。
+capabilityの要求項目は承認済み項目の部分集合に限定する。
+
+control tokenとPII capabilityをtab IDだけでなくdocument IDにも束縛する。
+確認後に別タブへ移った場合や、同じタブを再読み込みした場合はPIIを渡さない。
+新documentは新しい項目確認が必要。候補切替時は前候補のfingerprintと承認項目を破棄する。
+
+保存済みmappingは上書きしない。同内容の再保存では承認日時と一時的なfield IDを
+同一性比較から除外し、既存の承認日時を保持する。旧templateの承認日時が空のときだけ、
+本人が「欄対応を保存」を実行した際に日時を補完する。構造・割当・version変更は競合として拒否する。
 
 ## フォーム対応の安全境界
 

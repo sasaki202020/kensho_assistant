@@ -290,7 +290,7 @@ test("disabling an origin unregisters both scripts before removing permission", 
       session: {
         get: async (key) => ({
           [key]: key === "kenshoControlCapability"
-            ? {session_id: "session-1", token: "control-token", tab_id: 7}
+            ? {session_id: "session-1", token: "control-token", tab_id: 7, document_id: "doc-1"}
             : null,
         }),
         remove: async (key) => actions.push(`storage:${key}`),
@@ -316,7 +316,7 @@ test("disabling an origin unregisters both scripts before removing permission", 
   };
   const result = await disableOrigin(
     "https://example.invalid/apply?secret=1",
-    {tab: {id: 7}}
+    {tab: {id: 7}, documentId: "doc-1"}
   );
 
   assert.equal(result.removed, true);
@@ -529,7 +529,7 @@ test("bridge capability requests include only confirmed profile keys", async () 
         set: async (value) => Object.assign(stored, value),
         get: async (key) => ({
           [key]: key === "kenshoControlCapability"
-            ? {session_id: "session-1", token: "fixture-control-token", tab_id: 7}
+            ? {session_id: "session-1", token: "fixture-control-token", tab_id: 7, document_id: "doc-1"}
             : stored[key],
         }),
       },
@@ -561,7 +561,7 @@ test("bridge capability requests include only confirmed profile keys", async () 
   };
 
   await requestBridgeCapability(
-    {url: "https://example.invalid/apply", tab: {id: 7}},
+    {url: "https://example.invalid/apply", tab: {id: 7}, documentId: "doc-1"},
     "fingerprint-1",
     ["email", "postal_code"]
   );
@@ -622,6 +622,7 @@ test("verified fill reports only PII-free progress through the service worker", 
       session_id: "session-1",
       token: "fixture-control-token",
       tab_id: 7,
+      document_id: "doc-1",
     },
     kenshoProgressCapability: {
       token: "fixture-progress-token",
@@ -661,7 +662,7 @@ test("verified fill reports only PII-free progress through the service worker", 
   const {reportExtensionProgress} = require("../service-worker.js");
 
   const result = await reportExtensionProgress(
-    {url: "https://example.invalid/apply", tab: {id: 7}},
+    {url: "https://example.invalid/apply", tab: {id: 7}, documentId: "doc-1"},
     "fingerprint-1",
     "post_fill_verified",
     {filled_count: 3, unrelated_changed_count: 0}
@@ -734,6 +735,7 @@ test("a different tab cannot consume or erase the one-shot bridge capability", a
     candidate_id: "candidate-1",
     fingerprint: "fingerprint-1",
     tab_id: 7,
+    document_id: "doc-1",
   };
   let removed = false;
   let requests = 0;
@@ -760,7 +762,16 @@ test("a different tab cannot consume or erase the one-shot bridge capability", a
   await assert.rejects(
     consumeBridgeProfile(
       {fingerprint: "fingerprint-1"},
-      {url: "https://example.invalid/apply", tab: {id: 8}}
+      {url: "https://example.invalid/apply", tab: {id: 8}, documentId: "doc-1"}
+    ),
+    /invalid_bridge_binding/
+  );
+  assert.equal(removed, false);
+  assert.equal(requests, 0);
+  await assert.rejects(
+    consumeBridgeProfile(
+      {fingerprint: "fingerprint-1"},
+      {url: "https://example.invalid/apply", tab: {id: 7}, documentId: "doc-after-reload"}
     ),
     /invalid_bridge_binding/
   );
@@ -768,7 +779,7 @@ test("a different tab cannot consume or erase the one-shot bridge capability", a
   assert.equal(requests, 0);
   const profile = await consumeBridgeProfile(
     {fingerprint: "fingerprint-1"},
-    {url: "https://example.invalid/apply", tab: {id: 7}}
+    {url: "https://example.invalid/apply", tab: {id: 7}, documentId: "doc-1"}
   );
   assert.equal(profile.email, "fixture@example.invalid");
   assert.equal(removed, true);
@@ -956,12 +967,21 @@ test("worker template storage is origin/path scoped, idempotent, and append-only
 
   const first = await saveFormTemplate(url, template);
   const second = await saveFormTemplate(url, template);
+  const approved = await saveFormTemplate(url, {...template, humanConfirmedAt: "2026-09-04T01:00:00.000Z"});
+  const approvedAgain = await saveFormTemplate(url, {...template, humanConfirmedAt: "2026-09-04T02:00:00.000Z"});
+  const newDocument = await saveFormTemplate(url, {
+    ...template, fields: template.fields.map(field => ({...field, fieldId: "new-document-field"})),
+  });
   const read = await getFormTemplate(url, template.fingerprint);
   const conflict = await saveFormTemplate(url, {...template, fingerprint: "deadbeef"});
 
   assert.equal(first.saved, true);
   assert.equal(first.idempotent, false);
   assert.equal(second.idempotent, true);
+  assert.equal(approved.saved, true);
+  assert.equal(approvedAgain.idempotent, true);
+  assert.equal(newDocument.idempotent, true);
+  assert.equal(values[templateStorageKey(url)].humanConfirmedAt, "2026-09-04T01:00:00.000Z");
   assert.equal(read.status, "matched");
   assert.equal(conflict.saved, false);
   assert.equal(conflict.error, "template_conflict");

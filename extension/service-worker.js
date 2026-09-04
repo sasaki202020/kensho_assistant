@@ -315,8 +315,19 @@ async function saveFormTemplate(senderUrl, input) {
   const existing = stored[key];
   if (existing) {
     const normalizedExisting = templateApi().sanitizeTemplate(existing);
-    if (JSON.stringify(normalizedExisting) !== JSON.stringify(template)) {
+    // Approval time and per-document handles are not mapping content.
+    const mappingContent = (value) => JSON.stringify({
+      ...value, humanConfirmedAt: "",
+      fields: value.fields.map(({fieldId, ...field}) => field),
+    });
+    if (mappingContent(normalizedExisting) !== mappingContent(template)) {
       return {saved: false, error: "template_conflict"};
+    }
+    if (!normalizedExisting.humanConfirmedAt && template.humanConfirmedAt &&
+        Number.isFinite(Date.parse(template.humanConfirmedAt))) {
+      await chrome.storage.local.set({[key]: {
+        ...normalizedExisting, humanConfirmedAt: template.humanConfirmedAt,
+      }});
     }
     return {saved: true, idempotent: true, fingerprint: template.fingerprint};
   }
@@ -355,7 +366,8 @@ async function consumeBridgeProfile(message, sender) {
     port < 1 ||
     port > 65535 ||
     !Number.isInteger(capability.tab_id) ||
-    capability.tab_id !== sender?.tab?.id
+    capability.tab_id !== sender?.tab?.id ||
+    !capability.document_id || capability.document_id !== sender?.documentId
   ) {
     throw new Error("invalid_bridge_binding");
   }
@@ -383,6 +395,7 @@ async function consumeBridgeProfile(message, sender) {
       candidate_id: String(capability.candidate_id || ""),
       origin,
       fingerprint: String(capability.fingerprint || ""),
+      document_id: sender.documentId,
     },
   });
   return profile;
@@ -395,7 +408,8 @@ async function controlCapability(sessionId, sender) {
     !capability.token ||
     String(capability.session_id || "") !== String(sessionId || "") ||
     !Number.isInteger(capability.tab_id) ||
-    capability.tab_id !== sender?.tab?.id
+    capability.tab_id !== sender?.tab?.id ||
+    !capability.document_id || capability.document_id !== sender?.documentId
   ) {
     throw new Error("control_capability_unavailable");
   }
@@ -434,6 +448,7 @@ async function configureSessionStorage() {
 
 async function setBridgeCapability(message, sender) {
   if (!sender?.id || sender.id !== chrome.runtime.id) throw new Error("extension_context_required");
+  if (!Number.isInteger(sender?.tab?.id) || !sender?.documentId) throw new Error("invalid_bridge_binding");
   const token = String(message?.token || "");
   const origin = String(message?.origin || "");
   const host = String(message?.host || "");
@@ -452,6 +467,7 @@ async function setBridgeCapability(message, sender) {
       candidate_id: String(message.candidate_id || ""),
       fingerprint: String(message.fingerprint || ""),
       tab_id: sender?.tab?.id,
+      document_id: sender.documentId,
     },
   });
   return {stored: true};
@@ -506,7 +522,7 @@ async function requestBridgeCapability(sender, fingerprint, profileKeys = []) {
   }
   if (!response.ok) throw new Error("capability_unavailable");
   const capability = await response.json();
-  await setBridgeCapability(capability, {id: chrome.runtime.id, tab: sender?.tab});
+  await setBridgeCapability(capability, {id: chrome.runtime.id, tab: sender?.tab, documentId: sender?.documentId});
   return {available: true};
 }
 

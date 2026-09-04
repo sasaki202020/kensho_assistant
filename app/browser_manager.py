@@ -15,11 +15,70 @@ from .paths import CHROME_USER_DATA_DIR, PACKAGE_ROOT
 _OWNED_RUNTIME_PROFILES: dict[int, Path] = {}
 
 
+def confirmed_extension_mapping(context, page, extension_id: str, expected_url: str) -> dict[str, object]:
+    """Read only confirmed, non-PII mapping metadata from the dedicated worker."""
+    if str(page.url) != expected_url:
+        raise RuntimeError("extension_mapping_page_changed")
+    state = dedicated_extension_page_state(page, require_ready=True)
+    if state.get("extension_id") != extension_id:
+        raise RuntimeError("dedicated_extension_worker_mismatch")
+    workers = [worker for worker in context.service_workers
+               if worker.url == f"chrome-extension://{extension_id}/service-worker.js"]
+    if len(workers) != 1:
+        raise RuntimeError("dedicated_extension_worker_mismatch")
+    try:
+        return workers[0].evaluate(
+            """async url => {
+              const tabs = (await chrome.tabs.query({})).filter(tab => tab.url === url);
+              if (tabs.length !== 1) throw new Error('candidate_tab_not_unique');
+              const [current] = await chrome.scripting.executeScript({
+                target: {tabId: tabs[0].id, frameIds: [0]}, world: 'ISOLATED',
+                func: expected => {
+                  const root = document.querySelector('[data-kensho-extension-root]');
+                  const fp = globalThis.KenshoExtension?.FormDetector?.fingerprint(document);
+                  if (location.href !== expected || !fp ||
+                      root?.dataset.kenshoFormFingerprint !== fp ||
+                      root?.dataset.kenshoStatus !== 'previewed') return null;
+                  return fp;
+                }, args: [url]
+              });
+              if (!current?.result || !current.documentId) throw new Error('mapping_page_changed');
+              const key = templateStorageKey(url);
+              const stored = (await chrome.storage.local.get(key))[key];
+              const template = templateApi().sanitizeTemplate(stored);
+              const location = new URL(url);
+              if (template.origin !== location.origin || template.pathname !== location.pathname ||
+                  template.fingerprint !== current.result ||
+                  template.extensionVersion !== chrome.runtime.getManifest().version ||
+                  !template.humanConfirmedAt || !Number.isFinite(Date.parse(template.humanConfirmedAt)) ||
+                  !template.fields.length) throw new Error('mapping_not_confirmed');
+              const keys = [];
+              for (const field of template.fields) {
+                if (field.disabled || field.readOnly ||
+                    !['high', 'reviewed'].includes(field.confidenceBand)) throw new Error('invalid_mapping');
+                const key = field.approvedProfileKey;
+                const expanded = key === 'full_name' ? ['last_name', 'first_name'] :
+                  key === 'full_name_kana' ? ['last_name_kana', 'first_name_kana'] : [key];
+                if (expanded.some(value => !ALLOWED_PROFILE_KEYS.has(value))) throw new Error('invalid_mapping');
+                keys.push(...expanded);
+              }
+              return {tab_id: tabs[0].id, document_id: current.documentId,
+                fingerprint: current.result, profile_keys: [...new Set(keys)].sort()};
+            }""",
+            expected_url,
+        )
+    except Exception:
+        raise RuntimeError("extension_mapping_not_confirmed") from None
+
+
 def provision_extension_control_token(
     context,
     session_id: str,
     token: str,
     extension_id: str,
+    *,
+    binding: dict[str, object] | None = None,
+    expected_url: str = "",
 ) -> None:
     """Place a short-lived control token directly in the dedicated worker session."""
     workers = list(getattr(context, "service_workers", []) or [])
@@ -28,15 +87,29 @@ def provision_extension_control_token(
     if not str(getattr(worker, "url", "") or "").startswith(expected_prefix):
         raise RuntimeError("dedicated_extension_worker_mismatch")
     worker.evaluate(
-        """async ({sessionId, token}) => {
+        """async ({sessionId, token, binding, expectedUrl}) => {
           const tabs = await chrome.tabs.query({active: true, currentWindow: true});
-          const tabId = tabs[0]?.id;
+          const tabId = binding ? binding.tab_id : tabs[0]?.id;
           if (!Number.isInteger(tabId)) throw new Error('active_tab_binding_unavailable');
+          if (binding) {
+            const [current] = await chrome.scripting.executeScript({
+              target: {tabId, documentIds: [binding.document_id]}, world: 'ISOLATED',
+              func: (url, fp) => location.href === url &&
+                document.documentElement.dataset.kenshoExtensionReady === 'true' &&
+                globalThis.KenshoExtension?.FormDetector?.fingerprint(document) === fp,
+              args: [expectedUrl, binding.fingerprint]
+            });
+            if (current?.result !== true || current.documentId !== binding.document_id) {
+              throw new Error('mapping_page_changed');
+            }
+          }
           await chrome.storage.session.set({
-            kenshoControlCapability: {session_id: sessionId, token, tab_id: tabId}
+            kenshoControlCapability: {session_id: sessionId, token, tab_id: tabId,
+              document_id: binding?.document_id || ''}
           });
         }""",
-        {"sessionId": str(session_id), "token": str(token)},
+        {"sessionId": str(session_id), "token": str(token),
+         **({"binding": binding, "expectedUrl": expected_url} if binding else {})},
     )
 
 
