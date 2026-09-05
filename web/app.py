@@ -1640,6 +1640,7 @@ def create_app() -> FastAPI:
                         "/api/session/extension-capability",
                         "/api/session/extension-capability/revoke",
                         "/api/session/extension-progress",
+                        "/api/session/extension-safe-stop",
                     }
                     and re.fullmatch(r"chrome-extension://[a-z]{32}", source)
                 )
