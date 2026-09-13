@@ -22,6 +22,7 @@ from ..app.auto_apply_engine import AutoApplyEngine
 from ..app.assisted_session import (
     extension_bridge_status,
     issue_extension_capability,
+    validate_extension_candidate,
     load_assisted_session_state,
     mark_extension_coordination_failed,
     record_extension_progress,
@@ -68,7 +69,7 @@ from ..app.later_queue import (
 from ..app.version import APP_VERSION
 from ..mail_importer import get_mail_sweepstake, load_mail_sweepstakes, mail_sweepstakes_summary, rescan_mail_sweepstakes, rescan_win_mail_candidates, update_mail_sweepstake
 from ..mail_importer import sort_mail_sweepstakes
-from ..app.apply_queue import build_apply_queue, _deadline_bucket, get_current_queue_item, get_next_queue_item, save_apply_queue
+from ..app.apply_queue import build_apply_queue, _deadline_bucket, get_current_queue_item, get_next_queue_item, save_apply_queue, queue_prepare_block_reason
 from ..ui.data_loader import (
     approve_queue_item,
     approved_queue_rows,
@@ -730,7 +731,7 @@ def _queue_sort_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def _queue_session_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     session_rows = _queue_sort_rows(rows)
-    return [row for row in session_rows if row.get("queue_status", "QUEUED") in {"QUEUED", "HOLD", "PREPARED"}]
+    return [row for row in session_rows if row.get("queue_status", "QUEUED") in {"QUEUED", "HOLD", "PREPARED"} and not queue_prepare_block_reason(row)]
 
 
 def _queue_state_label(row: dict[str, str]) -> str:
@@ -1135,7 +1136,7 @@ def _approved_queue_sort_rows(rows: list[dict[str, str]]) -> list[dict[str, str]
 
 
 def _approved_queue_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    return [row for row in rows if row.get("queue_status", "") in {"APPROVED", "PREPARED", "HOLD"}]
+    return [row for row in rows if row.get("queue_status", "") in {"APPROVED", "PREPARED", "HOLD"} and not queue_prepare_block_reason(row)]
 
 
 def _research_rows(rows: list[dict[str, str]], query: str = "", category: str = "") -> list[dict[str, str]]:
@@ -2740,10 +2741,7 @@ def create_app() -> FastAPI:
 
     @app.post("/queue/{queue_id}/prepare")
     def queue_prepare(queue_id: str, next_url: str = Form(default="/queue")) -> RedirectResponse:
-        mark_prepared(queue_id)
-        matched = next((row for row in load_apply_queue() if row.get("queue_id") == queue_id or row.get("campaign_id") == queue_id), None)
-        if matched:
-            mark_selected(matched.get("campaign_id", queue_id), reason="応募キューから準備")
+        _prepare_api_payload(queue_id)
         return RedirectResponse(url=_safe_internal_next_url(next_url, "/queue"), status_code=303)
 
     @app.post("/queue/{queue_id}/approve")
@@ -2790,11 +2788,7 @@ def create_app() -> FastAPI:
 
     @app.post("/queue/{queue_id}/chrome-prepare")
     def queue_chrome_prepare(queue_id: str, next_url: str = Form(default="/queue")) -> RedirectResponse:
-        item = _queue_item_for_id(queue_id)
-        approved = item.get("approved_by_user", "") == "true" and item.get("queue_status", "") in {"APPROVED", "PREPARED"}
-        if approved:
-            if _start_chrome_prepare(queue_id) == "started":
-                mark_prepared(queue_id)
+        _prepare_api_payload(queue_id)
         return RedirectResponse(url=_safe_internal_next_url(next_url, "/queue"), status_code=303)
 
     @app.post("/queue/{queue_id}/hold")
@@ -2939,24 +2933,12 @@ def create_app() -> FastAPI:
 
     @app.post("/queue/session/{queue_id}/prepare")
     def queue_session_prepare(queue_id: str, next_url: str = Form(default="/queue/session")) -> RedirectResponse:
-        mark_prepared(queue_id)
-        matched = next((row for row in load_apply_queue() if row.get("queue_id") == queue_id or row.get("campaign_id") == queue_id), None)
-        if matched:
-            mark_selected(matched.get("campaign_id", queue_id), reason="応募キュー連続処理から準備")
-        session_rows = _queue_session_rows(load_apply_queue())
-        next_item = get_next_queue_item(session_rows, queue_id)
-        target = _safe_internal_next_url(next_url, "/queue/session")
-        if next_item:
-            target = f"/queue/session/{next_item.get('campaign_id', queue_id)}"
-        return RedirectResponse(url=target, status_code=303)
+        _prepare_api_payload(queue_id)
+        return RedirectResponse(url=_safe_internal_next_url(next_url, "/queue/session"), status_code=303)
 
     @app.post("/queue/session/{queue_id}/chrome-prepare")
     def queue_session_chrome_prepare(queue_id: str, next_url: str = Form(default="/queue/session")) -> RedirectResponse:
-        item = _queue_item_for_id(queue_id)
-        approved = item.get("approved_by_user", "") == "true" and item.get("queue_status", "") in {"APPROVED", "PREPARED"}
-        if approved:
-            if _start_chrome_prepare(queue_id) == "started":
-                mark_prepared(queue_id)
+        _prepare_api_payload(queue_id)
         return RedirectResponse(url=_safe_internal_next_url(next_url, "/queue/session"), status_code=303)
 
     @app.post("/queue/session/prepare-all")
@@ -3019,6 +3001,7 @@ def create_app() -> FastAPI:
         if not isinstance(profile_keys, list) or not profile_keys:
             raise HTTPException(status_code=400, detail="profile_keys_required")
         try:
+            validate_extension_candidate(str(body.get("candidate_id", "") or ""))
             result = issue_extension_capability(
                 session_id=str(body.get("session_id", "") or ""),
                 candidate_id=str(body.get("candidate_id", "") or ""),
@@ -3275,20 +3258,33 @@ def create_app() -> FastAPI:
                 "fallback_command": fallback_command,
                 "fallback_help": "APPROVED 以外は prepare しません。",
             }
+        blocked_reason = queue_prepare_block_reason(item)
+        if blocked_reason:
+            return {
+                "ok": False,
+                "campaign_id": item.get("campaign_id", queue_id),
+                "campaign_name": item.get("campaign_name", ""),
+                "action": "prepare_failed",
+                "blocked_reason": blocked_reason,
+                "queue_status": item.get("queue_status", ""),
+                "message": "期限切れ、または手動送信済みのため応募準備を開始しません。",
+                "next_action": "公式情報と応募履歴を確認してください。",
+                "submitted_count_auto": 0,
+            }
         effective_allow_age_fill = allow_age_fill or item.get("age_fill_user_approved", "") == "true"
         if allow_age_fill and item.get("age_fill_user_approved", "") != "true":
             set_age_fill_user_approved(item.get("campaign_id", queue_id), True)
         launch_status = _start_chrome_prepare(queue_id, allow_age_fill=effective_allow_age_fill)
         if launch_status == "started":
-            mark_prepared(item.get("campaign_id", queue_id))
             return {
                 "ok": True,
                 "campaign_id": item.get("campaign_id", queue_id),
                 "campaign_name": item.get("campaign_name", ""),
                 "action": "prepare_started",
                 "browser": "chrome",
-                "queue_status": "PREPARED",
-                "message": "Chromeを開きました。安全な項目だけ入力補助し、入力レビューで停止しました。送信はしていません。アプリは応募送信していません。年齢・同意・クイズ・メルマガは自動操作しません。Chrome上で確認してください。",
+                "queue_status": item.get("queue_status", ""),
+                "preparation_verified": False,
+                "message": "応募準備の起動を受け付けました。入力完了はまだ確認できていません。送信はしていません。Chrome上で進行状況を確認してください。",
                 "next_action": "Chrome上で内容を確認し、送信した場合だけ『手動送信済みにする』を押してください。",
                 "submitted_count_auto": 0,
                 "fallback_command": fallback_command,
@@ -3317,6 +3313,9 @@ def create_app() -> FastAPI:
             return {"ok": False, "queue_id": queue_id, "status": "not_prepared", "submitted_count_auto": 0}
         campaigns = load_campaigns()
         campaign = next((row for row in campaigns if row.get("campaign_id") == item.get("campaign_id", queue_id)), item)
+        blocked_reason = queue_prepare_block_reason(item) or queue_prepare_block_reason(campaign)
+        if blocked_reason:
+            return {"ok": False, "queue_id": queue_id, "status": "blocked", "blocked_reason": blocked_reason, "submitted_count_auto": 0}
         return _run_auto_apply_for_campaign(campaign, run_mode=run_mode or get_run_mode(), keep_open=False)
 
     def _run_auto_apply_for_campaign(campaign: dict[str, str], run_mode: str, keep_open: bool = False) -> dict[str, object]:

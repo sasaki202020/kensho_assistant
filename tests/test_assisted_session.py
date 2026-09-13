@@ -24,6 +24,10 @@ def test_extension_capability_requires_canonical_origin_fingerprint_and_state(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.load_apply_queue",
+        lambda: [{"campaign_id": "candidate-1", "queue_status": "APPROVED", "approved_by_user": "true", "deadline": "2099-12-31"}],
+    )
+    monkeypatch.setattr(
         "kensho_assistant.app.assisted_session.ASSISTED_SESSION_STATE_JSON",
         tmp_path / "session.json",
     )

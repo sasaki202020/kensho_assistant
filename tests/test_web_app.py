@@ -608,7 +608,8 @@ def test_web_app_prepare_api_returns_json(monkeypatch) -> None:
     assert data["campaign_name"] == "テスト案件"
     assert data["action"] == "prepare_started"
     assert data["browser"] == "chrome"
-    assert data["queue_status"] == "PREPARED"
+    assert data["queue_status"] == "APPROVED"
+    assert data["preparation_verified"] is False
     assert "送信はしていません" in data["message"]
     assert "手動送信済みにする" in data["next_action"]
     assert data["fallback_command"].startswith("python -m kensho_assistant.main prepare")
@@ -693,7 +694,8 @@ def test_web_app_api_approved_prepare_returns_json(monkeypatch) -> None:
     data = response.json()
     assert response.status_code == 200
     assert data["ok"] is True
-    assert data["queue_status"] == "PREPARED"
+    assert data["queue_status"] == "APPROVED"
+    assert data["preparation_verified"] is False
     assert data["submitted_count_auto"] == 0
 
 
@@ -1058,6 +1060,10 @@ def test_extension_capability_rejects_missing_control_token_before_profile_load(
 
 
 def test_extension_capability_passes_only_requested_profile_keys(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.load_apply_queue",
+        lambda: [{"campaign_id": "candidate-1", "queue_status": "APPROVED", "approved_by_user": "true", "deadline": "2099-12-31"}],
+    )
     issued = {}
     fictional_profile = {
         "email": "fictional@example.invalid",

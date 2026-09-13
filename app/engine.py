@@ -5,7 +5,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from .apply_queue import load_apply_queue, mark_dry_run_result, mark_manual_submitted
+from .apply_queue import load_apply_queue, mark_dry_run_result, mark_manual_submitted, queue_prepare_block_reason
 from .auto_apply_engine import AutoApplyEngine
 from .browser_manager import close_browser_safely, launch_chrome_headed
 from .entry_url_resolver import target_url_for_campaign
@@ -15,11 +15,15 @@ from .profile_manager import build_profile_readiness, load_profile
 from .storage import read_csv_rows
 
 
-def _campaign_for_id(campaign_id: str) -> dict[str, str]:
+def _campaign_for_id(campaign_id: str, *, enforce_eligibility: bool = True) -> dict[str, str]:
     campaigns = read_csv_rows(CAMPAIGNS_CSV)
     queue_rows = load_apply_queue(APPLY_QUEUE_CSV)
     queue_item = next((row for row in queue_rows if row.get("campaign_id") == campaign_id or row.get("queue_id") == campaign_id), {})
     campaign = next((row for row in campaigns if row.get("campaign_id") == campaign_id), {})
+    if enforce_eligibility:
+        reason = queue_prepare_block_reason(campaign) or queue_prepare_block_reason(queue_item)
+        if reason:
+            raise ValueError(reason)
     merged = {**campaign, **queue_item}
     if not merged:
         raise ValueError(f"campaign_id not found: {campaign_id}")
@@ -33,7 +37,7 @@ def run_engine(
     keep_open: bool = False,
     campaign: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    campaign = dict(campaign) if campaign else _campaign_for_id(campaign_id)
+    campaign = dict(campaign) if campaign else _campaign_for_id(campaign_id, enforce_eligibility=run_mode != "mock")
     campaign["campaign_id"] = campaign_id
     campaign["resolved_entry_url"] = url
     return _run_campaign(campaign, run_mode=run_mode, keep_open=keep_open)
@@ -55,6 +59,7 @@ def run_prepared_campaigns_dry_run_all(status: str = "PREPARED", limit: int = 12
     rows = [
         row for row in load_apply_queue(APPLY_QUEUE_CSV)
         if row.get("queue_status", "") == status and row.get("campaign_id", "")
+        and not queue_prepare_block_reason(row)
     ][: max(limit, 0)]
     results: list[dict[str, object]] = []
     for row in rows:
@@ -90,6 +95,10 @@ def load_pre_submit_audit(campaign_id: str) -> dict[str, object]:
 
 
 def _run_campaign(campaign: dict[str, str], run_mode: str, browser: str = "chromium", keep_open: bool = False) -> dict[str, object]:
+    if run_mode != "mock":
+        reason = queue_prepare_block_reason(campaign)
+        if reason:
+            raise ValueError(reason)
     profile = load_profile()
     profile_readiness = build_profile_readiness(profile)
     campaign_id = campaign.get("campaign_id", "")

@@ -308,7 +308,9 @@ def test_apply_queue_session_helpers_and_state_updates(tmp_path: Path):
     assert any(row.get("submission_method") == "MANUAL" for row in updated)
     assert any(row.get("manual_submitted_at") for row in updated)
     approved_rows = approved_queue_rows(updated)
-    assert {row["queue_status"] for row in approved_rows} == {"PREPARED", "HOLD", "APPROVED"}
+    assert {row["queue_status"] for row in approved_rows} == {"HOLD", "APPROVED"}
+    assert {row["campaign_id"] for row in approved_rows} == {"review", "approved"}
+    assert all(not row.get("manual_submitted_at") for row in approved_rows)
     assert all(row["queue_status"] != "MANUALLY_SUBMITTED" for row in approved_rows)
 
 

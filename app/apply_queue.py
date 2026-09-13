@@ -78,46 +78,46 @@ def _deadline_bucket(text: str, today: date | None = None) -> tuple[int, str]:
         return 3, "期限不明"
     if any(keyword in value for keyword in ("期限切れ", "締切終了", "終了")):
         return 4, "期限切れ"
+    date_pattern = (
+        r"(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)"
+        r"|(?<!\d)(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日"
+    )
+    matches = list(re.finditer(date_pattern, value))
+    if matches:
+        # Only an explicit interval identifies which of two dates is the deadline.
+        if len(matches) > 1 and (
+            len(matches) != 2
+            or not re.fullmatch(r"\s*(?:[~～〜–—-]|から)\s*", value[matches[0].end():matches[1].start()])
+        ):
+            return 3, "期限不明"
+        try:
+            dates = []
+            inherited_year = reference_date.year
+            for match in matches:
+                groups = match.groups()
+                year, month, day = groups[:3] if groups[0] else groups[3:]
+                inherited_year = int(year or inherited_year)
+                dates.append(date(inherited_year, int(month), int(day)))
+            if len(dates) == 2 and dates[1] < dates[0]:
+                return 3, "期限不明"
+            delta = (dates[-1] - reference_date).days
+            if delta < 0:
+                return 4, "期限切れ"
+            if delta == 0:
+                return 0, "今日まで"
+            if delta == 1:
+                return 1, "明日まで"
+            if delta <= 7:
+                return 2, "今週まで"
+            return 3, "期限不明"
+        except ValueError:
+            return 3, "期限不明"
     if any(keyword in value for keyword in ("今日まで", "本日まで", "本日中", "本日締切", "当日", "今日")):
         return 0, "今日まで"
     if any(keyword in value for keyword in ("明日まで", "明日中", "明日締切")):
         return 1, "明日まで"
     if any(keyword in value for keyword in ("今週まで", "今週中", "週末まで")):
         return 2, "今週まで"
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
-        try:
-            dt = datetime.strptime(value, fmt).date()
-            delta = (dt - reference_date).days
-            if delta < 0:
-                return 4, "期限切れ"
-            if delta == 0:
-                return 0, "今日まで"
-            if delta == 1:
-                return 1, "明日まで"
-            if delta <= 7:
-                return 2, "今週まで"
-            return 3, "期限不明"
-        except ValueError:
-            continue
-    japanese_date = re.search(r"(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日", value)
-    if japanese_date:
-        explicit_year, month, day = japanese_date.groups()
-        try:
-            dt = date(int(explicit_year or reference_date.year), int(month), int(day))
-            if not explicit_year and (reference_date - dt).days > 180:
-                dt = date(reference_date.year + 1, int(month), int(day))
-            delta = (dt - reference_date).days
-            if delta < 0:
-                return 4, "期限切れ"
-            if delta == 0:
-                return 0, "今日まで"
-            if delta == 1:
-                return 1, "明日まで"
-            if delta <= 7:
-                return 2, "今週まで"
-            return 3, "期限不明"
-        except ValueError:
-            pass
     return 3, "期限不明"
 
 
@@ -158,6 +158,15 @@ def _is_manual_submission_recorded(row: dict[str, str]) -> bool:
         or row.get("submission_method", "").strip().upper() == "MANUAL"
         or row.get("queue_status", "") == "MANUALLY_SUBMITTED"
     )
+
+
+def queue_prepare_block_reason(row: dict[str, str]) -> str:
+    """Recheck saved candidates without rewriting their history or status."""
+    if _is_manual_submission_recorded(row):
+        return "already_manually_submitted"
+    if _deadline_bucket(row.get("deadline", ""))[0] == 4:
+        return "campaign_expired"
+    return ""
 
 
 def build_apply_queue(
@@ -550,6 +559,7 @@ def approved_queue_rows(rows: Iterable[dict[str, str]] | None = None) -> list[di
         row
         for row in queue_rows
         if row.get("queue_status", "") in {"APPROVED", "PREPARED", "HOLD"}
+        and not queue_prepare_block_reason(row)
     ]
 
 
@@ -558,7 +568,7 @@ def approved_queue_pending_rows(rows: Iterable[dict[str, str]] | None = None) ->
     return [
         row
         for row in queue_rows
-        if row.get("queue_status", "") not in {"MANUALLY_SUBMITTED", "SKIPPED", "BLOCKED"} and not _is_manual_submission_recorded(row)
+        if row.get("queue_status", "") not in {"MANUALLY_SUBMITTED", "SKIPPED", "BLOCKED"} and not queue_prepare_block_reason(row)
     ]
 
 

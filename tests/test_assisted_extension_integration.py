@@ -98,6 +98,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
             "resolved_entry_url": target,
         }
         monkeypatch.setattr(session, "approved_queue_rows", lambda rows=None: [candidate])
+        monkeypatch.setattr(session, "load_apply_queue", lambda: [candidate])
         monkeypatch.setattr(session, "target_url_for_campaign", lambda row: row["resolved_entry_url"])
         def local_only(url):
             assert url == target

@@ -81,6 +81,7 @@ from .app.apply_queue import (
     build_apply_queue,
     build_apply_queue_report,
     _deadline_bucket,
+    queue_prepare_block_reason,
     mark_prepare_cancelled,
     mark_prepared,
     load_apply_queue,
@@ -494,7 +495,6 @@ def cmd_fill(args: argparse.Namespace) -> int:
 
 def cmd_prepare(args: argparse.Namespace) -> int:
     ensure_runtime_dirs()
-    profile = _load_profile_or_fail()
     if not args.require_user_approved:
         print("この案件は承認済み応募キュー専用です。--require-user-approved を付けてください。")
         return 1
@@ -506,6 +506,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     campaign = selected[0]
     queue_rows = {row.get("campaign_id", ""): row for row in read_csv_rows(APPLY_QUEUE_CSV)}
     queue_item = queue_rows.get(args.campaign_id, {})
+    blocked_reason = queue_prepare_block_reason(queue_item) or queue_prepare_block_reason(campaign)
+    if blocked_reason:
+        print(f"prepare blocked: {blocked_reason}")
+        print("submitted_count_auto: 0")
+        return 1
     if queue_item.get("approved_by_user", "") != "true" or queue_item.get("queue_status", "") not in {"APPROVED", "PREPARED"}:
         print("この案件は承認済みではありません。先に応募候補に承認してください。")
         return 1
@@ -517,6 +522,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         print(f"この案件は応募準備対象外です: {campaign.get('form_readiness_reason', '') or 'inspect-form required'}")
         return 1
     original_queue_status = queue_item.get("queue_status", "APPROVED")
+    profile = _load_profile_or_fail()
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:
@@ -598,6 +604,7 @@ def cmd_prepare_all(args: argparse.Namespace) -> int:
         if str(row.get("queue_status", "")).strip().upper() in requested_statuses
         and str(row.get("approved_by_user", "")).strip().lower() == "true"
         and str(row.get("campaign_id", "")).strip()
+        and not queue_prepare_block_reason(row)
     ]
     if args.limit:
         approved_rows = approved_rows[: max(int(args.limit), 0)]
@@ -899,7 +906,6 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
 def cmd_auto_apply(args: argparse.Namespace) -> int:
     ensure_runtime_dirs()
     run_mode = normalize_run_mode(args.run_mode or get_run_mode())
-    profile = _load_profile_or_fail()
     campaigns = _campaign_rows()
     selected = _campaigns_by_id(campaigns, args.campaign_id)
     if not selected:
@@ -909,9 +915,14 @@ def cmd_auto_apply(args: argparse.Namespace) -> int:
     if run_mode != "mock":
         queue_rows = {row.get("campaign_id", ""): row for row in read_csv_rows(APPLY_QUEUE_CSV)}
         queue_item = queue_rows.get(args.campaign_id, {})
+        blocked_reason = queue_prepare_block_reason(queue_item) or queue_prepare_block_reason(campaign)
+        if blocked_reason:
+            print(f"応募準備を開始しません: {blocked_reason}")
+            return 1
         if queue_item.get("queue_status", "") not in {"APPROVED", "PREPARED"}:
             print("dry_run/review は APPROVED または PREPARED の候補だけ実行します。")
             return 1
+    profile = _load_profile_or_fail()
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:

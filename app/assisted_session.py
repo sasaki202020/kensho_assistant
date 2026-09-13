@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
-from .apply_queue import _deadline_bucket, approved_queue_rows, mark_hold, mark_manual_submitted, mark_skipped
+from .apply_queue import _deadline_bucket, approved_queue_rows, load_apply_queue, mark_hold, mark_manual_submitted, mark_skipped, queue_prepare_block_reason
 from .auto_apply_engine import AutoApplyEngine
 from .browser_manager import (
     clear_extension_control_token as clear_browser_extension_control_token,
@@ -221,6 +221,22 @@ def extension_bridge_status() -> dict[str, object]:
     }
 
 
+def validate_extension_candidate(candidate_id: str) -> None:
+    """Revalidate saved eligibility after the human mapping wait, before PII access."""
+    try:
+        rows = [row for row in load_apply_queue() if row.get("campaign_id") == candidate_id]
+    except (OSError, ValueError):
+        raise ValueError("candidate_storage_unavailable") from None
+    if len(rows) != 1:
+        raise ValueError("candidate_missing" if not rows else "candidate_ambiguous")
+    row = rows[0]
+    reason = queue_prepare_block_reason(row)
+    if reason:
+        raise ValueError(reason)
+    if row.get("approved_by_user") != "true" or row.get("queue_status") not in {"APPROVED", "PREPARED"}:
+        raise ValueError("candidate_not_approved")
+
+
 def issue_extension_capability(
     *,
     session_id: str,
@@ -261,6 +277,7 @@ def issue_extension_capability(
     approved_keys = state.get("confirmed_profile_keys", [])
     if not isinstance(approved_keys, list) or not set(keys).issubset(approved_keys):
         raise ValueError("invalid_capability_payload")
+    validate_extension_candidate(candidate_id)
     payload: dict[str, str] = {}
     for key in keys:
         value = profile.get(key, "")
@@ -974,6 +991,7 @@ def _load_session_candidates(status_filter: str, limit: int) -> list[dict[str, s
         if str(row.get("queue_status", "")).strip().upper() in statuses
         and str(row.get("approved_by_user", "")).strip().lower() == "true"
         and str(row.get("campaign_id", "")).strip()
+        and not queue_prepare_block_reason(row)
     ]
     candidates = sorted(candidates, key=_session_sort_key)
     return candidates[: max(int(limit), 0)]
@@ -1317,20 +1335,21 @@ def run_assisted_application_session(
                 candidate_id = candidate_ids[index - 1]
                 candidate_queue_rows = {row.get("campaign_id", ""): row for row in approved_queue_rows()}
                 campaign = candidate_queue_rows.get(candidate_id, {})
-                if not campaign:
+                block_reason = queue_prepare_block_reason(campaign) if campaign else "candidate_missing"
+                if block_reason:
                     session_state.update(
                         status="STOPPED",
                         status_label=SESSION_STATUS_LABELS["STOPPED"],
                         final_status="STOPPED",
-                        current_step="candidate_missing",
+                        current_step=block_reason,
                         current_index=index,
                         next_candidate_index=index,
                         current_campaign_id=candidate_id,
                         current_campaign_name="",
                         current_queue_status="",
-                        message="候補が途中で削除されたため安全のため停止しました。",
-                        last_action="CANDIDATE_MISSING",
-                        last_reason="candidate removed",
+                        message="候補が削除されたか、期限切れ・手動送信済みになったため安全停止しました。",
+                        last_action="CANDIDATE_UNAVAILABLE",
+                        last_reason=block_reason,
                         session_finished_at=_now_iso(),
                         finished_at=_now_iso(),
                         candidate_finished_at=_now_iso(),
