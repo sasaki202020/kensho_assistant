@@ -31,6 +31,8 @@ def candidate(**changes):
     "締切: 2000.01.01 17:00",
     "2000-01-01（本日中）",
     "2000年1月1日（明日まで）",
+    "2000/01/01 詳細説明 締切: 1月1日 17:00（残り6日）",
+    "2000-01-01 / 2000-01-01 / 2000-01-01",
 ])
 def test_deadline_text_does_not_hide_expired_absolute_date(deadline):
     assert apply_queue._deadline_bucket(deadline, today=date(2026, 9, 13))[0] == 4

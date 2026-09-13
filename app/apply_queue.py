@@ -84,12 +84,6 @@ def _deadline_bucket(text: str, today: date | None = None) -> tuple[int, str]:
     )
     matches = list(re.finditer(date_pattern, value))
     if matches:
-        # Only an explicit interval identifies which of two dates is the deadline.
-        if len(matches) > 1 and (
-            len(matches) != 2
-            or not re.fullmatch(r"\s*(?:[~～〜–—-]|から)\s*", value[matches[0].end():matches[1].start()])
-        ):
-            return 3, "期限不明"
         try:
             dates = []
             inherited_year = reference_date.year
@@ -98,7 +92,12 @@ def _deadline_bucket(text: str, today: date | None = None) -> tuple[int, str]:
                 year, month, day = groups[:3] if groups[0] else groups[3:]
                 inherited_year = int(year or inherited_year)
                 dates.append(date(inherited_year, int(month), int(day)))
-            if len(dates) == 2 and dates[1] < dates[0]:
+            # Repeated identical dates agree; distinct dates need an explicit interval.
+            if len(set(dates)) > 1 and (
+                len(dates) != 2
+                or not re.fullmatch(r"\s*(?:[~～〜–—-]|から)\s*", value[matches[0].end():matches[1].start()])
+                or dates[1] < dates[0]
+            ):
                 return 3, "期限不明"
             delta = (dates[-1] - reference_date).days
             if delta < 0:
