@@ -258,38 +258,62 @@ def launch_dedicated_kensho_context(
 
 
 def dedicated_extension_page_state(page, *, require_ready: bool = False) -> dict[str, object]:
+    inspection_failed = False
     try:
-        page.wait_for_function(
-            "() => document.documentElement.dataset.kenshoExtensionReady === 'true'",
-            timeout=5_000,
+        try:
+            page.wait_for_function(
+                "() => document.documentElement.dataset.kenshoExtensionReady === 'true'",
+                timeout=5_000,
+            )
+        except AttributeError:
+            pass
+        state = page.evaluate(
+            """() => ({
+              ready: document.documentElement.dataset.kenshoExtensionReady === 'true',
+              panel_count: document.querySelectorAll('[data-kensho-extension-root="true"]').length,
+              extension_id: document.querySelector('[data-kensho-extension-root="true"]')
+                ?.getAttribute('data-kensho-extension-id') || '',
+              submit_guard_count: document.documentElement.dataset.kenshoSubmitGuard === 'true' ? 1 : 0,
+              guard_state: window.__KENSHO_SUBMIT_GUARD__?.state?.() || null
+            })"""
         )
-    except AttributeError:
-        pass
+        if not isinstance(state, dict):
+            state = {}
+            inspection_failed = True
     except Exception:
-        if require_ready:
-            raise RuntimeError("dedicated_extension_not_ready")
-    state = page.evaluate(
-        """() => ({
-          ready: document.documentElement.dataset.kenshoExtensionReady === 'true',
-          panel_count: document.querySelectorAll('[data-kensho-extension-root="true"]').length,
-          extension_id: document.querySelector('[data-kensho-extension-root="true"]')
-            ?.getAttribute('data-kensho-extension-id') || '',
-          submit_guard_count: document.documentElement.dataset.kenshoSubmitGuard === 'true' ? 1 : 0,
-          guard_state: window.__KENSHO_SUBMIT_GUARD__?.state?.() || null
-        })"""
-    )
-    guard_state = state.pop("guard_state", None) or {}
-    state["submitted_count_auto"] = int(guard_state.get("submitted_count_auto", 0) or 0)
-    state["auto_submit_detected"] = int(guard_state.get("blockedAttempts", 0) or 0)
+        # Page exceptions may include page content. Never expose them in diagnostics.
+        state = {}
+        inspection_failed = True
+    guard_state = state.pop("guard_state", None)
+    if not isinstance(guard_state, dict):
+        guard_state = {}
+    for output_key, guard_key in (
+        ("submitted_count_auto", "submitted_count_auto"),
+        ("auto_submit_detected", "blockedAttempts"),
+    ):
+        value = guard_state.get(guard_key)
+        state[output_key] = value if type(value) is int and value >= 0 else None
+    state["guard_verified"] = all(
+        guard_state.get(key) is True
+        for key in ("locked", "integrity", "installedAtDocumentStart")
+    ) and all(state[key] is not None for key in ("submitted_count_auto", "auto_submit_detected"))
     valid = (
-        state.get("ready") is True
+        not inspection_failed
+        and state.get("ready") is True
         and state.get("panel_count") == 1
         and state.get("submit_guard_count") == 1
+        and state["guard_verified"]
         and state.get("submitted_count_auto") == 0
         and state.get("auto_submit_detected") == 0
     )
+    if inspection_failed:
+        state["blocked_reason"] = "guard_inspection_failed"
+    elif not state["guard_verified"]:
+        state["blocked_reason"] = "guard_state_unverified"
+    elif not valid:
+        state["blocked_reason"] = "dedicated_extension_not_ready"
     if require_ready and not valid:
-        raise RuntimeError("dedicated_extension_not_ready")
+        raise RuntimeError("dedicated_extension_not_ready") from None
     state["status"] = "PASS" if valid else "BLOCKED"
     return state
 
