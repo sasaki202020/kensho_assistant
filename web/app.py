@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable, Mapping
 import ipaddress
 import os
 import re
@@ -1602,7 +1603,16 @@ async def _request_payload(request: Request) -> dict[str, object]:
     return {str(key): value for key, value in form.items()}
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    profile_loader: Callable[[], Mapping[str, object]] | None = None,
+) -> FastAPI:
+    """Build the local web app.
+
+    ``profile_loader`` is an in-process dependency seam for fixture tests. It
+    is never selected from an HTTP request; production callers omit it and
+    use the real encrypted-profile loader imported above.
+    """
     app = FastAPI(title="懸賞応募アシスタント Web UI")
     app.add_middleware(
         CORSMiddleware,
@@ -1614,6 +1624,7 @@ def create_app() -> FastAPI:
     app.state.templates = templates
     app.state.web_host = WEB_HOST
     app.state.web_port = WEB_PORT
+    app.state.profile_loader = profile_loader if profile_loader is not None else load_profile
     app.mount("/static", StaticFiles(directory=str(APP_DIR.parent / "web" / "static")), name="static")
 
     @app.middleware("http")
@@ -3007,7 +3018,7 @@ def create_app() -> FastAPI:
                 candidate_id=str(body.get("candidate_id", "") or ""),
                 origin=str(body.get("origin", "") or ""),
                 fingerprint=str(body.get("fingerprint", "") or ""),
-                profile=load_profile(),
+                profile=request.app.state.profile_loader(),
                 profile_keys=[str(item) for item in profile_keys],
             )
         except ValueError as exc:

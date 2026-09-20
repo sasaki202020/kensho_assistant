@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
@@ -99,15 +100,41 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
 
                 page = context.pages[0] if context.pages else context.new_page()
                 external_requests: list[str] = []
+                sentinel_network_leak = 0
+                extension_non_loopback_requests = 0
 
                 def record_request(request) -> None:
-                    if not (
-                        request.url.startswith("http://127.0.0.1:")
-                        or request.url.startswith("chrome-extension://")
-                    ):
-                        external_requests.append(request.url)
+                    nonlocal sentinel_network_leak, extension_non_loopback_requests
+                    request_url = str(request.url or "")
+                    try:
+                        request_body = str(request.post_data or "")
+                    except Exception:
+                        request_body = ""
+                    if marker in request_url or marker in request_body:
+                        # Count only; never retain the URL or body containing the sentinel.
+                        sentinel_network_leak += 1
+                    parsed = urlsplit(request_url)
+                    is_loopback = parsed.hostname in {"127.0.0.1", "::1"}
+                    is_extension = parsed.scheme == "chrome-extension"
+                    if not is_loopback and not is_extension:
+                        external_requests.append("<external-request>")
+                        try:
+                            has_frame = request.frame is not None
+                        except Exception:
+                            has_frame = False
+                        if not has_frame:
+                            extension_non_loopback_requests += 1
 
-                page.on("request", record_request)
+                def record_websocket(websocket) -> None:
+                    def record_sent_frame(payload) -> None:
+                        nonlocal sentinel_network_leak
+                        if marker in str(payload or ""):
+                            sentinel_network_leak += 1
+
+                    websocket.on("framesent", record_sent_frame)
+
+                context.on("request", record_request)
+                page.on("websocket", record_websocket)
                 registration_deadline = time.monotonic() + 10
                 while time.monotonic() < registration_deadline:
                     registered_count = worker.evaluate(
@@ -323,6 +350,8 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                             max_guard_count == 1,
                             unapproved_origin_injections == 0,
                             not external_requests,
+                            sentinel_network_leak == 0,
+                            extension_non_loopback_requests == 0,
                         ]
                     )
                     else "FAIL",
@@ -345,6 +374,8 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                     ],
                     "session_cleared": session_cleared,
                     "external_requests": len(external_requests),
+                    "sentinel_network_leak": sentinel_network_leak,
+                    "extension_non_loopback_requests": extension_non_loopback_requests,
                 }
             finally:
                 context.close()

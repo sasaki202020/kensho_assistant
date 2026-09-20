@@ -2,6 +2,12 @@
 
 この手順はローカルfixture合格後のPhase A・1サイト確認用である。架空プロフィールだけを使い、最終送信は行わない。本人プロフィールを使うPhase Bとは同じ試行にしない。
 
+ローカルfixtureの合格結果には、通常のページ通信件数とは別に、
+`sentinel_network_leak=0`（センチネルを含むrequest本文・URL・WebSocket送信フレームなし）と
+`extension_non_loopback_requests=0`（Service Worker由来の非loopback通信なし）を含める。
+本文・URL・フレーム内容は証跡へ保存しない。計測不能な通信経路は0ではなく未確認として扱い、
+実サイト入力へ進まない。
+
 ## 事前条件
 
 1. ブランチとcommit SHAを記録する。

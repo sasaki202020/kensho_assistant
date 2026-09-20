@@ -1109,6 +1109,64 @@ def test_extension_capability_passes_only_requested_profile_keys(monkeypatch) ->
     assert issued["profile"] is fictional_profile
 
 
+def test_extension_capability_uses_explicit_fixture_profile_loader(monkeypatch) -> None:
+    global_profile_loads = []
+    fixture_profile_loads = []
+    fixture_profile = {"email": "fixture-only@example.invalid"}
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_profile",
+        lambda: global_profile_loads.append(True) or {"email": "real-profile-must-not-load"},
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.load_assisted_session_state",
+        lambda: {
+            "workflow_state": "MAPPING_CONFIRMED",
+            "session_id": "session-1",
+            "active_candidate_id": "candidate-1",
+            "extension_id": "a" * 32,
+        },
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.validate_extension_control_token",
+        lambda _session_id, _token: None,
+    )
+    monkeypatch.setattr(
+        "kensho_assistant.web.app.validate_extension_candidate",
+        lambda _candidate_id: None,
+    )
+    issued = {}
+
+    def fake_issue(**kwargs):
+        issued.update(kwargs)
+        return {"host": "127.0.0.1", "port": 45678, "submitted_count_auto": 0}
+
+    monkeypatch.setattr("kensho_assistant.web.app.issue_extension_capability", fake_issue)
+
+    def fixture_profile_loader():
+        fixture_profile_loads.append(True)
+        return fixture_profile
+
+    app = create_app(profile_loader=fixture_profile_loader)
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        response = client.post(
+            "/api/session/extension-capability",
+            headers={"Origin": f"chrome-extension://{'a' * 32}"},
+            json={
+                "session_id": "session-1",
+                "candidate_id": "candidate-1",
+                "origin": "https://example.invalid",
+                "fingerprint": "fingerprint-1",
+                "profile_keys": ["email"],
+                "control_token": "fixture-control-token",
+            },
+        )
+
+    assert response.status_code == 200
+    assert issued["profile"] is fixture_profile
+    assert fixture_profile_loads == [True]
+    assert global_profile_loads == []
+
+
 def test_extension_progress_is_loopback_bound_and_pii_free(monkeypatch) -> None:
     recorded = {}
 

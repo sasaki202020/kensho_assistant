@@ -152,3 +152,18 @@ git diff --check
 
 ここまでで合格したのはローカル安全修正である。実サイトのセンチネル入力・通信漏洩検査・
 rollback・残存検査は未実施であり、`REAL_SITE_NON_SUBMIT_PASS`ではない。
+
+## 2026-09-20 検証プロフィール境界と通信計測
+
+拡張機能capabilityのローカルfixtureは、`web.create_app(profile_loader=...)`で明示的な
+インプロセスfixtureローダーを渡せる。HTTP payloadからプロフィール供給元を選ぶ経路はなく、
+引数を省略した通常アプリは従来どおり暗号化プロフィールのローダーを使う。統合テストでは
+実プロフィールローダーを呼ぶと失敗するようにして、架空プロフィールだけでbridgeの往復を確認する。
+
+`scripts/run_extension_local_smoke.py`は、入力値を保存せずに、request本文・URL・WebSocket送信フレームに
+fixtureセンチネルが含まれた回数を`sentinel_network_leak`として計測する。また、frameを持たない
+拡張機能由来の非loopback通信を`extension_non_loopback_requests`として別計測する。いずれも
+ローカルfixtureでは0でなければPASSにしない。
+
+今回の変更で確認するのはローカルfixtureの境界だけであり、実サイトの入力・通信監視・rollback・
+残存検査を完了したことを意味しない。

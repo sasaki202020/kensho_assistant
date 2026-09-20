@@ -25,4 +25,6 @@ def test_local_smoke_runs_without_toolbar_or_external_site() -> None:
         "submitted_count_auto": 0,
         "session_cleared": True,
         "external_requests": 0,
+        "sentinel_network_leak": 0,
+        "extension_non_loopback_requests": 0,
     }

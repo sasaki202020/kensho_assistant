@@ -62,7 +62,11 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
     def dummy_profile():
         profile_loads.append(True)
         return dict(profile)
-    monkeypatch.setattr(web, "load_profile", dummy_profile)
+    monkeypatch.setattr(
+        web,
+        "load_profile",
+        lambda: pytest.fail("real profile loader must not run in fixture integration"),
+    )
     # Normal history must never be touched, even if a regression takes a wrong branch.
     def forbidden_history(*_args, **_kwargs):
         raise AssertionError("normal candidate/history write attempted")
@@ -83,7 +87,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
             consume(**kwargs)
         return result
     monkeypatch.setattr(session._EXTENSION_BRIDGE, "consume", observe_consume)
-    app = web.create_app()
+    app = web.create_app(profile_loader=dummy_profile)
     @app.middleware("http")
     async def observe_api(request, call_next):
         response = await call_next(request)
