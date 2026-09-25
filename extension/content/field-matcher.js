@@ -65,6 +65,24 @@
     "アンケート",
   ];
 
+  const AUTOCOMPLETE_FIELDS = Object.freeze({
+    name: "full_name", "family-name": "last_name", "given-name": "first_name",
+    email: "email", tel: "phone", "postal-code": "postal_code",
+    "address-level1": "prefecture", "address-level2": "city",
+    "address-line1": "street", "address-line2": "building",
+    bday: "birth_date", "bday-year": "birth_year", "bday-month": "birth_month",
+    "bday-day": "birth_day", sex: "gender",
+  });
+
+  function autocompleteField(value) {
+    const tokens = String(value || "").trim().toLowerCase().split(/\s+/);
+    if (tokens[0]?.startsWith("section-")) tokens.shift();
+    if (["shipping", "billing"].includes(tokens[0])) tokens.shift();
+    if (["home", "work", "mobile", "fax", "pager"].includes(tokens[0])) tokens.shift();
+    if (tokens[tokens.length - 1] === "webauthn") tokens.pop();
+    return tokens.length === 1 ? AUTOCOMPLETE_FIELDS[tokens[0]] : undefined;
+  }
+
   function normalized(metadata) {
     return [
       metadata.type,
@@ -137,18 +155,7 @@
         );
       }
     }
-    const birthdayAutocomplete = {
-      bday: "birth_date",
-      "bday-year": "birth_year",
-      "bday-month": "birth_month",
-      "bday-day": "birth_day",
-    };
-    const autocompleteMatches = autocomplete.startsWith("bday")
-      ? birthdayAutocomplete[autocomplete] === fieldType
-      : (fieldType === "full_name" && autocomplete === "name") ||
-        SIGNALS[fieldType].some((signal) =>
-          autocomplete.includes(signal.toLowerCase())
-        );
+    const autocompleteMatches = autocompleteField(autocomplete) === fieldType;
     if (autocomplete && autocompleteMatches) {
       score = Math.max(score, 0.99);
       reasons.push("autocomplete");
@@ -198,7 +205,12 @@
       score = Math.max(score, 0.97);
       reasons.push("select_options");
     }
-    return { score: Math.min(score, 0.99), reasons };
+    const supportedEvidence = reasons.some((reason) => [
+      "exact_label", "exact_aria_label", "exact_name_review", "autocomplete",
+      "table_group_label", "input_type", "split_phone_name", "split_postal_name",
+      "select_options",
+    ].includes(reason));
+    return { score: Math.min(score, supportedEvidence ? 0.99 : 0.74), reasons };
   }
 
   function matchField(metadata) {

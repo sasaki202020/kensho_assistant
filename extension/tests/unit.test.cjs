@@ -1,6 +1,28 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+test("autocomplete tokens distinguish full names, split birthdays and unsupported parts", () => {
+  const {matchField} = require("../content/field-matcher.js");
+  for (const [autocomplete, expected] of [
+    ["section-entry shipping name", "full_name"],
+    ["section-entry bday-year", "birth_year"],
+    ["section-entry bday-month", "birth_month"],
+    ["section-entry bday-day", "birth_day"],
+  ]) {
+    const result = matchField({type: "text", autocomplete});
+    assert.equal(result.fieldType, expected);
+    assert.ok(result.confidence >= 0.95);
+  }
+  const partial = matchField({type: "text", autocomplete: "tel-national"});
+  assert.ok(partial.confidence < 0.75);
+});
+
+test("placeholder synonyms alone never authorize a mapping", () => {
+  const {matchField} = require("../content/field-matcher.js");
+  const result = matchField({type: "text", placeholder: "address-line1 street 住所 番地 町名"});
+  assert.ok(result.confidence < 0.75);
+});
+
 test("extension identity messages are stable and PII-free", () => {
   const messages = require("../shared/messages.js");
   delete global.chrome;

@@ -152,7 +152,22 @@
 
   function sendMessage(message) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage(message, (response) => resolve(response || {}));
+      let settled = false;
+      const finish = (response) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(response || {});
+      };
+      const timer = setTimeout(() => finish({ok: false}), 5000);
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) finish({ok: false});
+          else finish(response);
+        });
+      } catch (_error) {
+        finish({ok: false});
+      }
     });
   }
 
@@ -548,6 +563,19 @@
       setStatus("確認済みの欄対応が必要・実PIIは取得していません", true);
       return;
     }
+    let currentFingerprint = null;
+    try {
+      currentFingerprint = root.KenshoExtension.FormDetector.fingerprint(document);
+    } catch (_error) {
+      // Missing or unreadable structure is never evidence of a matching form.
+    }
+    if (!currentFingerprint || currentFingerprint !== analysis?.formFingerprint) {
+      templateState = "changed";
+      previewResult = null;
+      fillButton.disabled = true;
+      setStatus("フォーム変更・欄対応を再解析して確認してください", true);
+      return;
+    }
     let bridgeStatus = await sendMessage({type: "GET_BRIDGE_CAPABILITY_STATUS"});
     if (!bridgeStatus?.available) {
       const requested = await sendMessage({
@@ -570,21 +598,32 @@
       fingerprint: analysis.formFingerprint,
     });
     if (workerEpoch && response.workerEpoch !== workerEpoch) {
+      response.profile = null;
       stopped = true;
       setStatus("Service Worker再起動・安全停止", true);
       return;
     }
     if (!response.ok || !response.profile) {
+      response.profile = null;
       setStatus("一時プロフィール未設定", true);
       return;
     }
-    const filled = await root.KenshoExtension.FormFiller.fillAndVerify(
-      previewResult,
-      response.profile,
-      analysis,
-      {templateApproved: templateState === "matched", mappingDecisions}
-    );
-    response.profile = null;
+    let filled;
+    try {
+      filled = await root.KenshoExtension.FormFiller.fillAndVerify(
+        previewResult,
+        response.profile,
+        analysis,
+        {templateApproved: templateState === "matched", mappingDecisions}
+      );
+    } catch (_error) {
+      filled = {
+        status: "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED",
+        filledCount: 0,
+      };
+    } finally {
+      response.profile = null;
+    }
     host.setAttribute(
       "data-kensho-verification",
       JSON.stringify(filled.verification || {})

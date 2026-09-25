@@ -160,6 +160,17 @@
     }
   }
 
+  function matchingSelectOption(element, value) {
+    if (element.multiple) return null;
+    const matches = Array.from(element.options || []).filter((option) =>
+      option.value === String(value) ||
+      String(option.textContent || "").trim() === String(value)
+    );
+    if (matches.length !== 1) return null;
+    const option = matches[0];
+    return option.disabled || option.parentElement?.disabled ? null : option;
+  }
+
   function setElementValue(element, value, emitEvents = false) {
     if (!originals.has(element)) {
       originals.set(element, {
@@ -189,11 +200,7 @@
       if (String(element.value) !== String(value) && !matchedByLabel) return false;
       element.checked = true;
     } else if (tagName === "select") {
-      const matchingOption = Array.from(element.options || []).find(
-        (option) =>
-          option.value === String(value) ||
-          String(option.textContent || "").trim() === String(value)
-      );
+      const matchingOption = matchingSelectOption(element, value);
       if (!matchingOption) return false;
       element.value = matchingOption.value;
     } else {
@@ -341,6 +348,9 @@
 
   function currentFingerprint() {
     const detector = root.KenshoExtension.FormDetector;
+    if (detector?.fingerprint && root.KenshoExtension.FormFingerprint) {
+      return detector.fingerprint(document);
+    }
     return detector?.scan ? detector.scan(document).formFingerprint : "";
   }
 
@@ -348,21 +358,26 @@
 
   function rollback(emitEvents = true) {
     let restoredCount = 0;
+    let rollbackComplete = true;
     for (const [element, original] of originals.entries()) {
-      const setter = nativeValueSetter(element);
-      if (setter) setter.call(element, original.value);
-      else element.value = original.value;
-      if ("checked" in element) element.checked = original.checked;
-      if (emitEvents) dispatchInputEvents(element);
-      restoredCount += 1;
+      try {
+        const setter = nativeValueSetter(element);
+        if (setter) setter.call(element, original.value);
+        else element.value = original.value;
+        if ("checked" in element) element.checked = original.checked;
+        if (emitEvents) dispatchInputEvents(element);
+        restoredCount += 1;
+      } catch (_error) {
+        rollbackComplete = false;
+      }
     }
     originals.clear();
-    return {restoredCount, rollbackComplete: true, submitted_count_auto: 0};
+    return {restoredCount, rollbackComplete, submitted_count_auto: 0};
   }
 
   async function rollbackAndVerify(snapshot) {
     const result = rollback(false);
-    let restoreFailed = false;
+    let restoreFailed = !result.rollbackComplete;
     for (const before of snapshot || []) {
       try {
         restoreSnapshotControl(before, true);
@@ -382,7 +397,13 @@
     const currentControls = Array.from(document.querySelectorAll("input,select,textarea"));
     const addedControlCount = currentControls.filter((element) => !snapshotElements.has(element)).length;
     const missingControlCount = (snapshot || []).filter((before) => !before.element?.isConnected).length;
-    const incomplete = (snapshot || []).some((before) => !snapshotStateMatches(before));
+    const incomplete = (snapshot || []).some((before) => {
+      try {
+        return !snapshotStateMatches(before);
+      } catch (_error) {
+        return true;
+      }
+    });
     result.addedControlCount = addedControlCount;
     result.missingControlCount = missingControlCount;
     result.rollbackComplete =
@@ -439,6 +460,8 @@
     const snapshot = controlSnapshot();
     lastFillSnapshot = snapshot;
     let filledCount = 0;
+    const targetIds = new Set();
+    const expectedSelections = new Map();
     for (const item of previewResult?.items || []) {
       const decision = mappingDecisions[item.fieldId];
       if (item.fillAllowed === false && decision?.action !== "approve") continue;
@@ -447,6 +470,13 @@
       if (!element || element.disabled || element.readOnly) continue;
       const value = valueForItem(item, profile);
       if (value === undefined || value === "") continue;
+      targetIds.add(item.fieldId);
+      if (String(element.tagName).toLowerCase() === "select") {
+        const option = matchingSelectOption(element, value);
+        if (option) expectedSelections.set(item.fieldId, {
+          option, value: option.value, text: option.textContent,
+        });
+      }
       if (!setElementValue(element, value, true)) {
         return {
           status: "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED",
@@ -457,15 +487,6 @@
       }
       filledCount += 1;
     }
-    const targetIds = new Set(
-      (previewResult?.items || [])
-        .filter(
-          (item) =>
-            item.fillAllowed !== false ||
-            mappingDecisions[item.fieldId]?.action === "approve"
-        )
-        .map((item) => item.fieldId)
-    );
     const itemElements = new Map(
       [...targetIds]
         .map((fieldId) => [
@@ -486,6 +507,14 @@
       if (!targetIds.has(item.fieldId)) return false;
       const element = itemElements.get(item.fieldId);
       if (!element) return true;
+      if (String(element.tagName).toLowerCase() === "select") {
+        const expected = expectedSelections.get(item.fieldId);
+        return !expected || element.value !== expected.value ||
+          element.selectedOptions.length !== 1 ||
+          element.selectedOptions[0] !== expected.option ||
+          expected.option.textContent !== expected.text ||
+          expected.option.disabled || Boolean(expected.option.parentElement?.disabled);
+      }
       const expected = String(valueForItem(item, profile) ?? "");
       if (String(element.type || "").toLowerCase() === "radio") return !element.checked;
       return String(element.value) !== expected;

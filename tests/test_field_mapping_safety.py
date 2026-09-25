@@ -16,6 +16,61 @@ def _load_scripts(page, *relative_paths: str) -> None:
         page.add_script_tag(path=EXTENSION / relative_path)
 
 
+@pytest.mark.parametrize("option_case", ["label", "disabled", "disabled_group", "duplicate", "reset", "repeat"])
+def test_select_uses_unique_enabled_option_and_verifies_internal_value(browser_page, option_case) -> None:
+    browser_page.set_content('''<form>
+      <label for="pref">都道府県</label>
+      <select id="pref" autocomplete="address-level1">
+        <option value="">選択してください</option>
+        <option value="13">東京都</option><option value="27">大阪府</option>
+      </select><button type="submit">応募する</button></form>''')
+    _load_scripts(browser_page, "shared/config.js", "shared/redaction.js",
+                  "shared/normalization.js", "shared/form-fingerprint.js",
+                  "content/field-matcher.js", "content/form-detector.js", "content/form-filler.js")
+    result = browser_page.evaluate('''async optionCase => {
+      const select = document.querySelector('#pref');
+      if (optionCase === 'disabled') select.options[1].disabled = true;
+      if (optionCase === 'disabled_group') {
+        const group = document.createElement('optgroup'); group.disabled = true;
+        select.append(group); group.append(select.options[1]);
+      }
+      if (optionCase === 'duplicate') select.add(new Option('東京都', 'other'));
+      if (optionCase === 'reset') select.addEventListener('change', () => {select.value = '27';});
+      let changes = 0;
+      select.addEventListener('input', () => {changes++;});
+      const api = window.KenshoExtension;
+      const analysis = api.FormDetector.scan(document);
+      const profile = {prefecture: '東京都'};
+      const decisions = Object.fromEntries(analysis.fields.map(f =>
+        [f.fieldId, {action: 'approve', profileKey: f.fieldType}]));
+      const preview = api.FormFiller.previewMasked(analysis, {prefecture: '***'},
+        {templateApproved: true, mappingDecisions: decisions});
+      let filled = await api.FormFiller.fillAndVerify(preview, profile, analysis,
+        {templateApproved: true, mappingDecisions: decisions});
+      if (optionCase === 'repeat') {
+        const first = await api.FormFiller.rollbackAndVerifyLast();
+        if (!first.rollbackComplete) throw new Error('first_rollback_failed');
+        filled = await api.FormFiller.fillAndVerify(preview, profile, analysis,
+          {templateApproved: true, mappingDecisions: decisions});
+      }
+      const inputEvents = changes;
+      const correctValue = select.value === '13';
+      const rolled = await api.FormFiller.rollbackAndVerifyLast();
+      return {filled, correctValue, inputEvents, rolled, restored: select.value === ''};
+    }''', option_case)
+    if option_case in {"label", "repeat"}:
+        assert result["filled"]["status"] == "POST_FILL_VERIFICATION_PASSED"
+        assert result["filled"]["filledCount"] == 1
+        assert result["correctValue"] is True
+    else:
+        assert result["filled"]["status"] == "POST_FILL_VERIFICATION_FAILED_ROLLBACK_REQUIRED"
+        if option_case != "reset":
+            assert result["inputEvents"] == 0
+    assert result["rolled"]["rollbackComplete"] is True
+    assert result["restored"] is True
+    assert result["filled"]["submitted_count_auto"] == 0
+
+
 @pytest.fixture()
 def browser_page():
     sync_api = pytest.importorskip("playwright.sync_api")
@@ -24,6 +79,64 @@ def browser_page():
         page = browser.new_page()
         yield page
         browser.close()
+
+
+def test_contest_comparison_fixture_preserves_manual_fields_and_never_submits(browser_page) -> None:
+    """Exercise AutoContest-style hazards through our existing browser adapter."""
+    requests = []
+    browser_page.on("request", lambda request: requests.append(request.method))
+    browser_page.set_content('''
+      <form id="search"><input type="search" name="q"><button>Search</button></form>
+      <form id="entry">
+        <label>Email<input id="email" type="email" autocomplete="email"></label>
+        <label>都道府県<select id="pref" autocomplete="address-level1">
+          <option value="">Choose</option><option value="13">東京都</option>
+          <option value="27">大阪府</option></select></label>
+        <input type="hidden" name="nonce" value="fixture-nonce">
+        <label>同意<input id="consent" type="checkbox"></label>
+        <label>賞品<select id="prize"><option value="">Choose</option>
+          <option value="prize">Prize</option></select></label>
+        <label>応募理由<textarea id="reason"></textarea></label>
+        <input id="unknown" name="unclassified">
+        <button type="submit">Submit</button>
+      </form>''')
+    _load_scripts(browser_page, "content/submit-guard.js", "content/isolated-guard.js",
+                  "shared/config.js", "shared/redaction.js", "shared/normalization.js",
+                  "shared/form-fingerprint.js", "content/field-matcher.js",
+                  "content/form-detector.js", "content/form-filler.js")
+    result = browser_page.evaluate('''async () => {
+      const api = window.KenshoExtension;
+      const controls = Array.from(document.querySelectorAll('input,select,textarea'));
+      const state = () => controls.map(e => [e.value, e.checked, e.selectedIndex]);
+      const before = JSON.stringify(state());
+      let submits = 0;
+      document.addEventListener('submit', () => {submits++;});
+      const analysis = api.FormDetector.scan(document);
+      const decisions = Object.fromEntries(analysis.fields
+        .filter(f => ['email', 'prefecture'].includes(f.fieldType))
+        .map(f => [f.fieldId, {action: 'approve', profileKey: f.fieldType}]));
+      const preview = api.FormFiller.previewMasked(analysis,
+        {email: '***', prefecture: '***'}, {templateApproved: true, mappingDecisions: decisions});
+      const filled = await api.FormFiller.fillAndVerify(preview,
+        {email: 'comparison@example.invalid', prefecture: '東京都'}, analysis,
+        {templateApproved: true, mappingDecisions: decisions});
+      const manualUnchanged = !document.querySelector('#consent').checked &&
+        ['prize', 'reason', 'unknown'].every(id => document.getElementById(id).value === '') &&
+        document.querySelector('[name=nonce]').value === 'fixture-nonce' &&
+        document.querySelector('[name=q]').value === '';
+      const rolled = await api.FormFiller.rollbackAndVerifyLast();
+      return {status: filled.status, verification: {details: filled.verification, items: preview.items.map(i => [i.fieldId, i.fieldType, i.fillAllowed])}, count: filled.filledCount, manualUnchanged,
+        rolledBack: rolled.rollbackComplete, restored: JSON.stringify(state()) === before,
+        submits, submitted_count_auto: filled.submitted_count_auto,
+        searchExcluded: !analysis.fields.some(f => f.name === 'q')};
+    }''')
+    verification = result.pop("verification")
+    assert result == {
+        "status": "POST_FILL_VERIFICATION_PASSED", "count": 2,
+        "manualUnchanged": True, "rolledBack": True, "restored": True,
+        "submits": 0, "submitted_count_auto": 0, "searchExcluded": True,
+    }, verification
+    assert requests == []
 
 
 def test_first_seen_form_requires_explicit_mapping_before_real_fill(browser_page) -> None:

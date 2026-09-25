@@ -167,3 +167,42 @@ fixtureセンチネルが含まれた回数を`sentinel_network_leak`として�
 
 今回の変更で確認するのはローカルfixtureの境界だけであり、実サイトの入力・通信監視・rollback・
 残存検査を完了したことを意味しない。
+
+## 2026-09-21 入力精度と復旧性の補完
+
+既存のassisted_sessionと拡張機能を維持し、新しい応募エンジンは追加しない。
+OSS比較の採否は `OSS_FORM_ASSIST_ADOPTION.md` に記録する。外部コードの実行や依存追加はない。
+
+今回の修正:
+
+- autocompleteの完全なtokenで項目を判定し、placeholderの類語だけで高信頼にしない。
+- selectの表示名と内部値を区別し、曖昧・無効な選択肢は入力しない。
+- 入力後検証では実際に入力した欄と未入力欄を区別する。プロフィールに値がない欄は未変更を検証する。
+- 入力後fingerprint確認で要素参照を作り直さず、ロールバック後の再入力を壊さない。
+- 入力直前の構造変更は、プロフィール取得前に停止する。
+- 入力例外時にプロフィール応答の参照を破棄し、検証付きロールバックを行う。
+- worker通信の例外・無応答でもローカル復元を実施する。復元または正本への報告が未確認なら停止する。
+- 個別欄の復元失敗で他の欄の復元を中断しない。復元不完全を成功扱いしない。
+
+REDは入力例外・worker例外・無応答・復元例外の4ケース、および構造変更・再入力の2ケースで確認した。
+ローカルUI試験は通信境界とguard通知をfixture化するため、それ単独で実拡張や実サイトの合格とはしない。
+実ブリッジ・Chrome拡張ローカルスモークは全体テストで別に検証する。
+
+次のゲートは引き続きPhase 5Aである。試験対象の明示、初回欄対応の本人確認、
+clean buildの固定、実プロフィール・通常履歴から隔離した実行経路を揃え、
+1サイトの入力・rollback・session clear・通信と残存検査を実測する。
+今回のローカル改善だけで `REAL_SITE_NON_SUBMIT_PASS` や製品完成とは判定しない。
+
+検証結果:
+
+- フォーム・拡張UI関連: 60 passed。
+- 全Python: 604 passed / 0 failed、416.34秒。依存ライブラリの非推奨警告2件。
+- Node拡張: 41 passed / 0 failed。
+- Chrome拡張ローカルスモーク: 全体テスト内でPASS。
+- Web smoke: `WEB_SMOKE_TEST_OK`。
+- P1 preflight: `READY_FOR_5_SITE_PILOT`。storage分離・PII検査・状態不変・guard検査はtrue、
+  `submitted_count_auto=0`、trace/screenshotはDISABLED。
+- compileall、`git diff --check`: 成功。
+- 作業対象: `codex/high-value-kensho-v1`、基準HEAD `290ee69efe8e0e4f9866f917f1573c9a696bc9db`。
+  今回の変更は未commitで、固定済みpilot buildではない。push・実サイト入力・応募送信は未実施。
+- 公開キャンペーンページの読み取り確認は行ったが、実プロフィールは読んでいない。

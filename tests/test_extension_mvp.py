@@ -588,6 +588,7 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
         browser_page,
         "shared/field-types.js",
         "shared/redaction.js",
+        "shared/normalization.js",
         "shared/form-fingerprint.js",
         "content/field-matcher.js",
         "content/form-detector.js",
@@ -606,6 +607,10 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
     assert "pii-test@example.invalid" not in panel_text
     assert "***@***" in panel_text
     panel.locator("#fill").click()
+    browser_page.wait_for_function(
+        """() => document.querySelector('#kensho-assistant-overlay-host')
+          ?.shadowRoot.querySelector('#status').textContent.includes('入力済み（')"""
+    )
     assert browser_page.locator('input[name="email"]').input_value() == "pii-test@example.invalid"
     panel.locator("#clear").click()
     assert browser_page.locator('input[name="email"]').input_value() == ""
@@ -614,6 +619,97 @@ def test_overlay_preview_fill_and_session_clear(browser_page) -> None:
           ?.getAttribute('data-kensho-status') === 'blocked'"""
     )
     assert panel.get_attribute("data-kensho-status") == "blocked"
+
+
+@pytest.mark.parametrize("failure", ["fill_exception", "runtime_exception", "runtime_timeout", "restore_exception", "form_changed"])
+def test_overlay_failure_restores_values_or_reports_incomplete_without_leaking(browser_page, failure) -> None:
+    browser_page.set_content('''<form>
+      <label>Email<input id="email" type="email" autocomplete="email"></label>
+      <label>Phone<input id="phone" type="tel" autocomplete="tel"></label>
+      <button type="submit">Submit</button></form>''')
+    errors = []
+    browser_page.on("pageerror", lambda error: errors.append(type(error).__name__))
+    browser_page.evaluate('''() => {
+      window.failureMode = '';
+      window.profileResponse = null;
+      window.chrome = {runtime: {
+        id: 'fixture-extension', getManifest: () => ({version: '0.2.0'}),
+        sendMessage(message, callback) {
+          if (message.type === 'REPORT_EXTENSION_PROGRESS' && message.event === 'rollback_required') {
+            if (window.failureMode === 'runtime_exception') throw new Error('PRIVATE_EXCEPTION_SENTINEL');
+            if (window.failureMode === 'runtime_timeout') return;
+          }
+          if (message.type === 'GET_SESSION_STATUS') callback({ok: true, workerEpoch: 'fixture'});
+          else if (message.type === 'GET_FORM_TEMPLATE') callback({ok: true, matched: false});
+          else if (message.type === 'SAVE_FORM_TEMPLATE') callback({ok: true, saved: true});
+          else if (message.type === 'GET_BRIDGE_CAPABILITY_STATUS') callback({ok: true, available: true});
+          else if (message.type === 'CONSUME_BRIDGE_PROFILE') {
+            window.profileResponse = {ok: true, workerEpoch: 'fixture',
+              profile: {email: 'recovery@example.invalid', phone: '00000000000'}};
+            callback(window.profileResponse);
+          } else callback({ok: true});
+        }
+      }};
+      document.addEventListener('kensho-guard-status-request', () => {
+        document.dispatchEvent(new CustomEvent('kensho-guard-status', {
+          detail: {integrity: true, installedAtDocumentStart: true}}));
+      });
+    }''')
+    _load_scripts(browser_page, "shared/config.js", "shared/field-types.js", "shared/redaction.js",
+                  "shared/normalization.js", "shared/form-fingerprint.js", "content/field-matcher.js",
+                  "content/form-detector.js", "content/form-filler.js", "content/overlay.js")
+    panel = browser_page.locator("#kensho-assistant-overlay-host")
+    panel.locator("#analyze").click()
+    panel.locator("#preview-button").click()
+    buttons = panel.locator('button[data-kensho-mapping-action="approve"]')
+    while buttons.count():
+        buttons.first.click()
+    panel.locator("#save-template").click()
+    browser_page.evaluate('''mode => {
+      window.failureMode = mode;
+      if (mode === 'form_changed') document.querySelector('#email').required = true;
+      if (mode === 'fill_exception') {
+        const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+        Object.defineProperty(HTMLInputElement.prototype, 'value', {...native, set(value) {
+          if (this.id === 'phone' && value) throw new Error('PRIVATE_EXCEPTION_SENTINEL');
+          native.set.call(this, value);
+        }});
+      }
+    }''', failure)
+    panel.locator("#fill").click()
+    if failure == "form_changed":
+        browser_page.wait_for_function('''() =>
+          document.querySelector('#kensho-assistant-overlay-host').shadowRoot
+            .querySelector('#status').textContent.includes('フォーム変更')''', timeout=2000)
+        assert browser_page.evaluate("window.profileResponse === null")
+        assert browser_page.locator("#email").input_value() == ""
+        assert browser_page.locator("#phone").input_value() == ""
+        assert errors == []
+        return
+    if failure != "fill_exception":
+        browser_page.wait_for_function("() => document.querySelector('#email').value !== ''")
+        if failure == "restore_exception":
+            browser_page.evaluate('''() => {
+              const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+              Object.defineProperty(HTMLInputElement.prototype, 'value', {...native, set(value) {
+                if (this.id === 'phone' && value === '') throw new Error('PRIVATE_EXCEPTION_SENTINEL');
+                native.set.call(this, value);
+              }});
+            }''')
+        panel.locator("#rollback").click()
+    browser_page.wait_for_function('''() =>
+      document.querySelector('#kensho-assistant-overlay-host')?.shadowRoot
+        .querySelector('#status').textContent.includes('ロールバック')''', timeout=10000)
+    assert browser_page.locator("#email").input_value() == ""
+    if failure == "restore_exception":
+        assert "不完全" in panel.locator("#status").inner_text()
+    else:
+        assert browser_page.locator("#phone").input_value() == ""
+    assert errors == []
+    assert browser_page.evaluate("window.profileResponse.profile === null")
+    text = panel.evaluate("host => host.shadowRoot.textContent")
+    assert "PRIVATE_EXCEPTION_SENTINEL" not in text
+    assert "recovery@example.invalid" not in text
 
 
 def test_overlay_expands_combined_name_before_requesting_bridge_profile(browser_page) -> None:
