@@ -267,6 +267,109 @@ def end_pilot_session() -> None:
     bridge.stop()
 
 
+def confirm_pilot_mapping(
+    context,
+    page,
+    *,
+    extension_id: str,
+    expected_url: str,
+    approved_profile_keys: list[str],
+) -> dict[str, object]:
+    """Reach MAPPING_CONFIRMED for the locked pilot candidate only.
+
+    The pilot counterpart of the ``mapping_confirmed`` branch of
+    ``run_assisted_application_session``.  It never reads the saved queue:
+    the candidate is the one locked by ``lock_pilot_candidate``.  The
+    extension's human-confirmed template must bind exactly the keys the
+    human approved per field; anything else raises before a control token
+    (and therefore any capability) can exist.
+    """
+    with _STATE_LOCK:
+        if _PILOT_STORAGE is None or _PILOT_CANDIDATE is None:
+            raise PilotIsolationError("pilot_candidate_not_locked")
+        candidate = str(_PILOT_CANDIDATE["candidate_id"])
+    approved = sorted({str(key or "").strip() for key in approved_profile_keys})
+    if not approved or "" in approved or any(key not in ALLOWED_PAYLOAD_KEYS for key in approved):
+        raise PilotIsolationError("pilot_mapping_keys_invalid")
+    state = load_assisted_session_state()
+    session_id = str(state.get("session_id", "") or "")
+    if (
+        not session_id
+        or str(state.get("active_candidate_id", "") or "") != candidate
+        or str(state.get("workflow_state", "") or "").upper() != "CANDIDATE_LOCKED"
+        or str(state.get("current_url", "") or "") != str(expected_url or "")
+    ):
+        raise PilotIsolationError("pilot_session_binding_mismatch")
+    validate_extension_candidate(candidate)
+    binding = confirmed_extension_mapping(context, page, str(extension_id or ""), expected_url)
+    if sorted(binding.get("profile_keys", [])) != approved:
+        raise PilotIsolationError("pilot_mapping_keys_not_human_approved")
+    for event in ("page_opened", "submit_guard_ready", "form_analyzed",
+                  "mapping_review_required", "mapping_confirmed"):
+        state = _workflow_event(state, event, session_id=session_id, candidate_id=candidate)
+    state.update(
+        extension_id=str(extension_id or ""),
+        form_fingerprint=str(binding["fingerprint"]),
+        confirmed_profile_keys=approved,
+        status="FILLING",
+        status_label=SESSION_STATUS_LABELS["FILLING"],
+        current_step="extension_fill",
+        final_status="MAPPING_CONFIRMED",
+        message="架空値限定pilot: 本人が欄ごとに承認した項目だけを入力します。",
+        submitted_count_auto=0,
+    )
+    save_assisted_session_state(state)
+    control_token = register_extension_control_token(session_id)
+    provision_extension_control_token(
+        context,
+        session_id,
+        control_token,
+        str(extension_id or ""),
+        binding=binding,
+        expected_url=str(expected_url or ""),
+    )
+    return {"fingerprint": str(binding["fingerprint"]), "profile_keys": approved}
+
+
+def release_pilot_candidate() -> dict[str, object]:
+    """Release the single pilot lock; a non-terminal workflow ends FAILED_SAFE."""
+    global _PILOT_CANDIDATE
+    with _STATE_LOCK:
+        if _PILOT_STORAGE is None:
+            raise PilotIsolationError("pilot_storage_inactive")
+        pilot = _PILOT_CANDIDATE
+        state = load_assisted_session_state()
+        if pilot is None:
+            return state
+        candidate = str(pilot["candidate_id"])
+        session_id = str(state.get("session_id", "") or "")
+        workflow = str(state.get("workflow_state", "") or "").upper()
+        if workflow not in TERMINAL_WORKFLOW_STATES:
+            try:
+                state = _workflow_event(
+                    state, "failed_safe", session_id=session_id, candidate_id=candidate
+                )
+            except InvalidSessionTransition:
+                state["workflow_state"] = "FAILED_SAFE"
+        if str(state.get("active_candidate_id", "") or "") == candidate:
+            state = _SESSION_STATE_MACHINE.release_candidate(state, candidate)
+        now = _now_iso()
+        state.update(
+            status="STOPPED",
+            status_label=SESSION_STATUS_LABELS["STOPPED"],
+            final_status="PILOT_RELEASED",
+            current_step="pilot_candidate_released",
+            message="架空値限定・非送信pilotを終了し、候補ロックを解除しました。",
+            candidate_finished_at=now,
+            session_finished_at=now,
+            finished_at=now,
+            submitted_count_auto=0,
+        )
+        save_assisted_session_state(state)
+        _PILOT_CANDIDATE = None
+        return state
+
+
 COMPLETION_TERMS = (
     "応募完了",
     "受付完了",

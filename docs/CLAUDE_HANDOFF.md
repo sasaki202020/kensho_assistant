@@ -1,6 +1,6 @@
 # Claude handoff: non-submit real-site pilot
 
-Updated: 2026-09-28 JST
+Updated: 2026-09-30 JST
 
 ## Source of truth
 
@@ -33,3 +33,18 @@ No candidate lock, profile consumption, live form fill, rollback, session clear,
 5. Recheck the campaign period and conditions. Present the actual field mapping without values and obtain per-field human confirmation. Broad permission is not a mapping decision. Fill only approved fields with unique fake sentinels, verify every change, roll back, clear the session, check residue and traffic, and release the pilot lock.
 
 Stop after Phase 5A. Do not use the real profile or begin a real submission as part of this handoff. Do not mark an unmeasured metric as zero or claim a pilot pass from local smoke tests.
+
+## Status 2026-09-30 (branch `claude/pilot-phase5a-integration`)
+
+The browser stage of `pilot-nonsubmit` is implemented and passes against local fixtures only
+(`tests/test_pilot_nonsubmit_e2e.py`: real headless Chromium, real dedicated build, real pilot web app).
+Command, manifest format, per-field mapping policy, undetectable-field policy and the evidence schema are in
+[EXTENSION_REAL_SITE_TEST_RUNBOOK.md](EXTENSION_REAL_SITE_TEST_RUNBOOK.md). Finding: before this change the
+extension Service Worker traffic was invisible to Playwright, so earlier `extension_non_loopback_requests=0`
+values (including the 2026-09-26 read-only diagnostic) were not measurements.
+
+No real-site Phase 5A run has happened. `REAL_SITE_NON_SUBMIT_PASS` has **not** been achieved.
+Next: merge/freeze the commit, build with `py -3.13 -m kensho_assistant.scripts.build_dedicated_extension`,
+stop the resident web app, recheck one candidate's official conditions, then run
+`py -3.13 -m kensho_assistant.main pilot-nonsubmit --manifest data/pilot/manifests/<id>.json` once with
+per-field human confirmation. Do not proceed to Phase 5B.

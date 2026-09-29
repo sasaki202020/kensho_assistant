@@ -12,17 +12,24 @@ Safety contract:
   exclusively first; if a resident app owns it, the pilot refuses to start.
   It then verifies that the server answering on the port is this run's pilot
   app (``pilot_run_id``) before any capability could be issued.
-- Browser launch and network monitoring are not integrated yet; see
-  ``pilot_browser_and_monitor_stage``.  No final-submit path exists here.
+- ``run_pilot_nonsubmit(..., phase5a=Phase5AConfig(...))`` (the CLI path)
+  first verifies a clean git worktree and the dedicated extension build
+  against its source, then runs the browser stage in
+  ``app/pilot_browser_stage.py`` and writes a value-free
+  ``data/pilot/runs/<run>/result.json``.  Without ``phase5a`` the legacy
+  default hook ``pilot_browser_and_monitor_stage`` stops before the browser.
+  No final-submit path exists here.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import re
 import secrets
 import socket
 import string
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -90,6 +97,10 @@ class PilotServerMismatchError(PilotError):
     """The server answering on the pilot port is not this run's pilot app."""
 
 
+class PilotPreconditionError(PilotError):
+    """Phase 5A preconditions (clean commit, verified build) are not met."""
+
+
 @dataclass(frozen=True)
 class PilotNonsubmitManifest:
     candidate_id: str
@@ -141,7 +152,8 @@ def _parse_date(value: object, name: str) -> date:
 def _origin_of(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
     host = (parsed.hostname or "").lower()
-    port = f":{parsed.port}" if parsed.port and parsed.port != 443 else ""
+    default_port = 443 if parsed.scheme == "https" else 80
+    port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
     return f"{parsed.scheme}://{host}{port}"
 
 
@@ -150,8 +162,13 @@ def validate_pilot_nonsubmit_manifest(
     *,
     today: date | None = None,
     approved_origins_path: Path | None = None,
+    allow_loopback_http: bool = False,
 ) -> PilotNonsubmitManifest:
-    """Strictly validate a single-candidate manifest. Error messages carry no values."""
+    """Strictly validate a single-candidate manifest. Error messages carry no values.
+
+    ``allow_loopback_http`` is an in-process test seam for local fixtures: it
+    admits ``http://127.0.0.1:<port>`` only.  The CLI never sets it.
+    """
     from ..scripts.build_dedicated_extension import load_approved_origins
 
     if not isinstance(data, dict):
@@ -176,8 +193,13 @@ def validate_pilot_nonsubmit_manifest(
         parsed.port  # noqa: B018 - raises on an invalid port
     except ValueError:
         raise PilotManifestError("manifest_invalid_url") from None
+    loopback_fixture = (
+        allow_loopback_http is True
+        and parsed.scheme == "http"
+        and parsed.hostname == "127.0.0.1"
+    )
     if (
-        parsed.scheme != "https"
+        (parsed.scheme != "https" and not loopback_fixture)
         or not parsed.hostname
         or parsed.username
         or parsed.password
@@ -233,13 +255,17 @@ def load_pilot_nonsubmit_manifest(
     *,
     today: date | None = None,
     approved_origins_path: Path | None = None,
+    allow_loopback_http: bool = False,
 ) -> PilotNonsubmitManifest:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise PilotManifestError("manifest_unreadable") from None
     return validate_pilot_nonsubmit_manifest(
-        data, today=today, approved_origins_path=approved_origins_path
+        data,
+        today=today,
+        approved_origins_path=approved_origins_path,
+        allow_loopback_http=allow_loopback_http,
     )
 
 
@@ -335,6 +361,181 @@ def _cleared_profile_loader() -> Mapping[str, object]:
     raise assisted_session.PilotIsolationError("fake_profile_cleared")
 
 
+# ------------------------------------------------------------------ Phase 5A
+
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+PASS_LABELS = {
+    "real_site": "REAL_SITE_NON_SUBMIT_PASS",
+    "loopback_fixture": "LOCAL_FIXTURE_NON_SUBMIT_PASS",
+}
+
+
+@dataclass(frozen=True)
+class Phase5AConfig:
+    """Browser-stage settings for one Phase 5A run.
+
+    The CLI sets only ``confirmer`` (interactive, per field) and
+    ``allow_undetectable``.  ``browser_args``, ``allow_loopback_http_for_tests``,
+    ``git_root``/``project_root`` overrides and short quiet periods are
+    in-process test seams for local fixtures.
+    """
+
+    confirmer: Callable[[Mapping[str, object]], bool] | None = None
+    allow_undetectable: bool = False
+    project_root: Path = paths.PACKAGE_ROOT
+    git_root: Path | None = None
+    runtime_profiles_root: Path | None = None
+    headless: bool = False
+    quiet_min_seconds: float = 30.0
+    quiet_seconds: float = 2.0
+    browser_args: tuple[str, ...] = ()
+    allow_loopback_http_for_tests: bool = False
+    output: Callable[..., None] | None = None
+
+
+def _file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        raise PilotPreconditionError("precondition_file_unreadable") from None
+
+
+def git_worktree_state(root: Path) -> dict[str, object]:
+    """HEAD and cleanliness (tracked and untracked, ignoring .gitignore'd files)."""
+
+    def git(*args: str) -> str:
+        try:
+            done = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True, text=True, timeout=60, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            raise PilotPreconditionError("git_unavailable") from None
+        if done.returncode != 0:
+            raise PilotPreconditionError("git_state_unreadable")
+        return done.stdout
+
+    head = git("rev-parse", "HEAD").strip()
+    if not _COMMIT_RE.fullmatch(head):
+        raise PilotPreconditionError("git_head_unreadable")
+    dirty = bool(git("status", "--porcelain", "--untracked-files=all").strip())
+    return {"commit": head, "worktree_clean": not dirty}
+
+
+def verify_phase5a_preconditions(
+    config: Phase5AConfig, manifest_path: Path, approved_origins_path: Path
+) -> dict[str, object]:
+    """Clean worktree + dedicated build verified against its source (no rebuild)."""
+    from .browser_manager import verify_dedicated_extension_build
+
+    git_state = git_worktree_state(Path(config.git_root or config.project_root))
+    if not git_state["worktree_clean"]:
+        raise PilotPreconditionError("worktree_not_clean")
+    try:
+        verified = verify_dedicated_extension_build(
+            project_root=Path(config.project_root),
+            approved_origins_path=Path(approved_origins_path),
+        )
+    except Exception:
+        raise PilotPreconditionError("dedicated_extension_build_unverified") from None
+    return {
+        "commit": git_state["commit"],
+        "worktree_clean": True,
+        "extension_build_sha256": str(verified["build_sha256"]),
+        "extension_version": str(verified["version"]),
+        "config_sha256": _file_sha256(approved_origins_path),
+        "manifest_sha256": _file_sha256(manifest_path),
+    }
+
+
+def _post_run_invariants(
+    config: Phase5AConfig, pre: Mapping[str, object], approved_origins_path: Path, manifest_path: Path
+) -> dict[str, bool]:
+    from .browser_manager import verify_dedicated_extension_build
+
+    result = {
+        "commit_unchanged": False,
+        "worktree_clean": False,
+        "extension_build_unchanged": False,
+        "config_unchanged": False,
+        "manifest_unchanged": False,
+    }
+    try:
+        git_state = git_worktree_state(Path(config.git_root or config.project_root))
+        result["commit_unchanged"] = git_state["commit"] == pre["commit"]
+        result["worktree_clean"] = bool(git_state["worktree_clean"])
+    except PilotError:
+        pass
+    try:
+        verified = verify_dedicated_extension_build(
+            project_root=Path(config.project_root),
+            approved_origins_path=Path(approved_origins_path),
+        )
+        result["extension_build_unchanged"] = verified["build_sha256"] == pre["extension_build_sha256"]
+    except Exception:
+        pass
+    try:
+        result["config_unchanged"] = _file_sha256(approved_origins_path) == pre["config_sha256"]
+        result["manifest_unchanged"] = _file_sha256(manifest_path) == pre["manifest_sha256"]
+    except PilotError:
+        pass
+    return result
+
+
+def normal_store_paths() -> list[Path]:
+    """Normal (non-pilot) stores; read before the pilot storage switch."""
+    return [
+        Path(paths.APPLY_QUEUE_CSV),
+        Path(paths.ENTRY_HISTORY_DIR),
+        Path(assisted_session.ASSISTED_SESSION_STATE_JSON),
+        Path(assisted_session.REAL_SITE_TRIALS_JSONL),
+        Path(assisted_session.REAL_SITE_TRIAL_STEPS_JSONL),
+    ]
+
+
+def phase5a_overall(evidence: Mapping[str, object]) -> str:
+    """PASS only when every metric is exactly PASS/0; UNVERIFIED never passes."""
+    steps = dict(evidence.get("steps", {}) or {})
+    statuses = list(steps.values())
+    monitor = evidence.get("monitor", {}) or {}
+    residue = evidence.get("residue", {}) or {}
+    hashes = evidence.get("normal_store_hashes", {}) or {}
+    post = evidence.get("post_fill", {}) or {}
+    if (
+        "FAIL" in statuses
+        or monitor.get("status") == "FAIL"
+        or residue.get("status") == "FAIL"
+        or hashes.get("identical") is not True
+    ):
+        return "FAIL"
+    if "STOPPED" in statuses or evidence.get("stop_reason"):
+        return "STOPPED"
+    exact = (
+        bool(statuses)
+        and all(status == "PASS" for status in statuses)
+        and not evidence.get("failure_reasons")
+        and monitor.get("status") == "PASS"
+        and monitor.get("sentinel_network_leak") == 0
+        and monitor.get("extension_non_loopback_requests") == 0
+        and monitor.get("undetectable_fields_count") == 0
+        and residue.get("status") == "PASS"
+        and residue.get("total") == 0
+        and post.get("submitted_count_auto") == 0
+        and post.get("auto_submit_detected") == 0
+        and evidence.get("submitted_count_auto") == 0
+        and all((evidence.get("invariants_after") or {"_": False}).values())
+    )
+    if exact:
+        return PASS_LABELS.get(str(evidence.get("target_kind")), "UNVERIFIED")
+    return "UNVERIFIED"
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp.replace(path)
+
+
 def run_pilot_nonsubmit(
     manifest_path: Path,
     *,
@@ -342,14 +543,41 @@ def run_pilot_nonsubmit(
     today: date | None = None,
     approved_origins_path: Path | None = None,
     browser_hook: Callable[[PilotRunContext], Mapping[str, object] | None] | None = None,
+    phase5a: Phase5AConfig | None = None,
 ) -> dict[str, object]:
-    """Run the isolated pilot up to the browser stage. Returns a non-PII summary."""
+    """Run the isolated pilot. Returns a non-PII summary.
+
+    With ``phase5a`` (the CLI path) the run verifies preconditions before
+    binding anything, performs the browser stage and writes a value-free
+    ``result.json`` into the run directory.
+    """
+    if phase5a is not None:
+        if browser_hook is not None:
+            raise PilotError("browser_hook_and_phase5a_are_exclusive")
+        if approved_origins_path is None:
+            approved_origins_path = Path(phase5a.project_root) / "config" / "approved_origins.json"
     manifest = load_pilot_nonsubmit_manifest(
-        manifest_path, today=today, approved_origins_path=approved_origins_path
+        manifest_path,
+        today=today,
+        approved_origins_path=approved_origins_path,
+        allow_loopback_http=bool(phase5a is not None and phase5a.allow_loopback_http_for_tests),
     )
+    pre: dict[str, object] = {}
+    normal_paths: list[Path] = []
+    normal_before: dict[str, str] = {}
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if phase5a is not None:
+        from .pilot_residue import snapshot_sha256
+
+        if assisted_session.pilot_storage_active() is not None:
+            raise PilotPreconditionError("pilot_storage_already_active")
+        pre = verify_phase5a_preconditions(phase5a, Path(manifest_path), Path(approved_origins_path))
+        normal_paths = normal_store_paths()
+        normal_before = snapshot_sha256(normal_paths)
     sock = reserve_pilot_socket(PILOT_WEB_HOST, port)
     fake: FakeProfile | None = None
     app = None
+    stage_evidence: dict[str, object] = {}
     try:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_name = f"nonsubmit-{stamp}-{secrets.token_hex(4)}"
@@ -380,9 +608,17 @@ def run_pilot_nonsubmit(
                 fake_profile=fake,
                 app=app,
             )
-            stage = (browser_hook or pilot_browser_and_monitor_stage)(context) or {}
+            if phase5a is not None:
+                from .pilot_browser_stage import run_browser_stage
+
+                stage_evidence = run_browser_stage(
+                    context, phase5a, pre, approved_origins_path=Path(approved_origins_path)
+                )
+                stage = {"browser_stage": "PHASE5A"}
+            else:
+                stage = (browser_hook or pilot_browser_and_monitor_stage)(context) or {}
         browser_stage = str(stage.get("browser_stage", "") or "UNKNOWN")
-        return {
+        summary: dict[str, object] = {
             "status": "STOPPED_BEFORE_BROWSER" if browser_stage == "NOT_INTEGRATED" else "STAGE_RETURNED",
             "run_dir": str(storage.run_dir),
             "pilot_run_id": pilot_run_id,
@@ -402,3 +638,70 @@ def run_pilot_nonsubmit(
         if assisted_session.pilot_storage_active() is not None:
             assisted_session.end_pilot_session()
         sock.close()
+    if phase5a is None:
+        return summary
+    return _finalize_phase5a(
+        summary=summary,
+        stage_evidence=stage_evidence,
+        pre=pre,
+        config=phase5a,
+        manifest=manifest,
+        manifest_path=Path(manifest_path),
+        approved_origins_path=Path(approved_origins_path),
+        normal_paths=normal_paths,
+        normal_before=normal_before,
+        run_dir=Path(storage.run_dir),
+        run_name=run_name,
+        started_at=started_at,
+    )
+
+
+def _finalize_phase5a(
+    *, summary, stage_evidence, pre, config, manifest, manifest_path, approved_origins_path,
+    normal_paths, normal_before, run_dir, run_name, started_at,
+) -> dict[str, object]:
+    from .pilot_residue import compare_sha256_snapshots, snapshot_sha256
+
+    hashes = compare_sha256_snapshots(normal_before, snapshot_sha256(normal_paths))
+    invariants = _post_run_invariants(config, pre, approved_origins_path, manifest_path)
+    steps = {"preconditions": "PASS", **dict(stage_evidence.get("steps", {}) or {})}
+    steps["normal_store_hashes"] = "PASS" if hashes["identical"] else "FAIL"
+    steps["invariants"] = "PASS" if all(invariants.values()) else "FAIL"
+    host = urllib.parse.urlsplit(manifest.url).hostname or ""
+    evidence: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "pilot_nonsubmit_phase5a",
+        "run_name": run_name,
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "target_kind": "loopback_fixture" if host == "127.0.0.1" else "real_site",
+        "candidate_id": manifest.candidate_id,
+        "origin": manifest.origin,
+        "url": manifest.url,
+        "commit": pre["commit"],
+        "worktree_clean": pre["worktree_clean"],
+        "extension_build_sha256": pre["extension_build_sha256"],
+        "extension_version": pre["extension_version"],
+        "config_sha256": pre["config_sha256"],
+        "manifest_sha256": pre["manifest_sha256"],
+        "invariants_after": invariants,
+        "allow_undetectable": bool(config.allow_undetectable),
+        **{key: value for key, value in stage_evidence.items() if key != "steps"},
+        "steps": steps,
+        "normal_store_hashes": hashes,
+        "submitted_count_auto": 0,
+    }
+    evidence["overall"] = phase5a_overall(evidence)
+    result_path = run_dir / "result.json"
+    _write_json_atomic(result_path, evidence)
+    summary.update(
+        status="PHASE5A_COMPLETED",
+        overall=evidence["overall"],
+        stop_reason=evidence.get("stop_reason", ""),
+        result_path=str(result_path),
+        commit=pre["commit"],
+        extension_build_sha256=pre["extension_build_sha256"],
+        form_fingerprint=evidence.get("form_fingerprint", ""),
+        sentinel_network_leak=(evidence.get("monitor") or {}).get("sentinel_network_leak", "UNVERIFIED"),
+    )
+    return summary

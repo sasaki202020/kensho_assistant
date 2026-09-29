@@ -123,13 +123,14 @@ Phase 5A合格で終了し、本人プロフィールを使うPhase 5Bへ自動�
 
 ```powershell
 $env:PYTHONPATH='C:\Users\goo10\Projects'
+py -3.13 -m pytest tests/test_pilot_nonsubmit.py tests/test_pilot_nonsubmit_e2e.py tests/test_pilot_network_monitor.py -q
 py -3.13 -m pytest tests/test_queue_prepare_safety.py tests/test_assisted_session.py tests/test_web_app.py -q
 py -3.13 -m pytest tests/test_browser_manager.py tests/test_dedicated_browser.py tests/test_assisted_extension_integration.py -q
 py -3.13 -m pytest tests -q --tb=short
 node --test extension/tests/unit.test.cjs
 py -3.13 -m kensho_assistant.run_web --smoke-test
 py -3.13 -m kensho_assistant.pilot.preflight
-py -3.13 -m compileall -q app web main.py tests
+py -3.13 -m compileall -q app web main.py tests scripts
 git diff --check
 ```
 
@@ -206,3 +207,42 @@ clean buildの固定、実プロフィール・通常履歴から隔離した実
 - 作業対象: `codex/high-value-kensho-v1`、基準HEAD `290ee69efe8e0e4f9866f917f1573c9a696bc9db`。
   今回の変更は未commitで、固定済みpilot buildではない。push・実サイト入力・応募送信は未実施。
 - 公開キャンペーンページの読み取り確認は行ったが、実プロフィールは読んでいない。
+
+## 2026-09-30 Phase 5A実行経路（ローカルfixtureのみ）
+
+`pilot-nonsubmit`にブラウザ段階を統合した。新しい入力エンジンは追加せず、既存の
+`assisted_session`、専用拡張build、拡張機能パネル（フォーム解析・入力内容を確認・入力を実行・
+入力を元に戻す・セッション情報を消去）、`SentinelNetworkMonitor`、残存検査を使う。
+
+```powershell
+$env:PYTHONPATH='C:\Users\goo10\Projects'
+py -3.13 -m kensho_assistant.main pilot-nonsubmit --manifest data/pilot/manifests/<id>.json
+```
+
+- 常駐Webアプリを先に停止する（`scripts/stop_remote_ops.ps1`、またはそれを起動するタスクの停止）。
+  8787を排他bindできなければ開始しない。
+- 事前条件（clean worktree・HEAD、専用buildのソース照合、設定・manifestのSHA-256）が満たされなければ
+  何もbindせずに拒否する。実行中にbuildし直さない。
+- 欄対応は欄ごとの`y`承認だけ（既定は入力しない）。一括承認はない。`phone`・`postal_code`は
+  既定で入力しない。`--allow-undetectable`で許可した場合、結果は`UNVERIFIED`でありPASSにならない。
+- `MAPPING_CONFIRMED`はロック済みpilot候補だけで到達する（`assisted_session.confirm_pilot_mapping`）。
+  通常候補loaderと保存キューは使わない。拡張機能のテンプレートが本人承認と異なるkeyを含めば停止する。
+- 証跡は`data/pilot/runs/<run>/result.json`。値・nonceは保存しない。`overall`は全指標が厳密に
+  PASS/0の場合だけPASS。未測定は`UNVERIFIED`。ローカルfixtureのPASSは
+  `LOCAL_FIXTURE_NON_SUBMIT_PASS`と表示し、`REAL_SITE_NON_SUBMIT_PASS`とは区別する。
+- manifest形式、停止条件、証跡の詳細は[実サイト非送信確認手順](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)を正本とする。
+
+Service Worker通信の観測: Playwrightは`PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS`付きで起動しないと
+拡張機能Service Workerの通信を通知しない。この変更以前の`extension_non_loopback_requests`は
+この設定なしで得た値であり、測定されていなかった。現在は`service_worker_network_events()`で
+`sync_playwright()`を包み、観測できなければ入力前に停止する。
+
+ローカル検証（`tests/test_pilot_nonsubmit_e2e.py`、実Chromium・実専用build・実pilot Webアプリ）:
+名前・メールだけ承認でfixture PASS（漏洩0・拡張非loopback 0・残存0・通常hash一致・実プロフィールloader呼出0）、
+全欄不承認で入力0、phoneの強制不入力と`--allow-undetectable`時の`UNVERIFIED`、入力3秒後のautosaveで`FAIL`
+（rollback・session clearは実施）、ページService Worker・外部origin iframeで入力権限発行前に停止、
+fingerprint不一致で`FORM_CHANGED_REVIEW_REQUIRED`、Service Worker通信観測なしで入力前停止、
+run directory・標準出力・標準エラーにnonceなし。
+
+実サイトでの入力・通信監視・rollback・残存検査は未実施であり、`REAL_SITE_NON_SUBMIT_PASS`は未達成。
+次は固定commitでbuildし、1候補の公式条件を再確認してから本人の欄ごと承認で1回だけ実行する。

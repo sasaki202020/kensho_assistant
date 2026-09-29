@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Phase 5A page service worker fixture</title>
+<form id="entry-form">
+  <label>姓 <input name="last_name" autocomplete="family-name"></label>
+  <label>メールアドレス <input name="email" type="email" autocomplete="email"></label>
+  <button id="submit-button" type="submit">応募する</button>
+</form>
+<script>navigator.serviceWorker.register("sw.js");</script>

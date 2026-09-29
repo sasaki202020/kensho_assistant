@@ -835,16 +835,26 @@ def cmd_pilot_manifest(args: argparse.Namespace) -> int:
 def cmd_pilot_nonsubmit(args: argparse.Namespace) -> int:
     """Fake-profile, single-candidate, non-submit pilot on the fixed extension port."""
     from .app import pilot_nonsubmit
+    from .app.pilot_browser_stage import interactive_mapping_confirmer
 
+    # Phase 5A: preconditions, dedicated browser, per-field human mapping,
+    # fill/verify/rollback/clear, monitor + residue, value-free result.json.
+    phase5a = pilot_nonsubmit.Phase5AConfig(
+        confirmer=interactive_mapping_confirmer,
+        allow_undetectable=bool(getattr(args, "allow_undetectable", False)),
+    )
     try:
         result = pilot_nonsubmit.run_pilot_nonsubmit(
-            Path(args.manifest), port=pilot_nonsubmit.PILOT_WEB_PORT
+            Path(args.manifest), port=pilot_nonsubmit.PILOT_WEB_PORT, phase5a=phase5a
         )
     except pilot_nonsubmit.PilotError as exc:
         print(json.dumps({"status": "REFUSED", "reason": str(exc), "submitted_count_auto": 0}, ensure_ascii=False))
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    overall = result.get("overall")
+    if overall is None or overall in pilot_nonsubmit.PASS_LABELS.values():
+        return 0
+    return 3
 
 
 def cmd_pilot_run(args: argparse.Namespace) -> int:
@@ -2057,6 +2067,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="fake-profile single-candidate non-submit pilot (refuses if 127.0.0.1:8787 is in use)",
     )
     pilot_nonsubmit.add_argument("--manifest", required=True, help="single-candidate pilot manifest JSON")
+    pilot_nonsubmit.add_argument(
+        "--allow-undetectable",
+        action="store_true",
+        help="allow phone/postal_code (digits-only, not detectable in traffic); the result can then only be UNVERIFIED",
+    )
     pilot_nonsubmit.set_defaults(func=cmd_pilot_nonsubmit)
 
     trial_report = subparsers.add_parser("trial-report", help="export privacy-safe real-site trial results and metrics")

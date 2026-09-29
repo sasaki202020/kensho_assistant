@@ -223,7 +223,9 @@ def launch_dedicated_kensho_context(
     project_root: Path = PACKAGE_ROOT,
     runtime_profiles_root: Path | None = None,
     headless: bool = False,
+    extra_args: tuple[str, ...] = (),
 ):
+    """``extra_args`` is an in-process test seam (e.g. host-resolver rules)."""
     verified = verify_dedicated_extension_build(project_root=project_root)
     profile_dir = create_dedicated_runtime_profile(
         run_id,
@@ -248,6 +250,7 @@ def launch_dedicated_kensho_context(
                 f"--load-extension={extension_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
+                *[str(arg) for arg in extra_args],
             ],
         )
     except Exception:

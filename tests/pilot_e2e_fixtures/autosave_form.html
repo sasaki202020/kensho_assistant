@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Phase 5A autosave fixture</title>
+<form id="entry-form">
+  <label>姓 <input name="last_name" autocomplete="family-name"></label>
+  <label>名 <input name="first_name" autocomplete="given-name"></label>
+  <label>メールアドレス <input name="email" type="email" autocomplete="email"></label>
+  <label><input id="terms" type="checkbox" name="terms"> 利用規約に同意する</label>
+  <button id="submit-button" type="submit">応募する</button>
+</form>
+<script>
+  // Draft autosave 3 seconds after input: captures the values at input time.
+  document.getElementById("entry-form").addEventListener("input", () => {
+    const snapshot = Array.from(document.querySelectorAll("input"), e => e.value).join("|");
+    setTimeout(() => {
+      fetch("/pilot_e2e_fixtures/autosave", {method: "POST", body: snapshot}).catch(() => 0);
+    }, 3000);
+  });
+</script>
