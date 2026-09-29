@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -17,6 +18,17 @@ from playwright.sync_api import sync_playwright
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(ROOT.parent))
+
+from kensho_assistant.app.pilot_network_monitor import (  # noqa: E402
+    SentinelNetworkMonitor,
+    service_worker_network_events,
+)
+
+# Fake digit-only values below cannot carry the unique nonce, so leaks of these
+# fields are undetectable and reported via undetectable_fields_count.
+UNDETECTABLE_PROFILE_KEYS = ("phone", "postal_code")
 EXTENSION = ROOT / "extension"
 FIXTURE_ROOT = ROOT / "tests"
 FIXTURE_PATH = "extension_fixtures/standard_form.html"
@@ -83,7 +95,10 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
         temp_path = Path(temp)
         profile_dir = temp_path / "chrome-profile"
 
-        with _fixture_server() as origin, sync_playwright() as playwright:
+        # SW network events must be enabled before the Playwright driver starts,
+        # otherwise extension Service Worker traffic is invisible.
+        with _fixture_server() as origin, service_worker_network_events(), \
+                sync_playwright() as playwright:
             extension_dir = _build_smoke_extension(temp_path, origin)
             context = playwright.chromium.launch_persistent_context(
                 str(profile_dir),
@@ -99,42 +114,12 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                 marker = uuid.uuid4().hex
 
                 page = context.pages[0] if context.pages else context.new_page()
-                external_requests: list[str] = []
-                sentinel_network_leak = 0
-                extension_non_loopback_requests = 0
-
-                def record_request(request) -> None:
-                    nonlocal sentinel_network_leak, extension_non_loopback_requests
-                    request_url = str(request.url or "")
-                    try:
-                        request_body = str(request.post_data or "")
-                    except Exception:
-                        request_body = ""
-                    if marker in request_url or marker in request_body:
-                        # Count only; never retain the URL or body containing the sentinel.
-                        sentinel_network_leak += 1
-                    parsed = urlsplit(request_url)
-                    is_loopback = parsed.hostname in {"127.0.0.1", "::1"}
-                    is_extension = parsed.scheme == "chrome-extension"
-                    if not is_loopback and not is_extension:
-                        external_requests.append("<external-request>")
-                        try:
-                            has_frame = request.frame is not None
-                        except Exception:
-                            has_frame = False
-                        if not has_frame:
-                            extension_non_loopback_requests += 1
-
-                def record_websocket(websocket) -> None:
-                    def record_sent_frame(payload) -> None:
-                        nonlocal sentinel_network_leak
-                        if marker in str(payload or ""):
-                            sentinel_network_leak += 1
-
-                    websocket.on("framesent", record_sent_frame)
-
-                context.on("request", record_request)
-                page.on("websocket", record_websocket)
+                extension_id = urlsplit(worker.url).hostname or ""
+                # Counts only; URLs, bodies and frames are never retained.
+                monitor = SentinelNetworkMonitor(
+                    marker, UNDETECTABLE_PROFILE_KEYS, extension_id
+                )
+                monitor.start(context)
                 registration_deadline = time.monotonic() + 10
                 while time.monotonic() < registration_deadline:
                     registered_count = worker.evaluate(
@@ -189,25 +174,32 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                 page.goto(f"{origin}/{FIXTURE_PATH}", wait_until="domcontentloaded")
                 host.wait_for(state="attached", timeout=10_000)
 
+                blocking_reasons = monitor.prefill_blocking_reasons(page)
+                if blocking_reasons:
+                    raise RuntimeError(
+                        "prefill_blocked:" + ",".join(blocking_reasons)
+                    )
+                fake_profile = {
+                    "last_name": f"TEST-{marker[:8]}",
+                    "first_name": "LOCAL",
+                    "last_name_kana": "テスト",
+                    "first_name_kana": "ローカル",
+                    "email": f"{marker}@example.invalid",
+                    "phone": "00000000000",
+                    "postal_code": "0000000",
+                    "prefecture": "福岡県",
+                    "city": "テスト市",
+                    "street": "TEST-1",
+                    "building": "TEST",
+                    "birth_date": "1990-04-01",
+                    "gender": "男性",
+                }
+                monitor.mark_fill_started(sorted(fake_profile))
                 worker.evaluate(
                     """profile => chrome.storage.session.set({
                       kenshoSessionProfile: profile
                     })""",
-                    {
-                        "last_name": f"TEST-{marker[:8]}",
-                        "first_name": "LOCAL",
-                        "last_name_kana": "テスト",
-                        "first_name_kana": "ローカル",
-                        "email": f"{marker}@example.invalid",
-                        "phone": "00000000000",
-                        "postal_code": "0000000",
-                        "prefecture": "福岡県",
-                        "city": "テスト市",
-                        "street": "TEST-1",
-                        "building": "TEST",
-                        "birth_date": "1990-04-01",
-                        "gender": "男性",
-                    },
+                    fake_profile,
                 )
                 profile_is_ready = worker.evaluate(
                     """async () => Boolean(
@@ -318,6 +310,7 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                 )
                 host.locator("#rollback").click()
                 host.locator("#clear").click()
+                monitor.mark_cleared()
                 page.wait_for_timeout(100)
                 session_cleared = (
                     page.locator("#email").input_value() == ""
@@ -333,6 +326,15 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                     unapproved_origin_injections = page.locator(
                         '[data-kensho-extension-root="true"]'
                     ).count()
+                # Keep observing after clear (delayed autosave), then close the
+                # tab so pagehide/unload beacons are observed as well.
+                monitor.wait_quiet(min_seconds=5, quiet_seconds=1)
+                network = monitor.result()
+                sentinel_network_leak = network["sentinel_network_leak"]
+                extension_non_loopback_requests = network[
+                    "extension_non_loopback_requests"
+                ]
+                external_requests = network["non_loopback_requests_total"]
 
                 return {
                     "status": "PASS"
@@ -349,7 +351,7 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                             max_panel_count == 1,
                             max_guard_count == 1,
                             unapproved_origin_injections == 0,
-                            not external_requests,
+                            external_requests == 0,
                             sentinel_network_leak == 0,
                             extension_non_loopback_requests == 0,
                         ]
@@ -373,9 +375,10 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                         "submitted_count_auto"
                     ],
                     "session_cleared": session_cleared,
-                    "external_requests": len(external_requests),
+                    "external_requests": external_requests,
                     "sentinel_network_leak": sentinel_network_leak,
                     "extension_non_loopback_requests": extension_non_loopback_requests,
+                    "undetectable_fields_count": network["undetectable_fields_count"],
                 }
             finally:
                 context.close()

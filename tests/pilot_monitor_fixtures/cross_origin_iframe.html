@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>cross-origin iframe fixture</title></head>
+<body><input id="email">
+<script>
+  const frame = document.createElement("iframe");
+  frame.src = "http://localhost:" + location.port + "/pilot_monitor_fixtures/blank.html";
+  document.body.appendChild(frame);
+</script>
+</body></html>
