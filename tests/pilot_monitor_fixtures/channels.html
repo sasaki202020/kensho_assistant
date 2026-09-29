@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>monitor channels fixture</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<form id="form" onsubmit="return false">
+  <label>メール <input id="email" name="email" autocomplete="email"></label>
+</form>
+<img src="pixel.gif" alt="">
+<script>
+  // Every function reads the current field value like a site script would.
+  const value = () => document.getElementById("email").value;
+  const u16hex = s => [...s].map(c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")).join("");
+  window.channels = {
+    fetchRaw: () => fetch("/sink", {method: "POST", body: value()}),
+    fetchUrl: () => fetch("/sink?q=" + encodeURIComponent(value())),
+    xhrForm: () => new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/sink");
+      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+      xhr.onloadend = resolve;
+      // Fully percent-encode every character, as some encoders do.
+      const encoded = [...value()].map(c => "%" + c.charCodeAt(0).toString(16).toUpperCase()).join("");
+      xhr.send("note=hello+world&q=" + encoded);
+    }),
+    beacon: () => navigator.sendBeacon("/sink", "v=" + value()),
+    base64: offset => fetch("/sink", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({d: btoa("x".repeat(offset) + value()).replace(/=+$/, "")})}),
+    jsonEscaped: () => fetch("/sink", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: '{"v":"' + u16hex(value()) + '"}'}),
+    gzip: async text => {
+      const stream = new Blob([text === undefined ? value() : text]).stream()
+        .pipeThrough(new CompressionStream("gzip"));
+      const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+      return fetch("/sink", {method: "POST", headers: {"Content-Type": "application/octet-stream"}, body: bytes});
+    },
+    binary: () => {
+      const bytes = new Uint8Array(256);
+      crypto.getRandomValues(bytes);
+      return fetch("/sink", {method: "POST", headers: {"Content-Type": "application/octet-stream"}, body: bytes});
+    },
+    blobBeacon: () => navigator.sendBeacon("/sink",
+      new Blob([value()], {type: "application/octet-stream"})),
+    websocket: port => new Promise((resolve, reject) => {
+      const ws = new WebSocket("ws://127.0.0.1:" + port + "/");
+      ws.onopen = () => { ws.send(JSON.stringify({v: value()})); setTimeout(resolve, 200); };
+      ws.onerror = reject;
+    }),
+    workerFetch: () => {
+      const src = "onmessage = e => fetch(self.location.origin + '/sink', {method: 'POST', body: e.data});";
+      const worker = new Worker(URL.createObjectURL(new Blob([src], {type: "text/javascript"})));
+      worker.postMessage(value());
+    },
+    armAutosave: delayMs => {
+      document.getElementById("email").addEventListener("input", event => {
+        const captured = event.target.value;
+        if (captured) setTimeout(() => fetch("/sink", {method: "POST", body: "draft=" + captured}), delayMs);
+      });
+    },
+    armUnloadBeacon: () => {
+      document.getElementById("email").addEventListener("input", event => {
+        const captured = event.target.value;
+        if (captured) window.addEventListener("pagehide", () => navigator.sendBeacon("/sink", "u=" + captured));
+      });
+    },
+    clean: () => fetch("/sink", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({event: "page_view", ts: 1})}),
+  };
+</script>
+</body>
+</html>

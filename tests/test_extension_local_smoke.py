@@ -27,4 +27,6 @@ def test_local_smoke_runs_without_toolbar_or_external_site() -> None:
         "external_requests": 0,
         "sentinel_network_leak": 0,
         "extension_non_loopback_requests": 0,
+        # Digit-only fake phone/postal values cannot carry the nonce.
+        "undetectable_fields_count": 2,
     }

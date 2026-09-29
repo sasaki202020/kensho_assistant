@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>service worker fixture</title></head>
+<body><input id="email">
+<script>window.swReady = navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => true);</script>
+</body></html>
