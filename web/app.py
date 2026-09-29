@@ -26,6 +26,7 @@ from ..app.assisted_session import (
     validate_extension_candidate,
     load_assisted_session_state,
     mark_extension_coordination_failed,
+    pilot_storage_active,
     record_extension_progress,
     revoke_extension_capabilities,
     request_assisted_session_action,
@@ -1603,16 +1604,46 @@ async def _request_payload(request: Request) -> dict[str, object]:
     return {str(key): value for key, value in form.items()}
 
 
+_PILOT_ALLOWED_ROUTES = frozenset(
+    {
+        ("GET", "/api/session/status"),
+        ("GET", "/api/session/extension-bridge/status"),
+        ("POST", "/api/session/extension-capability"),
+        ("POST", "/api/session/extension-capability/revoke"),
+        ("POST", "/api/session/extension-progress"),
+        ("POST", "/api/session/extension-safe-stop"),
+        ("OPTIONS", "/api/session/extension-capability"),
+        ("OPTIONS", "/api/session/extension-capability/revoke"),
+        ("OPTIONS", "/api/session/extension-progress"),
+        ("OPTIONS", "/api/session/extension-safe-stop"),
+    }
+)
+
+
 def create_app(
     *,
     profile_loader: Callable[[], Mapping[str, object]] | None = None,
+    pilot_run_id: str | None = None,
 ) -> FastAPI:
     """Build the local web app.
 
     ``profile_loader`` is an in-process dependency seam for fixture tests. It
     is never selected from an HTTP request; production callers omit it and
     use the real encrypted-profile loader imported above.
+
+    ``pilot_run_id`` switches the app into non-submit pilot mode. It is only
+    an in-process argument (never selectable via HTTP), requires an explicit
+    fake ``profile_loader`` and already-active pilot storage, exposes the id
+    in ``/api/session/status`` so the runner can verify it owns the port, and
+    serves only the extension/session endpoints.
     """
+    if pilot_run_id is not None:
+        if not str(pilot_run_id).strip():
+            raise ValueError("pilot_run_id_required")
+        if profile_loader is None or profile_loader is load_profile:
+            raise ValueError("pilot_requires_fake_profile_loader")
+        if pilot_storage_active() is None:
+            raise ValueError("pilot_requires_pilot_storage")
     app = FastAPI(title="懸賞応募アシスタント Web UI")
     app.add_middleware(
         CORSMiddleware,
@@ -1625,7 +1656,15 @@ def create_app(
     app.state.web_host = WEB_HOST
     app.state.web_port = WEB_PORT
     app.state.profile_loader = profile_loader if profile_loader is not None else load_profile
+    app.state.pilot_run_id = str(pilot_run_id) if pilot_run_id is not None else None
     app.mount("/static", StaticFiles(directory=str(APP_DIR.parent / "web" / "static")), name="static")
+
+    if pilot_run_id is not None:
+        @app.middleware("http")
+        async def restrict_pilot_routes(request: Request, call_next):
+            if (request.method, request.url.path) not in _PILOT_ALLOWED_ROUTES:
+                return PlainTextResponse("Not Found", status_code=404)
+            return await call_next(request)
 
     @app.middleware("http")
     async def enforce_remote_access_boundary(request: Request, call_next):
@@ -2973,8 +3012,11 @@ def create_app(
         return RedirectResponse(url=_safe_internal_next_url(next_url, "/approved/session"), status_code=303)
 
     @app.get("/api/session/status")
-    def api_session_status() -> dict[str, object]:
-        return load_assisted_session_state()
+    def api_session_status(request: Request) -> dict[str, object]:
+        state = load_assisted_session_state()
+        if request.app.state.pilot_run_id is not None:
+            state["pilot_run_id"] = request.app.state.pilot_run_id
+        return state
 
     @app.get("/api/session/extension-bridge/status")
     def api_extension_bridge_status() -> dict[str, object]:

@@ -7,14 +7,18 @@ import secrets
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
-from .apply_queue import _deadline_bucket, approved_queue_rows, load_apply_queue, mark_hold, mark_manual_submitted, mark_skipped, queue_prepare_block_reason
+from .apply_queue import _deadline_bucket, approved_queue_rows, load_apply_queue, queue_prepare_block_reason
+from .apply_queue import mark_hold as _apply_queue_mark_hold
+from .apply_queue import mark_manual_submitted as _apply_queue_mark_manual_submitted
+from .apply_queue import mark_skipped as _apply_queue_mark_skipped
 from .auto_apply_engine import AutoApplyEngine
 from .browser_manager import (
     clear_extension_control_token as clear_browser_extension_control_token,
@@ -27,6 +31,7 @@ from .browser_manager import (
 )
 from .entry_url_resolver import target_url_for_campaign
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS, CapabilityBridge
+from . import paths as _paths
 from .paths import ASSISTED_SESSION_DIR, ASSISTED_SESSION_STATE_JSON
 from .paths import REAL_SITE_TRIAL_STEPS_JSONL, REAL_SITE_TRIALS_JSONL
 from .privacy_guard import redact_personal_info
@@ -118,6 +123,148 @@ def clear_extension_control_token(session_id: str) -> None:
         _EXTENSION_CONTROL_TOKENS.pop(session, None)
         for key in [key for key in _EXTENSION_PROGRESS_RESPONSES if key[0] == session]:
             _EXTENSION_PROGRESS_RESPONSES.pop(key, None)
+
+
+# --------------------------------------------------------------------------
+# Explicit pilot storage seam (fake profile, single candidate, non-submit).
+#
+# Once activated, the session state and trial logs of this module live only
+# under ``PILOT_DIR/runs/<run>``; normal queue/history writers refuse, and the
+# saved apply queue is never read for candidates.  There is no deactivation
+# API: a pilot process ends instead of falling back to normal storage.
+# --------------------------------------------------------------------------
+
+
+class PilotIsolationError(RuntimeError):
+    """A normal-storage operation was attempted while pilot storage is active."""
+
+
+@dataclass(frozen=True)
+class PilotStorageHandle:
+    run_dir: Path
+    state_path: Path
+    trials_path: Path
+    trial_steps_path: Path
+
+
+_PILOT_STORAGE: PilotStorageHandle | None = None
+_PILOT_CANDIDATE: dict[str, object] | None = None
+
+
+def pilot_storage_active() -> PilotStorageHandle | None:
+    return _PILOT_STORAGE
+
+
+def use_pilot_storage(run_dir: Path) -> PilotStorageHandle:
+    """Switch this module's state/trial storage into ``run_dir`` for this process.
+
+    ``run_dir`` must resolve strictly inside ``PILOT_DIR / "runs"``; there is
+    no implicit fallback.  Re-activating with the same directory returns the
+    existing handle; a different directory raises ``PilotIsolationError``.
+    """
+    global ASSISTED_SESSION_DIR, ASSISTED_SESSION_STATE_JSON
+    global REAL_SITE_TRIALS_JSONL, REAL_SITE_TRIAL_STEPS_JSONL
+    global _EXTENSION_BRIDGE, _PILOT_STORAGE, _PILOT_CANDIDATE
+    runs_root = (Path(_paths.PILOT_DIR) / "runs").resolve()
+    resolved = Path(run_dir).resolve()
+    if resolved == runs_root or runs_root not in resolved.parents:
+        raise ValueError("pilot_run_dir_outside_pilot_runs")
+    with _STATE_LOCK:
+        if _PILOT_STORAGE is not None:
+            if _PILOT_STORAGE.run_dir == resolved:
+                return _PILOT_STORAGE
+            raise PilotIsolationError("pilot_storage_already_active")
+        resolved.mkdir(parents=True, exist_ok=True)
+        handle = PilotStorageHandle(
+            run_dir=resolved,
+            state_path=resolved / "session.json",
+            trials_path=resolved / "trials.jsonl",
+            trial_steps_path=resolved / "steps.jsonl",
+        )
+        previous_bridge = _EXTENSION_BRIDGE
+        ASSISTED_SESSION_DIR = resolved
+        ASSISTED_SESSION_STATE_JSON = handle.state_path
+        REAL_SITE_TRIALS_JSONL = handle.trials_path
+        REAL_SITE_TRIAL_STEPS_JSONL = handle.trial_steps_path
+        _EXTENSION_CONTROL_TOKENS.clear()
+        _EXTENSION_PROGRESS_RESPONSES.clear()
+        _EXTENSION_BRIDGE = CapabilityBridge(ttl_seconds=60)
+        _PILOT_CANDIDATE = None
+        _PILOT_STORAGE = handle
+    previous_bridge.stop()
+    return handle
+
+
+def _refuse_in_pilot(operation: str) -> None:
+    if _PILOT_STORAGE is not None:
+        raise PilotIsolationError(f"{operation}_forbidden_in_pilot")
+
+
+def mark_hold(queue_id: str, *args, **kwargs) -> bool:
+    _refuse_in_pilot("mark_hold")
+    return _apply_queue_mark_hold(queue_id, *args, **kwargs)
+
+
+def mark_skipped(queue_id: str, *args, **kwargs) -> bool:
+    _refuse_in_pilot("mark_skipped")
+    return _apply_queue_mark_skipped(queue_id, *args, **kwargs)
+
+
+def mark_manual_submitted(queue_id: str, *args, **kwargs) -> bool:
+    _refuse_in_pilot("mark_manual_submitted")
+    return _apply_queue_mark_manual_submitted(queue_id, *args, **kwargs)
+
+
+def lock_pilot_candidate(
+    *, candidate_id: str, url: str, origin: str, period_end: date
+) -> dict[str, object]:
+    """Lock exactly one manifest candidate in pilot storage (never the saved queue)."""
+    global _PILOT_CANDIDATE
+    candidate = str(candidate_id or "").strip()
+    with _STATE_LOCK:
+        if _PILOT_STORAGE is None:
+            raise PilotIsolationError("pilot_storage_inactive")
+        if _PILOT_CANDIDATE is not None:
+            raise PilotIsolationError("pilot_candidate_already_locked")
+        if not candidate:
+            raise ValueError("candidate_required")
+        now = _now_iso()
+        session_id = uuid.uuid4().hex
+        state = default_assisted_session_state()
+        state.update(
+            session_id=session_id,
+            state_health="ok",
+            status="OPENING",
+            status_label=SESSION_STATUS_LABELS["OPENING"],
+            final_status="OPENING",
+            current_step="pilot_candidate_locked",
+            message="架空値限定・非送信pilotの候補を1件ロックしました。",
+            total=1,
+            candidate_ids=[candidate],
+            current_campaign_id=candidate,
+            current_url=str(url or ""),
+            session_started_at=now,
+            started_at=now,
+            submitted_count_auto=0,
+            pilot_mode=True,
+        )
+        state = _begin_candidate_workflow(state, session_id=session_id, candidate_id=candidate)
+        save_assisted_session_state(state)
+        _PILOT_CANDIDATE = {
+            "candidate_id": candidate,
+            "origin": str(origin or ""),
+            "period_end": period_end,
+        }
+        return load_assisted_session_state()
+
+
+def end_pilot_session() -> None:
+    """Drop every in-memory token and issued capability payload of the run."""
+    with _STATE_LOCK:
+        _EXTENSION_CONTROL_TOKENS.clear()
+        _EXTENSION_PROGRESS_RESPONSES.clear()
+        bridge = _EXTENSION_BRIDGE
+    bridge.stop()
 
 
 COMPLETION_TERMS = (
@@ -223,6 +370,15 @@ def extension_bridge_status() -> dict[str, object]:
 
 def validate_extension_candidate(candidate_id: str) -> None:
     """Revalidate saved eligibility after the human mapping wait, before PII access."""
+    if _PILOT_STORAGE is not None:
+        pilot = _PILOT_CANDIDATE
+        if not pilot or not hmac.compare_digest(
+            str(pilot["candidate_id"]), str(candidate_id or "").strip()
+        ):
+            raise ValueError("candidate_missing")
+        if _now().date() > pilot["period_end"]:
+            raise ValueError("expired")
+        return
     try:
         rows = [row for row in load_apply_queue() if row.get("campaign_id") == candidate_id]
     except (OSError, ValueError):
@@ -978,6 +1134,7 @@ def _session_sort_key(row: Mapping[str, object]) -> tuple[int, int, int, str]:
 
 
 def _load_session_candidates(status_filter: str, limit: int) -> list[dict[str, str]]:
+    _refuse_in_pilot("load_session_candidates")
     statuses = {
         part.strip().upper()
         for part in str(status_filter or "APPROVED,PREPARED").split(",")

@@ -832,6 +832,21 @@ def cmd_pilot_manifest(args: argparse.Namespace) -> int:
     return 0 if validation["valid"] else 2
 
 
+def cmd_pilot_nonsubmit(args: argparse.Namespace) -> int:
+    """Fake-profile, single-candidate, non-submit pilot on the fixed extension port."""
+    from .app import pilot_nonsubmit
+
+    try:
+        result = pilot_nonsubmit.run_pilot_nonsubmit(
+            Path(args.manifest), port=pilot_nonsubmit.PILOT_WEB_PORT
+        )
+    except pilot_nonsubmit.PilotError as exc:
+        print(json.dumps({"status": "REFUSED", "reason": str(exc), "submitted_count_auto": 0}, ensure_ascii=False))
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_pilot_run(args: argparse.Namespace) -> int:
     manifest = load_pilot_manifest(Path(args.manifest))
     build_check = pilot_build_preflight(
@@ -2036,6 +2051,13 @@ def build_parser() -> argparse.ArgumentParser:
     pilot_run.add_argument("--candidates", required=True, help="PII-free fixed candidate manifest used for the build fingerprint")
     pilot_run.add_argument("--browser", choices=("chrome", "chromium"), default="chrome", help="headed browser to use")
     pilot_run.set_defaults(func=cmd_pilot_run)
+
+    pilot_nonsubmit = subparsers.add_parser(
+        "pilot-nonsubmit",
+        help="fake-profile single-candidate non-submit pilot (refuses if 127.0.0.1:8787 is in use)",
+    )
+    pilot_nonsubmit.add_argument("--manifest", required=True, help="single-candidate pilot manifest JSON")
+    pilot_nonsubmit.set_defaults(func=cmd_pilot_nonsubmit)
 
     trial_report = subparsers.add_parser("trial-report", help="export privacy-safe real-site trial results and metrics")
     trial_report.add_argument("--output", default="", help="custom report directory")
