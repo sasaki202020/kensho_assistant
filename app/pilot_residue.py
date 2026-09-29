@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -11,6 +12,8 @@ from .pilot_network_monitor import (
     UNVERIFIED,
     SentinelMatcher,
     classify_payload,
+    evaluate_worker,
+    live_extension_worker,
 )
 
 RESIDUE_AREAS = (
@@ -197,6 +200,7 @@ def check_sentinel_residue(
     extension_id: str,
     evidence_dirs: Iterable[Path] = (),
     hash_candidates: Iterable[str] = (),
+    extension_worker_timeout: float = 3.0,
 ) -> dict[str, object]:
     """Count sentinel occurrences left after session clear.
 
@@ -256,14 +260,24 @@ def check_sentinel_residue(
         result["context_cookies"] = UNVERIFIED
 
     prefix = f"chrome-extension://{str(extension_id or '').strip()}/"
-    workers = [w for w in list(context.service_workers) if str(w.url or "").startswith(prefix)]
-    if not extension_id or not workers:
-        result["extension_storage"] = UNVERIFIED
-    else:
-        try:
-            result["extension_storage"] = int(workers[0].evaluate(_EXTENSION_SCAN, needles))
-        except Exception:
-            result["extension_storage"] = UNVERIFIED
+    result["extension_storage"] = UNVERIFIED
+    if extension_id:
+        # The worker may be stopped/restarted by Chromium: re-acquire per try.
+        deadline = time.monotonic() + extension_worker_timeout
+        while True:
+            worker = live_extension_worker(
+                context, prefix, timeout=max(deadline - time.monotonic(), 0.0))
+            if worker is None:
+                break
+            try:
+                result["extension_storage"] = int(evaluate_worker(
+                    worker, _EXTENSION_SCAN, needles,
+                    timeout=max(deadline - time.monotonic(), 0.5)))
+                break
+            except Exception:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
 
     result["evidence_files"] = scan_evidence_files(matcher, evidence_dirs)
 

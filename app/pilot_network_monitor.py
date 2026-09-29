@@ -13,6 +13,7 @@ Principles:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -366,6 +367,54 @@ def _classify_encoded_runs(matcher: SentinelMatcher, data: bytes, depth: int) ->
     return _merge(verdicts)
 
 
+def live_extension_worker(context, prefix: str, *, timeout: float = 0.0):
+    """Return a currently live Service Worker whose URL starts with ``prefix``.
+
+    Chromium may stop an MV3 extension worker at any time (right after launch
+    or when idle) and start a new instance later, so callers must re-acquire
+    the worker per use instead of holding the first one.  Waits up to
+    ``timeout`` seconds for a ``serviceworker`` event; never opens pages.
+    Returns None when no worker appeared in time.  A listed worker may still
+    be stopped (Playwright keeps it listed when the DevTools host survives a
+    stop), so evaluate it only through :func:`evaluate_worker`.
+    """
+    if not prefix or context is None:
+        return None
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    while True:
+        try:
+            workers = list(context.service_workers)
+        except Exception:
+            return None
+        for worker in workers:
+            try:
+                if str(worker.url or "").startswith(prefix):
+                    return worker
+            except Exception:
+                continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        try:
+            context.wait_for_event("serviceworker", timeout=max(1, int(min(remaining, 0.5) * 1000)))
+        except Exception:
+            time.sleep(min(0.05, max(deadline - time.monotonic(), 0)))
+
+
+def evaluate_worker(worker, expression: str, arg=None, *, timeout: float = 2.0):
+    """``worker.evaluate`` bounded by ``timeout`` seconds.
+
+    Playwright's ``Worker.evaluate`` has no timeout, and on a worker that
+    Chromium stopped while it stays listed the call never returns.  Raises
+    ``TimeoutError`` (or the evaluation error) instead of blocking forever.
+    """
+    impl = getattr(worker, "_impl_obj", None)
+    run = getattr(worker, "_sync", None)
+    if impl is None or run is None:  # not a sync-API wrapper (unexpected)
+        return worker.evaluate(expression, arg)
+    return run(asyncio.wait_for(impl.evaluate(expression, arg), max(float(timeout), 0.001)))
+
+
 def _is_network_url(url: str) -> bool:
     try:
         return urlsplit(url).scheme.lower() in _NETWORK_SCHEMES
@@ -498,6 +547,7 @@ class SentinelNetworkMonitor:
         self._quiet_completed = False
         self._pages_closed = False
         self._probe_seen = False
+        self._worker_found = False
         self._filled_keys: list[str] | None = None
         self._pending = 0
         self._last_activity = time.monotonic()
@@ -536,7 +586,9 @@ class SentinelNetworkMonitor:
         context.on("page", self._on_page)
         for page in list(context.pages):
             self._on_page(page)
-        self._probe_service_worker_network()
+        # Best effort before navigation; prefill_blocking_reasons() re-probes
+        # (waiting for a restarted worker) when this one was not observed.
+        self._probe_service_worker_network(wait_for_worker=False)
 
     def _on_page(self, page) -> None:
         if id(page) in self._ws_pages:
@@ -545,33 +597,65 @@ class SentinelNetworkMonitor:
         self._pages.append(page)
         page.on("websocket", self._on_websocket)
 
-    def _extension_worker(self):
+    def _extension_worker(self, timeout: float = 0.0):
         if not self._extension_prefix or self._context is None:
             return None
-        for worker in list(self._context.service_workers):
-            if str(worker.url or "").startswith(self._extension_prefix):
-                return worker
-        return None
+        return live_extension_worker(self._context, self._extension_prefix, timeout=timeout)
 
-    def _probe_service_worker_network(self) -> None:
-        worker = self._extension_worker()
-        if worker is None:
+    def _probe_service_worker_network(self, *, wait_for_worker: bool = True) -> None:
+        """Make the extension worker fetch a loopback probe URL until it is seen.
+
+        The worker is re-acquired on every attempt because Chromium may stop and
+        restart it; a closed target is retried until ``probe_timeout_seconds``.
+        ``wait_for_worker=False`` makes a single attempt without waiting for a
+        worker (used before navigation, when nothing can restart it yet).
+        Observability is only ever set by :meth:`_on_request` seeing the probe.
+        """
+        if self._probe_seen or not self._extension_prefix or self._context is None:
             return
         probe_url = f"http://127.0.0.1:9/__kensho_monitor_probe_{self._probe_token}"
-        try:
-            worker.evaluate(
-                "url => { fetch(url, {cache: 'no-store'}).catch(() => 0); return true; }",
-                probe_url,
-            )
-        except Exception:
-            return
+        # Only fetch from an activated worker.  Right after a fresh launch
+        # Playwright can evaluate while the worker script is still "parsed"
+        # (before install); a fetch() then terminates the worker and its
+        # registration never starts again for the rest of the session.
+        probe_js = (
+            "url => { const sw = self.serviceWorker;"
+            " const ready = sw ? sw.state === 'activated' : Boolean(self.registration && self.registration.active);"
+            " if (!ready) return false;"
+            " fetch(url, {cache: 'no-store'}).catch(() => 0); return true; }"
+        )
+        single = not wait_for_worker
         deadline = time.monotonic() + self._probe_timeout
         while not self._probe_seen and time.monotonic() < deadline:
-            try:
-                self._context.cookies()  # pumps Playwright events
-            except Exception:
+            worker = self._extension_worker(
+                timeout=0.0 if single else deadline - time.monotonic())
+            if worker is None:
                 return
-            time.sleep(0.05)
+            try:
+                fetched = evaluate_worker(
+                    worker, probe_js, probe_url,
+                    timeout=min(max(deadline - time.monotonic(), 0.1), 1.0 if single else 2.0),
+                )
+            except Exception:
+                # Target closed, worker stopped (evaluation never answers) or
+                # evaluation failed: re-acquire and retry until the deadline.
+                if single:
+                    return
+                time.sleep(0.05)
+                continue
+            self._worker_found = True
+            if fetched:
+                attempt_end = deadline if single else min(deadline, time.monotonic() + 1.0)
+                while not self._probe_seen and time.monotonic() < attempt_end:
+                    try:
+                        self._context.cookies()  # pumps Playwright events
+                    except Exception:
+                        return
+                    time.sleep(0.05)
+            if single:
+                return
+            if not fetched:  # not activated yet: poll again, never fetch early
+                time.sleep(0.1)
 
     # --- request handling ------------------------------------------------------
     def _attribute(self, request) -> str:
@@ -784,7 +868,10 @@ class SentinelNetworkMonitor:
             return ["monitor_not_started"]
         if self._attached_late:
             reasons.append("monitor_attached_after_navigation")
-        if self._extension_worker() is None:
+        self._probe_service_worker_network(wait_for_worker=True)
+        # "Found" means a worker actually answered; a stopped worker that is
+        # still listed does not count.
+        if not self._probe_seen and not self._worker_found:
             reasons.append("extension_worker_not_found")
         if not self._probe_seen:
             reasons.append("service_worker_network_unobservable")

@@ -34,6 +34,8 @@ from kensho_assistant.app.pilot_network_monitor import (
     SentinelMatcher,
     SentinelNetworkMonitor,
     classify_payload,
+    evaluate_worker,
+    live_extension_worker,
     service_worker_network_events,
 )
 from kensho_assistant.app.pilot_residue import (
@@ -253,10 +255,57 @@ class Harness:
     context: object
     port: int
     extension_id: str
-    worker: object
 
     def url(self, path: str) -> str:
         return f"http://127.0.0.1:{self.port}/{path}"
+
+    def live_worker(self):
+        """The current extension worker; Chromium may have stopped/restarted it.
+
+        Never reuse a Worker object across steps.  If the worker is stopped and
+        nothing woke it, start it through CDP (test-only) instead of navigating.
+        """
+        prefix = f"chrome-extension://{self.extension_id}/"
+        for attempt in range(5):
+            worker = live_extension_worker(self.context, prefix, timeout=2)
+            if worker is not None:
+                try:
+                    evaluate_worker(worker, "() => true", timeout=2)
+                    return worker
+                except Exception:
+                    pass
+            page = self.context.pages[0] if self.context.pages else self.context.new_page()
+            cdp = self.context.new_cdp_session(page)
+            try:
+                cdp.send("ServiceWorker.enable")
+                cdp.send("ServiceWorker.startWorker", {"scopeURL": prefix})
+            finally:
+                cdp.detach()
+        raise AssertionError("extension_worker_not_found")
+
+
+# Like the real extension, a content script messages the worker on every
+# matching page load, so navigation wakes a worker that Chromium stopped.
+_FIXTURE_CONTENT_JS = "chrome.runtime.sendMessage({type: 'fixture-ping'}).catch(() => 0);\n"
+_FIXTURE_SW_JS = (
+    "self.addEventListener('install', () => {});\n"
+    "chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {\n"
+    "  sendResponse({ok: true});\n"
+    "});\n"
+)
+
+
+def _discover_extension_id(context, port: int) -> str:
+    worker = live_extension_worker(context, "chrome-extension://", timeout=5)
+    if worker is None:
+        # Stopped before we looked: wake it through the content script, then
+        # return the tab to about:blank so monitors still attach before navigation.
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(f"http://127.0.0.1:{port}/pilot_monitor_fixtures/blank.html", wait_until="load")
+        worker = live_extension_worker(context, "chrome-extension://", timeout=10)
+        page.goto("about:blank")
+    assert worker is not None, "extension_worker_not_found"
+    return urlsplit(worker.url).hostname or ""
 
 
 @contextmanager
@@ -266,8 +315,13 @@ def _browser(tmp_path: Path, *, sw_events: bool = True) -> Iterator[Harness]:
     (extension_dir / "manifest.json").write_text(json.dumps({
         "manifest_version": 3, "name": "monitor fixture", "version": "1",
         "background": {"service_worker": "sw.js"}, "permissions": ["storage"],
+        "content_scripts": [{
+            "matches": ["http://127.0.0.1/*", "http://external.test/*"],
+            "js": ["content.js"], "run_at": "document_start",
+        }],
     }), encoding="utf-8")
-    (extension_dir / "sw.js").write_text("self.addEventListener('install', () => {});\n", encoding="utf-8")
+    (extension_dir / "sw.js").write_text(_FIXTURE_SW_JS, encoding="utf-8")
+    (extension_dir / "content.js").write_text(_FIXTURE_CONTENT_JS, encoding="utf-8")
     guard = service_worker_network_events() if sw_events else nullcontext()
     with _http_server() as port, guard, sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
@@ -282,9 +336,7 @@ def _browser(tmp_path: Path, *, sw_events: bool = True) -> Iterator[Harness]:
             ],
         )
         try:
-            worker = context.service_workers[0] if context.service_workers else \
-                context.wait_for_event("serviceworker", timeout=10_000)
-            yield Harness(context, port, urlsplit(worker.url).hostname or "", worker)
+            yield Harness(context, port, _discover_extension_id(context, port))
         finally:
             context.close()
 
@@ -498,7 +550,7 @@ def test_extension_worker_non_loopback_request_is_counted(tmp_path) -> None:
         page.goto(h.url(CHANNELS), wait_until="load")
         assert monitor.prefill_blocking_reasons(page) == []
         monitor.mark_fill_started(["email"])
-        h.worker.evaluate(
+        h.live_worker().evaluate(
             "url => fetch(url, {method: 'POST', body: 'x'}).catch(() => 0)",
             f"http://external.test:{h.port}/sink",
         )
@@ -511,6 +563,85 @@ def test_extension_worker_non_loopback_request_is_counted(tmp_path) -> None:
     assert result["status"] == "FAIL"
 
 
+def _stop_extension_worker(h: Harness, page) -> None:
+    """Deterministically stop the extension worker the way Chromium may (CDP).
+
+    Playwright keeps a CDP-stopped worker listed (its evaluate does not answer
+    until the worker restarts), so wait for the CDP running status instead of
+    the worker list.  The worker is deliberately not evaluated before the stop:
+    Playwright 1.52 cannot evaluate again in a restarted worker whose previous
+    execution context was used (the monitor then fails closed, UNVERIFIED).
+    """
+    prefix = f"chrome-extension://{h.extension_id}/"
+    assert live_extension_worker(h.context, prefix, timeout=5) is not None
+    status: dict[str, str] = {}
+
+    def on_versions(event) -> None:
+        for version in event.get("versions", []):
+            if str(version.get("scriptURL", "")).startswith(prefix):
+                status["running"] = str(version.get("runningStatus"))
+                status["state"] = str(version.get("status"))
+
+    cdp = h.context.new_cdp_session(page)
+    try:
+        cdp.on("ServiceWorker.workerVersionUpdated", on_versions)
+        cdp.send("ServiceWorker.enable")
+        for _ in range(100):  # stop only an installed, activated worker
+            if status.get("state") == "activated" and status.get("running") == "running":
+                break
+            page.wait_for_timeout(50)
+        cdp.send("ServiceWorker.stopAllWorkers")
+        for _ in range(100):
+            if status.get("running") == "stopped":
+                break
+            page.wait_for_timeout(50)
+    finally:
+        cdp.detach()
+    assert status.get("running") == "stopped", status
+
+
+def test_probe_recovers_when_worker_is_restarted_by_navigation(tmp_path) -> None:
+    with _browser(tmp_path) as h:
+        page = h.context.pages[0]
+        _stop_extension_worker(h, page)
+        nonce = _nonce()
+        monitor = SentinelNetworkMonitor(nonce, [], h.extension_id)
+        monitor.start(h.context)  # no live worker: the start probe cannot be observed
+        assert "service_worker_network_unobservable" in monitor.result()["unverified_reasons"]
+        # The fixture content script messages the worker, which restarts it.
+        page.goto(h.url(CHANNELS), wait_until="load")
+        assert monitor.prefill_blocking_reasons(page) == []
+        monitor.mark_fill_started(["email"])
+        page.fill("#email", f"{nonce}@example.invalid")
+        page.fill("#email", "")
+        monitor.mark_cleared()
+        monitor.wait_quiet(min_seconds=0.3, quiet_seconds=0.3)
+        result = monitor.result()
+    assert result["status"] == "PASS", result["unverified_reasons"]
+    assert result["extension_non_loopback_requests"] == 0
+
+
+def test_probe_without_worker_restart_is_unverified(tmp_path) -> None:
+    with _browser(tmp_path) as h:
+        page = h.context.pages[0]
+        _stop_extension_worker(h, page)
+        monitor = SentinelNetworkMonitor(_nonce(), [], h.extension_id, probe_timeout_seconds=2)
+        monitor.start(h.context)
+        # localhost is not matched by the content script: nothing wakes the worker.
+        page.goto(f"http://localhost:{h.port}/{CHANNELS}", wait_until="load")
+        reasons = monitor.prefill_blocking_reasons(page)
+        monitor.mark_fill_started(["email"])
+        monitor.mark_cleared()
+        monitor.wait_quiet(min_seconds=0.3, quiet_seconds=0.3)
+        result = monitor.result()
+    assert "extension_worker_not_found" in reasons
+    assert "service_worker_network_unobservable" in reasons
+    assert result["status"] == UNVERIFIED
+    assert result["status"] != "PASS"
+    assert "service_worker_network_unobservable" in result["unverified_reasons"]
+    assert result["extension_non_loopback_requests"] == UNVERIFIED
+
+
 def test_without_service_worker_network_events_extension_metric_is_unverified(tmp_path) -> None:
     with _browser(tmp_path, sw_events=False) as h:
         nonce = _nonce()
@@ -521,7 +652,7 @@ def test_without_service_worker_network_events_extension_metric_is_unverified(tm
         page.goto(h.url(CHANNELS), wait_until="load")
         assert "service_worker_network_unobservable" in monitor.prefill_blocking_reasons(page)
         monitor.mark_fill_started(["email"])
-        h.worker.evaluate(
+        h.live_worker().evaluate(
             "url => fetch(url, {method: 'POST', body: 'x'}).catch(() => 0)",
             f"http://external.test:{h.port}/sink",
         )
@@ -639,7 +770,7 @@ def test_residue_counts_every_area(tmp_path) -> None:
         page = h.context.pages[0]
         page.goto(h.url(CHANNELS), wait_until="load")
         page.evaluate(_SEED, nonce)
-        h.worker.evaluate("v => chrome.storage.session.set({kenshoSessionProfile: {email: v}})", nonce)
+        h.live_worker().evaluate("v => chrome.storage.session.set({kenshoSessionProfile: {email: v}})", nonce)
         (evidence / "run.json").write_text(json.dumps({"x": nonce.upper()}), encoding="utf-8")
         (evidence / "clean.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
         result = check_sentinel_residue(h.context, nonce, extension_id=h.extension_id,

@@ -23,6 +23,8 @@ if str(ROOT.parent) not in sys.path:
 
 from kensho_assistant.app.pilot_network_monitor import (  # noqa: E402
     SentinelNetworkMonitor,
+    evaluate_worker,
+    live_extension_worker,
     service_worker_network_events,
 )
 
@@ -74,10 +76,33 @@ def _build_smoke_extension(destination: Path, origin: str) -> Path:
     return extension_dir
 
 
-def _wait_for_worker(context):
-    if context.service_workers:
-        return context.service_workers[0]
-    return context.wait_for_event("serviceworker", timeout=10_000)
+def _wait_for_worker(context, timeout: float = 10.0):
+    """A live extension worker; Chromium may have stopped/restarted the first one."""
+    worker = live_extension_worker(context, "chrome-extension://", timeout=timeout)
+    if worker is None:
+        raise RuntimeError("extension_worker_not_found")
+    return worker
+
+
+def _worker_evaluate(context, extension_id: str, expression: str, arg=None,
+                     timeout: float = 10.0):
+    """Evaluate in the extension worker, re-acquiring it per attempt."""
+    prefix = f"chrome-extension://{extension_id}/"
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        worker = live_extension_worker(
+            context, prefix, timeout=max(deadline - time.monotonic(), 0.0))
+        if worker is None:
+            break
+        try:
+            return evaluate_worker(
+                worker, expression, arg,
+                timeout=min(max(deadline - time.monotonic(), 0.1), 5.0))
+        except Exception as exc:  # closed/stopped worker: retry
+            last_error = exc
+            time.sleep(0.05)
+    raise RuntimeError("extension_worker_unavailable") from last_error
 
 
 def _approve_all_visible_mappings(host) -> None:
@@ -110,11 +135,10 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                 ],
             )
             try:
-                worker = _wait_for_worker(context)
+                extension_id = urlsplit(_wait_for_worker(context).url).hostname or ""
                 marker = uuid.uuid4().hex
 
                 page = context.pages[0] if context.pages else context.new_page()
-                extension_id = urlsplit(worker.url).hostname or ""
                 # Counts only; URLs, bodies and frames are never retained.
                 monitor = SentinelNetworkMonitor(
                     marker, UNDETECTABLE_PROFILE_KEYS, extension_id
@@ -122,7 +146,9 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                 monitor.start(context)
                 registration_deadline = time.monotonic() + 10
                 while time.monotonic() < registration_deadline:
-                    registered_count = worker.evaluate(
+                    registered_count = _worker_evaluate(
+                        context,
+                        extension_id,
                         """async () => {
                           if (!chrome.scripting?.getRegisteredContentScripts) return 0;
                           const scripts = await chrome.scripting.getRegisteredContentScripts();
@@ -195,13 +221,17 @@ def run_smoke(*, headless: bool = True) -> dict[str, object]:
                     "gender": "男性",
                 }
                 monitor.mark_fill_started(sorted(fake_profile))
-                worker.evaluate(
+                _worker_evaluate(
+                    context,
+                    extension_id,
                     """profile => chrome.storage.session.set({
                       kenshoSessionProfile: profile
                     })""",
                     fake_profile,
                 )
-                profile_is_ready = worker.evaluate(
+                profile_is_ready = _worker_evaluate(
+                    context,
+                    extension_id,
                     """async () => Boolean(
                       (await chrome.storage.session.get("kenshoSessionProfile"))
                         .kenshoSessionProfile
