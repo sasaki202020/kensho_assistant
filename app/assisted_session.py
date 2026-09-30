@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
 from .apply_queue import _deadline_bucket, approved_queue_rows, load_apply_queue, queue_prepare_block_reason
-from .origin_policy import normalize_origin
+from .origin_policy import normalize_origin, is_origin_allowed
 from .browser_manager import set_active_origin, clear_active_origin
 from .apply_queue import mark_hold as _apply_queue_mark_hold
 from .apply_queue import mark_manual_submitted as _apply_queue_mark_manual_submitted
@@ -426,6 +426,8 @@ def default_assisted_session_state() -> dict[str, object]:
         "done": 0,
         "ok": 0,
         "failed": 0,
+        "skip_count": 0,
+        "origin_skip_reasons": [],
         "processed": 0,
         "current_url": "",
         "current_title": "",
@@ -1255,6 +1257,16 @@ def approved_candidate_origin(row: Mapping[str, object]) -> str:
     return normalize_origin(row["resolved_entry_url"])
 
 
+def _dedicated_origin_rejection_reason(url: str, *, allow_loopback_http: bool) -> str:
+    """Recover a value-free policy code; policy failures remain session-wide stops."""
+    try:
+        origin = normalize_origin(url)
+    except ValueError:
+        return "invalid_origin"
+    allowed, reason = is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)
+    return "dedicated_target_not_allowed" if allowed else reason
+
+
 def _session_sort_key(row: Mapping[str, object]) -> tuple[int, int, int, str]:
     deadline_bucket, _ = _deadline_bucket(str(row.get("deadline", "")))
     readiness = 0 if str(row.get("readiness_status", "")) == "READY_FOR_FILL" else 1
@@ -1616,14 +1628,33 @@ def run_assisted_application_session(
         validate_dedicated_target_url(target_url_for_campaign(first),
             approved_candidate_origin=first_origin, allow_loopback_http=allow_loopback_http_for_tests)
     except ValueError:
-        session_state.update(status="STOPPED", final_status="STOPPED", workflow_state="FAILED_SAFE",
-            current_step="origin_not_approved", submitted_count_auto=0,
-            message="候補の承認またはorigin安全条件を確認できないため停止しました。",
-            session_finished_at=_now_iso(), finished_at=_now_iso())
-        save_assisted_session_state(session_state)
-        return {"status": "stopped", "processed": 0, "ok": 0, "failed": 1,
-            "submitted_count_auto": 0, "message": session_state["message"],
-            "state_path": str(ASSISTED_SESSION_STATE_JSON), "session_id": session_id}
+        first_url = target_url_for_campaign(first)
+        reason = _dedicated_origin_rejection_reason(first_url, allow_loopback_http=allow_loopback_http_for_tests)
+        # Preserve the startup boundary: a blank browser needs at least one
+        # approved, runnable origin. Rejected candidates are then skipped by the loop.
+        runnable_origin = False
+        if _is_valid_target_url(first_url) and reason != "origin_policy_invalid":
+            for remaining_id in candidate_ids[start_index:]:
+                remaining = current_rows.get(remaining_id, {})
+                try:
+                    remaining_origin = approved_candidate_origin(remaining)
+                    validate_dedicated_target_url(target_url_for_campaign(remaining),
+                        approved_candidate_origin=remaining_origin,
+                        allow_loopback_http=allow_loopback_http_for_tests)
+                except ValueError:
+                    continue
+                runnable_origin = True
+                break
+        if not runnable_origin:
+            session_state.update(status="STOPPED", final_status="STOPPED", workflow_state="FAILED_SAFE",
+                current_step="origin_not_approved", submitted_count_auto=0,
+                last_action="DEDICATED_ORIGIN_NOT_APPROVED", last_reason=reason, failed=failed + 1,
+                message="候補の承認またはorigin安全条件を確認できないため停止しました。",
+                session_finished_at=_now_iso(), finished_at=_now_iso())
+            save_assisted_session_state(session_state)
+            return {"status": "stopped", "processed": 0, "ok": 0, "failed": 1,
+                "submitted_count_auto": 0, "message": session_state["message"],
+                "state_path": str(ASSISTED_SESSION_STATE_JSON), "session_id": session_id}
 
     with sync_playwright() as playwright:
         context, page, actual_browser = open_url_in_chrome(
@@ -1763,24 +1794,44 @@ def run_assisted_application_session(
                     validate_dedicated_target_url(target_url, approved_candidate_origin=candidate_origin,
                         allow_loopback_http=allow_loopback_http_for_tests)
                 except ValueError:
+                    reason = _dedicated_origin_rejection_reason(target_url, allow_loopback_http=allow_loopback_http_for_tests)
+                    clear_active_origin(browser_context)
+                    failed += 1
+                    if reason == "origin_policy_invalid":
+                        session_state.update(workflow_state="FAILED_SAFE")
+                        stop_requested = True
+                    else:
+                        try:
+                            session_state = _workflow_event(session_state, "skipped",
+                                session_id=session_id, candidate_id=campaign_id)
+                        except InvalidSessionTransition:
+                            reason = "invalid_session_transition"
+                            session_state.update(workflow_state="FAILED_SAFE")
+                            stop_requested = True
                     candidate_finished_at = _now_iso()
+                    candidate_status = "STOPPED" if stop_requested else "ADVANCING"
                     session_state.update(
-                        status="STOPPED",
-                        status_label=SESSION_STATUS_LABELS["STOPPED"],
-                        final_status="STOPPED",
+                        status=candidate_status,
+                        status_label=SESSION_STATUS_LABELS[candidate_status],
+                        final_status=candidate_status,
                         current_step="origin_not_approved",
                         candidate_finished_at=candidate_finished_at,
-                        session_finished_at=candidate_finished_at,
-                        finished_at=candidate_finished_at,
-                        message="候補originの承認または安全条件を確認できないため停止しました。",
+                        next_candidate_index=index if stop_requested else index + 1,
+                        message="origin安全設定または状態遷移が不正のため停止しました。" if stop_requested else "候補originが承認条件を満たさないためスキップしました。",
                         last_action="DEDICATED_ORIGIN_NOT_APPROVED",
-                        last_reason="DEDICATED_ORIGIN_NOT_APPROVED",
+                        last_reason=reason,
+                        failed=failed,
                         submitted_count_auto=0,
                     )
+                    if stop_requested:
+                        session_state.update(session_finished_at=candidate_finished_at, finished_at=candidate_finished_at)
+                    else:
+                        session_state["skip_count"] = int(session_state.get("skip_count", 0) or 0) + 1
+                        session_state["origin_skip_reasons"] = [*session_state.get("origin_skip_reasons", []), reason]
                     save_assisted_session_state(session_state)
-                    failed += 1
-                    stop_requested = True
-                    break
+                    if stop_requested:
+                        break
+                    continue
 
                 try:
                     set_active_origin(browser_context, candidate_origin, session_id,

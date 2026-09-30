@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import hashlib
 import json
 import socket
 import threading
@@ -22,9 +23,135 @@ from kensho_assistant.scripts.run_extension_local_smoke import (
     _build_smoke_extension,
     _fixture_server,
     _wait_for_worker,
+    _worker_evaluate,
 )
 
 NO_INTERNET = "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost"
+
+
+@pytest.mark.parametrize("rejected_url,reason,safety_failure", [
+    ("https://x.com/entry", "denied_domain", None),
+    ("https://login.example.invalid/entry", "login_subdomain", None),
+    ("http://example.invalid/entry", "https_required", None),
+    ("https://x.com/entry", "denied_domain", "extension_state"),
+    ("https://x.com/entry", "denied_domain", "origin_readback"),
+    ("https://x.com/entry", "origin_policy_invalid", "policy_config"),
+])
+def test_rejected_origin_skips_candidate_without_queue_or_history_writes(
+    tmp_path, monkeypatch, rejected_url, reason, safety_failure,
+):
+    state_path = tmp_path / "session.json"
+    monkeypatch.setattr(session, "ASSISTED_SESSION_STATE_JSON", state_path)
+    monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "config")
+    monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", tmp_path / "form_templates.json")
+    queue = tmp_path / "apply_queue.json"
+    history = tmp_path / "history.json"
+    history.write_text("[]", encoding="utf-8")
+    snapshots, calls, launches, cleared = [], [], [], []
+    save = session.save_assisted_session_state
+    def observe_state(state):
+        snapshots.append(dict(state))
+        return save(state)
+    monkeypatch.setattr(session, "save_assisted_session_state", observe_state)
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("candidate/history writes and real profile reads are forbidden")
+    for name in ("mark_hold", "mark_skipped", "mark_manual_submitted", "load_profile"):
+        monkeypatch.setattr(session, name, forbidden)
+
+    with _fixture_server() as origin:
+        target = f"{origin}/extension_fixtures/standard_form.html"
+        candidates = [
+            {"campaign_id": "a", "campaign_name": "A", "queue_status": "APPROVED",
+             "approved_by_user": "true", "resolved_entry_url": rejected_url},
+            {"campaign_id": "b", "campaign_name": "B", "queue_status": "APPROVED",
+             "approved_by_user": "true", "resolved_entry_url": target},
+        ]
+        queue.write_text(json.dumps(candidates), encoding="utf-8")
+        def hashes():
+            return [hashlib.sha256(path.read_bytes()).hexdigest() for path in (queue, history)]
+        before = hashes()
+        monkeypatch.setattr(session, "approved_queue_rows", lambda rows=None: json.loads(queue.read_text(encoding="utf-8")))
+        monkeypatch.setattr(session, "target_url_for_campaign", lambda row: row["resolved_entry_url"])
+        extension_dir = _build_smoke_extension(tmp_path, origin)
+        build_dedicated_extension(source_dir=extension_dir, output_dir=tmp_path / "build" / "extension")
+        def launch(playwright, url, browser, **_kwargs):
+            assert url == "about:blank"
+            launches.append(url)
+            context, actual, _build = launch_dedicated_kensho_context(
+                playwright, run_id="origin-skip", project_root=tmp_path,
+                runtime_profiles_root=tmp_path / "runtime", headless=True,
+                extra_args=(NO_INTERNET,),
+            )
+            try:
+                context.route("**/*", lambda route: route.continue_() if urlsplit(route.request.url).hostname == "127.0.0.1" else route.abort())
+                worker = _wait_for_worker(context)
+                assert _worker_evaluate(context, urlsplit(worker.url).netloc,
+                    "async () => { await scheduleReconciliation(); return dedicatedRuntimeOriginMode() && !(await getActiveOrigin()) && (await chrome.scripting.getRegisteredContentScripts()).length === 0; }") is True
+                if safety_failure == "policy_config":
+                    paths.CONFIG_DIR.mkdir()
+                    (paths.CONFIG_DIR / "origin_denylist.json").write_text('{"schema_version": 0}', encoding="utf-8")
+                return context, context.pages[0], actual
+            except Exception:
+                close_browser_safely(context)
+                raise
+        monkeypatch.setattr(session, "open_url_in_chrome", launch)
+        clear = session.clear_active_origin
+        def observe_clear(context):
+            clear(context)
+            worker = browser_manager._runtime_origin_worker(context)
+            assert worker.evaluate("async () => (await chrome.scripting.getRegisteredContentScripts()).length") == 0
+            cleared.append(True)
+        monkeypatch.setattr(session, "clear_active_origin", observe_clear)
+        def unsafe_extension(*_args, **_kwargs):
+            raise RuntimeError("dedicated_extension_state_invalid")
+        if safety_failure == "extension_state":
+            monkeypatch.setattr(session, "dedicated_extension_page_state", unsafe_extension)
+        elif safety_failure == "origin_readback":
+            activate = session.set_active_origin
+            def unsafe_readback(*args, **kwargs):
+                activate(*args, **kwargs)
+                raise RuntimeError("active_origin_readback_mismatch")
+            monkeypatch.setattr(session, "set_active_origin", unsafe_readback)
+        def analysis_boundary(_engine, page, campaign, profile, **_kwargs):
+            assert campaign["campaign_id"] == "b" and page.url == target and profile == {}
+            assert hashes() == before
+            skipped = [state for state in snapshots if state.get("last_action") == "DEDICATED_ORIGIN_NOT_APPROVED"
+                       and state.get("current_campaign_id") == "a" and state.get("workflow_state") == "SKIPPED"]
+            assert skipped and skipped[-1]["workflow_state"] == "SKIPPED"
+            assert skipped[-1]["last_reason"] == reason
+            assert skipped[-1]["failed"] == 1 and skipped[-1]["skip_count"] == 1
+            assert skipped[-1]["next_candidate_index"] == 2
+            assert len(cleared) >= 3
+            calls.append(campaign["campaign_id"])
+            return {"record": {"status": "AWAITING_USER_SUBMIT", "submitted_count_auto": 0,
+                               "submit_button_detected": True}}
+        monkeypatch.setattr(session, "_run_session_engine", analysis_boundary)
+        monkeypatch.setattr(session, "_wait_for_user_decision", lambda **_kwargs: ("stop", {}))
+        result = session.run_assisted_application_session(
+            allow_loopback_http_for_tests=True, limit=2, keep_open=False, poll_interval_sec=0.01,
+        )
+        if safety_failure:
+            assert calls == [] and result["status"] == "stopped"
+            assert result["processed"] == 0
+            assert result["failed"] == (1 if safety_failure == "policy_config" else 2)
+            state = session.load_assisted_session_state()
+            assert state["current_step"] == ("origin_not_approved" if safety_failure == "policy_config" else "navigation_failed")
+            assert state["skip_count"] == (0 if safety_failure == "policy_config" else 1)
+            if safety_failure == "policy_config":
+                assert state["workflow_state"] == "FAILED_SAFE"
+                assert state["last_reason"] == "origin_policy_invalid"
+            assert hashes() == before and result["submitted_count_auto"] == 0
+            assert launches == ["about:blank"]
+            assert not list((tmp_path / "runtime").iterdir())
+            return
+        assert calls == ["b"]
+        assert launches == ["about:blank"]
+        assert result["processed"] == 1 and result["failed"] == 1
+        assert result["submitted_count_auto"] == 0
+        assert session.load_assisted_session_state()["skip_count"] == 1
+        assert session.load_assisted_session_state()["origin_skip_reasons"] == [reason]
+        assert hashes() == before
+        assert not list((tmp_path / "runtime").iterdir())
 
 
 def test_normal_session_uuid_is_not_redacted_as_postal_code(tmp_path, monkeypatch):
