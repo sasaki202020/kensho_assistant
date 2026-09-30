@@ -853,3 +853,42 @@ def test_residue_without_extension_worker_is_unverified(tmp_path) -> None:
         result = check_sentinel_residue(h.context, _nonce(), extension_id="nonexistent")
     assert result["extension_storage"] == UNVERIFIED
     assert result["status"] == UNVERIFIED
+
+
+class _FakeRequest:
+    def __init__(self, url: str, body: bytes) -> None:
+        self.url = url
+        self.method = "POST"
+        self.headers = {"content-type": "text/plain", "content-length": str(len(body))}
+        self.post_data_buffer = body
+
+    def header_value(self, name: str):
+        return self.headers.get(name)
+
+    def all_headers(self):
+        return dict(self.headers)
+
+
+class _UnabortableRoute:
+    def __init__(self, request) -> None:
+        self.request = request
+
+    def abort(self, *_args) -> None:
+        raise RuntimeError("abort failed")
+
+    def continue_(self) -> None:
+        raise AssertionError("a sentinel request must never be continued")
+
+
+def test_failed_abort_of_sentinel_request_is_fail_not_unverified() -> None:
+    nonce = _nonce()
+    monitor = SentinelNetworkMonitor(nonce, [], "abc")
+    monitor._started = True
+    monitor._fill_started = True
+    request = _FakeRequest("https://external.test/collect", f"v={nonce}".encode())
+    monitor._pre_send_route(_UnabortableRoute(request))
+    result = monitor.result()
+    # The abort failed, so the sentinel may have left the browser: that is a leak.
+    assert result["sentinel_network_leak"] == 1
+    assert result["status"] == "FAIL"
+    assert "pre_send_abort_failed" in result["unverified_reasons"]

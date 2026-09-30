@@ -838,8 +838,9 @@ class SentinelNetworkMonitor:
                 self._blocker_errors += 1
                 if pending:
                     self._pending_verdicts[self._request_key(request)] = pending
-                # Failure to abort does not prove whether the request left.
-                self._record_verdict(OPAQUE, self._fill_started)
+                # Failure to abort does not prove whether the request left; a
+                # sentinel-bearing request must then count as a leak.
+                self._record_verdict(verdict, self._fill_started)
                 return
             self._pending_verdicts.pop(self._request_key(request), None)
             if verdict == OPAQUE:
