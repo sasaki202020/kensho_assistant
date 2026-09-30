@@ -64,6 +64,10 @@ QUEUE_HEADERS = [
     "dry_run_html_snapshot_path",
     "created_at",
     "updated_at",
+    "terms_automation_restricted",
+    "terms_restriction_categories",
+    "terms_check_uncertain",
+    "terms_checked_at",
 ]
 
 
@@ -165,6 +169,8 @@ def queue_prepare_block_reason(row: dict[str, str]) -> str:
         return "already_manually_submitted"
     if _deadline_bucket(row.get("deadline", ""))[0] == 4:
         return "campaign_expired"
+    if str(row.get("terms_automation_restricted", "")).strip().casefold() == "true":
+        return "terms_prohibit_automation"
     return ""
 
 
@@ -227,6 +233,20 @@ def build_apply_queue(
             continue
         inspection = inspection_rows.get(campaign_id, {})
         existing = existing_by_id.get(campaign_id, {})
+        terms_policy = inspection.get("terms_policy")
+        if isinstance(terms_policy, dict):
+            terms_fields = {
+                "terms_automation_restricted": str(terms_policy.get("restricted") is True).lower(),
+                "terms_restriction_categories": ", ".join(terms_policy.get("categories", [])),
+                "terms_check_uncertain": str(terms_policy.get("uncertain") is True).lower(),
+                "terms_checked_at": str(terms_policy.get("checked_at", "")),
+            }
+        else:
+            # A legacy inspection must not silently erase a saved restriction.
+            terms_fields = {key: existing.get(key, "") for key in (
+                "terms_automation_restricted", "terms_restriction_categories",
+                "terms_check_uncertain", "terms_checked_at",
+            )}
         queue_status = existing.get("queue_status", "") or "QUEUED"
         if queue_status == "MANUALLY_SUBMITTED":
             continue
@@ -271,6 +291,7 @@ def build_apply_queue(
                 "prepared_at": existing.get("prepared_at", ""),
                 "created_at": created_at,
                 "updated_at": updated_at,
+                **terms_fields,
             }
         )
 

@@ -1236,6 +1236,14 @@ def _safe_form_campaigns(limit: int | None = None, campaign_id: str | None = Non
 
 def _inspection_record(campaign: dict[str, str], page, profile: dict[str, str]) -> dict[str, object]:
     from .app.form_filler import plan_field_filling
+    from .app.terms_policy import detect_automation_restrictions
+
+    try:
+        terms_policy = detect_automation_restrictions(page.inner_text("body"))
+    except Exception:
+        # Do not record page contents or raw browser errors on read failure.
+        terms_policy = {"restricted": False, "categories": [], "uncertain": True}
+    terms_policy["checked_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
 
     fields = plan_field_filling(detect_fields(page), profile)
     quiz_items = extract_quiz_items(page)
@@ -1256,6 +1264,7 @@ def _inspection_record(campaign: dict[str, str], page, profile: dict[str, str]) 
     )
     return {
         "campaign_id": campaign.get("campaign_id", ""),
+        "terms_policy": terms_policy,
         "campaign_name": campaign.get("campaign_name", ""),
         "resolved_entry_url": campaign.get("resolved_entry_url", ""),
         "resolved_domain": campaign.get("resolved_domain", ""),

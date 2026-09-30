@@ -1099,6 +1099,12 @@ def _decorate_queue_row(row: dict[str, str]) -> dict[str, str]:
     decorated["last_action_label"] = _queue_last_action_label(row)
     decorated["next_action_label"] = _queue_next_action_label(row)
     decorated["auto_submit_label"] = "無効"
+    decorated["terms_notice"] = ""
+    if str(row.get("terms_automation_restricted", "")).strip().casefold() == "true":
+        decorated["terms_notice"] = "規約で自動入力禁止（手動で応募してください）"
+    elif str(row.get("terms_check_uncertain", "")).strip().casefold() == "true":
+        decorated["terms_notice"] = "規約の確認が必要（自動応募に関する記載あり）"
+    decorated["terms_prepare_disabled"] = queue_prepare_block_reason(row) == "terms_prohibit_automation"
     decorated["manual_record_label"] = "手動送信済みを記録しました。" if row.get("manual_submitted_at", "").strip() or row.get("submission_method", "").strip().upper() == "MANUAL" else "送信した場合だけ記録してください"
     decorated["risk_notice"] = _queue_risk_notice(row)
     decorated["risk_detail"] = row.get("risk_level", "") or row.get("risk_reasons", "") or row.get("skip_reason_summary", "")
@@ -3320,8 +3326,8 @@ def create_app(
                 "action": "prepare_failed",
                 "blocked_reason": blocked_reason,
                 "queue_status": item.get("queue_status", ""),
-                "message": "期限切れ、または手動送信済みのため応募準備を開始しません。",
-                "next_action": "公式情報と応募履歴を確認してください。",
+                "message": "規約で自動入力禁止（手動で応募してください）" if blocked_reason == "terms_prohibit_automation" else "期限切れ、または手動送信済みのため応募準備を開始しません。",
+                "next_action": "本人が応募条件と規約を確認し、手動で応募してください。" if blocked_reason == "terms_prohibit_automation" else "公式情報と応募履歴を確認してください。",
                 "submitted_count_auto": 0,
             }
         effective_allow_age_fill = allow_age_fill or item.get("age_fill_user_approved", "") == "true"
