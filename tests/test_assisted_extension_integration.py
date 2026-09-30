@@ -190,7 +190,7 @@ def local_management_api(app):
     ("form_changed", "rollback"), ("template_unconfirmed", "rollback"),
     ("version_changed", "rollback"), ("duplicate_tab", "rollback"),
     ("document_changed", "rollback"), ("after_provision_reload", "rollback")])
-def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplog, mutation, cleanup):
+def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplog, mutation, cleanup, human_navigation=False):
     monkeypatch.setattr(template_store, "ALLOW_LOOPBACK_HTTP_FOR_TESTS", True)
     monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", tmp_path / "form_templates.json")
     web = importlib.import_module("kensho_assistant.web.app")
@@ -243,19 +243,36 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
 
     with _fixture_server() as origin, local_management_api(app) as api:
         target = f"{origin}/extension_fixtures/standard_form.html"
+        if human_navigation == "query":
+            target += "?ticket=HUMAN-URL-SENTINEL#fragment"
         candidate = {
             "campaign_id": "local-integration", "campaign_name": "Local fixture",
             "queue_status": "APPROVED", "approved_by_user": "true",
             "resolved_entry_url": target,
             "terms_check_uncertain": "true",
         }
+        if human_navigation:
+            from kensho_assistant.app import entry_url_resolver as resolver
+            from kensho_assistant.app.models import CAMPAIGN_HEADERS
+            from kensho_assistant.app.storage import write_csv_rows
+            source = origin + "/rd/local-human"
+            # Path classification is an in-process seam for this all-loopback
+            # fixture; production classification remains exact knshow hosts.
+            is_source = lambda url: url == source
+            monkeypatch.setattr(resolver, "is_knshow_url", is_source)
+            monkeypatch.setattr(session, "is_knshow_url", is_source)
+            monkeypatch.setattr(paths, "CAMPAIGNS_CSV", tmp_path / "campaigns.csv")
+            candidate.update(entry_url=source, resolved_entry_url="", resolve_status="HUMAN_NAVIGATION_REQUIRED")
+            write_csv_rows(paths.CAMPAIGNS_CSV, [candidate], CAMPAIGN_HEADERS)
         monkeypatch.setattr(session, "approved_queue_rows", lambda rows=None: [candidate])
         monkeypatch.setattr(session, "load_apply_queue", lambda: [candidate])
-        monkeypatch.setattr(session, "target_url_for_campaign", lambda row: row["resolved_entry_url"])
+        monkeypatch.setattr(session, "target_url_for_campaign", lambda row: row["resolved_entry_url"] or row.get("entry_url", ""))
         def local_only(url, **kwargs):
             assert url == target
             return url
         monkeypatch.setattr(session, "validate_dedicated_target_url", local_only)
+        if human_navigation == "query":
+            monkeypatch.setattr(session, "validate_dedicated_target_url", browser_manager.validate_dedicated_target_url)
 
         extension_dir = _build_smoke_extension(tmp_path, origin)
         manifest_path = extension_dir / "manifest.json"
@@ -286,12 +303,26 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
                 # Never retain request bodies, query strings or input values.
                 requests.append((parsed.hostname, parsed.path, request.method))
             context.on("request", record)
-            context.route("**/*", lambda route: route.continue_() if urlsplit(route.request.url).hostname == "127.0.0.1" else route.abort())
+            def local_route(route):
+                if human_navigation and route.request.url == source:
+                    return route.fulfill(status=200, content_type="text/html",
+                        body=f'<title>Just a moment...</title><a id="human" href="{target}">Continue</a>')
+                return route.continue_() if urlsplit(route.request.url).hostname == "127.0.0.1" else route.abort()
+            context.route("**/*", local_route)
             try:
                 worker = browser_manager._runtime_origin_worker(context)
                 assert worker.evaluate("async () => { await scheduleReconciliation(); return (await chrome.scripting.getRegisteredContentScripts()).length; }") == 0
                 page = context.pages[0]
                 page_holder.update(page=page, worker=worker)
+                if human_navigation:
+                    wait = page.wait_for_timeout
+                    def human_actor(milliseconds):
+                        if page.url == source:
+                            assert page.locator('[data-kensho-extension-root]').count() == 0
+                            assert worker.evaluate("async () => getActiveOrigin()") is None
+                            page.locator("#human").click()  # harness, never assistant
+                        wait(milliseconds)
+                    monkeypatch.setattr(page, "wait_for_timeout", human_actor)
                 return context, page, browser
             except Exception:
                 close_browser_safely(context)
@@ -330,6 +361,10 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
                   document.querySelector('#submit-button').addEventListener('click', () => window.fixtureSubmitClicks++);
                 }""")
                 observed["original_styles"] = page.locator("#entry-form").evaluate("f => Array.from(f.elements, e => e.getAttribute('style'))")
+                if human_navigation == "query":
+                    # Keep the fixture's two public terms links query-free.
+                    # A fragment-only link inherits the live ticket otherwise.
+                    page.locator('a[href="#requirements"]').evaluate("a => a.href = '/requirements'")
             host = page.locator("#kensho-assistant-overlay-host")
             assert host.locator("#pre-submit-review").is_hidden()
             host.locator("#analyze").click()
@@ -466,6 +501,15 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
                 content = path.read_bytes()
                 assert sentinel.encode() not in content, path.name
                 assert sentinel.encode("utf-16-le") not in content, path.name
+
+
+@pytest.mark.parametrize("human_mode", [True, "query"])
+def test_real_human_navigation_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplog, human_mode):
+    test_real_assisted_mapping_bridge_fill_rollback(
+        tmp_path, monkeypatch, caplog, mutation=None, cleanup="rollback", human_navigation=human_mode)
+    if human_mode == "query":
+        assert "HUMAN-URL-SENTINEL" not in (tmp_path / "session.json").read_text(encoding="utf-8")
+        assert "HUMAN-URL-SENTINEL" not in (tmp_path / "campaigns.csv").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("second", ["matched", "form_changed", "path_changed", "version_changed", "build_changed", "expired", "seed_readback_failed", "verification_failed"])

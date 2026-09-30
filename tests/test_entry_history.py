@@ -16,6 +16,21 @@ from kensho_assistant.app.models import CAMPAIGN_HEADERS
 from kensho_assistant.app.storage import write_csv_rows
 
 
+def test_generated_later_hash_id_survives_pii_redaction(tmp_path):
+    path = tmp_path / "history.jsonl"
+    identifier = "later-fbc6277652b8"
+    save_entry_history([{"campaign_id": identifier, "url": "http://127.0.0.1/history-fixture/28",
+        "memo": "連絡先 090-1234-5678"}], path)
+    rows = load_entry_history(path)
+    assert rows[0]["campaign_id"] == identifier
+    assert "090-1234-5678" not in path.read_text(encoding="utf-8")
+    save_entry_history(rows, path)
+    assert load_entry_history(path)[0]["campaign_id"] == identifier
+    unverified = "later-090123456789"
+    save_entry_history([{"campaign_id": unverified, "url": "http://127.0.0.1/history-fixture/28"}], path)
+    assert unverified not in path.read_text(encoding="utf-8")
+
+
 def test_entry_history_round_trip_and_duplicate_summary(tmp_path: Path):
     path = tmp_path / "entry_history.jsonl"
     first = build_entry_record(

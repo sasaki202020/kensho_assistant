@@ -102,6 +102,7 @@
       <div class="tag-row">
             <span class="pill blue">{{ row.deadline_label }}</span>
         <span class="pill {{ 'green' if row.readiness_status == 'READY_FOR_FILL' else 'orange' if row.readiness_status == 'REVIEW_ONLY' else 'gray' }}">{{ display_status_label(row.readiness_status) }}</span>
+        {% if row.readiness_status == 'HUMAN_NAVIGATION_REQUIRED' %}<span class="pill orange">応募先未確定</span>{% endif %}
         <span class="pill {{ 'red' if row.queue_status in ['BLOCKED', 'SKIPPED', 'MANUALLY_SUBMITTED'] else 'blue' }}">{{ row.queue_status }}</span>
       </div>
       <div class="muted">{{ row.one_line_reason or "安全順で並べています" }}</div>
@@ -151,6 +152,7 @@
         <div>提供元</div><div>{{ detail.provider }}</div>
         <div>締切</div><div>{{ detail.deadline or "未取得" }}</div>
         <div>URL</div><div class="break">{{ detail.resolved_entry_url or "未取得" }}</div>
+        {% if detail.readiness_status == 'HUMAN_NAVIGATION_REQUIRED' %}<div>応募先</div><div>応募先未確定</div>{% endif %}
         <div>現在の状態</div><div>{{ detail.state_label or detail.queue_status or "未処理" }}</div>
         {% if detail.terms_notice %}
         <div>規約の確認</div><div>{{ detail.terms_notice }}</div>

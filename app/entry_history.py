@@ -68,6 +68,14 @@ def _sanitize_record(record: Mapping[str, object]) -> dict[str, str]:
             cleaned[key] = "true" if str(value).casefold() in {"true", "1", "yes"} else "false"
             continue
         cleaned[key] = redact_personal_info(str(value or "")).strip()
+    # A generated later-queue digest is metadata. Verify it against its source
+    # URL before preserving numeric runs; arbitrary IDs still undergo masking.
+    campaign_id = str(record.get("campaign_id") or "")
+    if campaign_id.startswith("later-") and record.get("url"):
+        from .later_queue import build_duplicate_key as later_duplicate_key
+        expected = "later-" + hashlib.sha1(later_duplicate_key(str(record["url"])).encode("utf-8")).hexdigest()[:12]
+        if campaign_id == expected:
+            cleaned["campaign_id"] = campaign_id
     cleaned["newsletter_status"] = cleaned.get("newsletter_status", "unknown") or "unknown"
     if cleaned["newsletter_status"] not in NEWSLETTER_STATUSES:
         cleaned["newsletter_status"] = "unknown"

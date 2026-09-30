@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -1370,6 +1371,7 @@ def cmd_resolve_urls(args: argparse.Namespace) -> int:
         raise SystemExit(f"playwright is required for resolve-urls: {safe_exception_message(exc)}")
     by_id = {row.get("campaign_id", ""): row for row in campaigns}
     resolved = 0
+    challenged_hosts: set[str] = set()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context()
@@ -1377,7 +1379,17 @@ def cmd_resolve_urls(args: argparse.Namespace) -> int:
         for index, campaign in enumerate(candidates, start=1):
             rd_url = campaign.get("entry_url", "") or campaign.get("knshow_url", "")
             try:
-                result = resolve_rd_url(page, rd_url)
+                from .app.entry_url_resolver import ResolveResult
+                host = urlparse(rd_url).hostname
+                if host in challenged_hosts:
+                    result = ResolveResult("", host or "", "HUMAN_NAVIGATION_REQUIRED", "bot_challenge",
+                        datetime.now().astimezone().isoformat(timespec="seconds"))
+                else:
+                    result = resolve_rd_url(page, rd_url)
+                    if result.resolve_status == "HUMAN_NAVIGATION_REQUIRED":
+                        challenged_hosts.update({host, urlparse(page.url).hostname})
+                        context.route("**/*", lambda route: route.abort()
+                            if urlparse(route.request.url).hostname in challenged_hosts else route.continue_())
                 campaign.update(
                     {
                         "resolved_entry_url": result.resolved_entry_url,
@@ -1387,7 +1399,7 @@ def cmd_resolve_urls(args: argparse.Namespace) -> int:
                         "resolved_at": result.resolved_at,
                     }
                 )
-                resolved += 1
+                resolved += int(result.resolve_status == "RESOLVED")
                 print(f"{index}: {campaign.get('campaign_id', '')} {result.resolve_status} {result.resolved_entry_url}")
             except Exception as exc:
                 campaign.update(

@@ -96,6 +96,28 @@ login/signin/account/auth/payを含むサブドメイン、userinfo、非標準�
 HTTPSのみで、loopback HTTPは明示されたインプロセスのテスト用フラグだけで許可する。
 銀行・カードの全ドメインを網羅する保証はない。規約確認と本人の判断は引き続き必要。
 
+通常assisted sessionだけは、未解決・knshowのまま・`HUMAN_NAVIGATION_REQUIRED`の承認済み候補を、
+アクティブorigin未設定でheaded専用ブラウザへ開く。knshowには注入しない。
+チャレンジは本人が通過し、ツールは元タブのトップレベルURLと遷移イベントの読み取り・待機だけを行う。
+別タブは監視せず、最初の外部http(s)着地originだけを候補の承認originとして扱う。
+`origin_policy`審査と本文の`detect_automation_restrictions`を通した後、
+`set_active_origin`の登録・読み戻し一致を確認してreloadし、既存のガード・mapping・bridge検証へ進む。
+reloadや審査中に別originへ動いた場合は安全停止し、後続originへ承認を広げない。
+
+待機上限は`HUMAN_NAVIGATION_TIMEOUT_SEC=300`秒。タイムアウト・拒否origin・規約禁止は
+session内でスキップして次候補へ進め、キューと履歴を更新しない。設定不正や読み戻し不一致は停止する。
+本文は保存しない。解決結果の正本は`campaigns.csv`の既存resolver列であり、
+`RESOLVED_BY_HUMAN_NAVIGATION`のURLはscheme+host+pathだけを保存する。
+query/fragmentを含むライブURLは厳格なタブ・document照合の間だけメモリに保持する。
+sessionファイルにもquery/fragmentを残さず、この経路のPython診断は成果物保存を無効にする。
+値なしテンプレートの承認・保存条件は従来どおり。次回は保存URLを一度開き、
+エラー・フォーム不在なら元のknshowリンクの手動遷移へ戻る。pilotはこの処理もCSV保存も行わない。
+
+UA偽装、ヘッドレス検出回避、stealth、Cookie流用、チャレンジ自動クリック、
+外部突破サービス、リトライ連打は使わない。resolverは403/503と典型シグナル
+(`Just a moment`、`cf-chl`、`challenge-platform`)を検出すると`bot_challenge`を記録し、
+その実行中は同じホストへの後続アクセスを止める。
+
 アクティブoriginは`chrome.storage.session`の`TRUSTED_CONTEXTS`に保存する。
 Pythonは候補遷移前に期限付きworker evaluateで`setActiveOrigin`を呼び、
 origin/sessionと登録内容の読み戻し一致を確認する。不一致・timeoutではブラウザを閉じ、遷移しない。

@@ -208,7 +208,13 @@ def build_apply_queue(
             continue
         seen_campaign_ids.add(campaign_id)
         readiness_status = row.get("form_readiness_status", "")
-        if readiness_status not in {"REVIEW_ONLY", "READY_FOR_FILL"}:
+        human_navigation_required = row.get("resolve_status") == "HUMAN_NAVIGATION_REQUIRED"
+        if human_navigation_required:
+            readiness_status = "HUMAN_NAVIGATION_REQUIRED"
+        elif (row.get("resolve_status") == "RESOLVED_BY_HUMAN_NAVIGATION"
+                and row.get("resolved_entry_url") and readiness_status in {"", "UNKNOWN"}):
+            readiness_status = "REVIEW_ONLY"
+        if readiness_status not in {"REVIEW_ONLY", "READY_FOR_FILL", "HUMAN_NAVIGATION_REQUIRED"}:
             continue
         if _deadline_bucket(row.get("deadline", ""))[0] == 4:
             continue
@@ -270,7 +276,7 @@ def build_apply_queue(
                 "opportunity_reason": str(research_metrics["opportunity_reason"]),
                 "risk_reasons": str(research_metrics["risk_reasons"]),
                 "recommendation_reason": str(research_metrics["recommendation_reason"]),
-                "next_action": str(research_metrics["next_action"]),
+                "next_action": "ブラウザで開いて確認画面を通過" if human_navigation_required else str(research_metrics["next_action"]),
                 "quiz_required": str(bool(inspection.get("quiz_required"))).lower(),
                 "quiz_summary": str(inspection.get("quiz_summary", "")),
                 "quiz_manual_required": str(bool(inspection.get("quiz_required"))).lower(),

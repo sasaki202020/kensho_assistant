@@ -10,6 +10,30 @@
 
 ## 事前条件
 
+### 通常sessionのknshow手動遷移
+
+この経路は通常`prepare-session`のみで、`pilot-nonsubmit`には適用しない。
+resolverが403/503のチャレンジを検出した候補は`HUMAN_NAVIGATION_REQUIRED / bot_challenge`となり、
+同一ホストへの追加アクセスをその実行中は止める。未診断でも`build-queue`で承認でき、
+UIには「応募先未確定」、次のアクションには「ブラウザで開いて確認画面を通過」を表示する。
+
+1. 本人が応募条件を確認し、キューで候補を承認する。
+2. 通常sessionはアクティブorigin未設定のheaded専用ブラウザでknshowのrdまたは詳細URLを開く。
+3. 「ブラウザで確認画面が出たら通過してください。応募先ページに着くまで待ちます」と表示されたら、本人が確認画面を通過する。ツールはクリック・入力・ページスクリプト実行をしない。
+4. 元タブの最初の外部http(s)着地を最大300秒待つ。別タブの着地は使わない。タイムアウトは`human_navigation_timeout`で候補だけをスキップする。
+5. 着地originを`origin_policy`で審査し、本文の自動入力禁止を確認する。拒否はポリシー理由コード、規約禁止は`terms_prohibit_automation`でスキップする。本文は保存しない。
+6. 許可originだけを有効化・読み戻し確認してreloadする。別originへ移れば安全停止する。既存のテンプレートseed・欄対応・入力・送信前確認を使い、認証・同意・最終送信は本人が行う。
+
+`campaigns.csv`へ`RESOLVED_BY_HUMAN_NAVIGATION / human_navigation`と解決時刻を保存する。
+URLはscheme+host+pathだけで、query/fragmentを保存しない。キュー・履歴は自動更新しない。
+解決後にキューを再生成しても、未診断候補は`REVIEW_ONLY`として残り、既存の承認を保持する。
+次回は保存URLを一度直接開く。queryが必要などのエラーやフォーム不在なら、
+アクティブorigin未設定で元のknshowリンクへ戻り、本人の遷移を待つ。
+UA偽装・stealth・Cookie流用・チャレンジ自動操作・突破サービス・連続リトライは使用しない。
+この変更の検証は非loopback DNS遮断下のloopback fixtureのみで、実サイトの互換性は未検証。
+
+### 既存の入力・テンプレート確認
+
 通常`prepare-session`では、一度人が欄対応を承認し入力後検証が合格すると、値なしのテンプレートを`data/form_templates.json`へ保存する。180日以内かつorigin/pathname/fingerprint/拡張version/build一致の場合だけ、次の一時Chromiumで既存パネルから入力まで進む。条件不一致は再確認が必要。CAPTCHA、ログイン、規約同意、最終送信は引き続き本人が行う。pilotには適用しない。
 
 通常sessionでは入力後検証と正本への進行記録に合格すると、ページ内パネルへ「送信前確認」を表示する。入力した欄は既存処理でマスクし、未入力必須欄はラベルで列挙して枠線を付ける。「最初の未入力必須欄へ移動」はスクロールだけを行う。規約リンクは本人が開き、クエリ付きリンクはURLを複製せずラベルとページ上での確認案内だけを表示する。候補の`terms_check_uncertain`が真なら「規約に自動応募に関する記載あり・要確認」を表示する。

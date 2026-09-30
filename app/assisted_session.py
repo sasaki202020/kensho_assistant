@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 from .apply_queue import _deadline_bucket, approved_queue_rows, load_apply_queue, queue_prepare_block_reason
 from .origin_policy import normalize_origin, is_origin_allowed
@@ -34,7 +34,11 @@ from .browser_manager import (
     persist_verified_form_template,
     validate_dedicated_target_url,
 )
-from .entry_url_resolver import target_url_for_campaign
+from .entry_url_resolver import (target_url_for_campaign, is_knshow_url, human_navigation_source,
+    needs_human_navigation, human_navigation_resolution)
+from .terms_policy import detect_automation_restrictions
+from .models import CAMPAIGN_HEADERS
+from .storage import read_csv_rows, write_csv_rows
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS, CapabilityBridge
 from . import paths as _paths
 from .paths import ASSISTED_SESSION_DIR, ASSISTED_SESSION_STATE_JSON
@@ -79,6 +83,8 @@ SESSION_ACTIVE_STATUSES = {
 }
 
 SESSION_STALE_SECONDS = 300
+HUMAN_NAVIGATION_TIMEOUT_SEC = 300
+HUMAN_NAVIGATION_MESSAGE = "ブラウザで確認画面が出たら通過してください。応募先ページに着くまで待ちます"
 
 SESSION_HOLD_REASONS = [
     ("login_required", "ログインが必要"),
@@ -993,6 +999,18 @@ def save_assisted_session_state(payload: dict[str, object]) -> Path:
     with _STATE_LOCK:
         ASSISTED_SESSION_DIR.mkdir(parents=True, exist_ok=True)
         data = _normalize_state(payload)
+        if _PILOT_STORAGE is None and data.get("human_navigation_origin"):
+            # Keep full live URLs only in the runner's memory for exact binding.
+            # Query/fragment (including tickets) never reach the session file.
+            def safe_urls(value):
+                if isinstance(value, dict):
+                    return {k: (urlsplit(v)._replace(query="", fragment="").geturl()
+                        if k in {"url", "current_url"} and isinstance(v, str) else safe_urls(v))
+                        for k, v in value.items()}
+                if isinstance(value, list):
+                    return [safe_urls(v) for v in value]
+                return value
+            data = safe_urls(data)
         now = _now_iso()
         data["updated_at"] = now
         if not data.get("started_at") and data.get("session_started_at"):
@@ -1127,6 +1145,8 @@ def _begin_candidate_workflow(
     result["session_id"] = str(session_id or "").strip()
     result.pop("form_fingerprint", None)
     result.pop("confirmed_profile_keys", None)
+    if _PILOT_STORAGE is None:
+        result.pop("human_navigation_origin", None)
     return _SESSION_STATE_MACHINE.lock_candidate(result, candidate)
 
 
@@ -1167,6 +1187,8 @@ def _run_session_engine(
             profile,
             require_mapping_confirmation=True,
             mapping_confirmed=mapping_confirmed,
+            **({"persist_artifacts": False} if _PILOT_STORAGE is None
+                and campaign.get("resolve_status") == "RESOLVED_BY_HUMAN_NAVIGATION" else {}),
         )
     except TypeError as exc:
         if "require_mapping_confirmation" not in str(exc) and "mapping_confirmed" not in str(exc):
@@ -1248,7 +1270,139 @@ def _is_valid_target_url(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+class HumanNavigationError(ValueError):
+    def __init__(self, reason: str, *, stop: bool = False):
+        super().__init__(reason)
+        self.reason = reason
+        self.stop = stop
+
+
+def _campaign_navigation_metadata(row: Mapping[str, object]) -> dict:
+    result = dict(row)
+    if _PILOT_STORAGE is None:
+        saved = next((c for c in read_csv_rows(_paths.CAMPAIGNS_CSV)
+            if c.get("campaign_id") == row.get("campaign_id")), {})
+        if (row.get("resolved_entry_url") and not is_knshow_url(str(row["resolved_entry_url"]))
+                and saved.get("resolve_status") not in {"HUMAN_NAVIGATION_REQUIRED", "RESOLVED_BY_HUMAN_NAVIGATION"}):
+            return result
+        for key in ("entry_url", "knshow_url", "resolved_entry_url", "resolved_domain",
+                    "resolve_status", "resolve_reason", "resolved_at"):
+            if key in saved:
+                result[key] = saved[key]
+    return result
+
+
+def _validate_candidate_start(row: Mapping[str, object], *, allow_loopback_http: bool) -> None:
+    if _PILOT_STORAGE is None and needs_human_navigation(row):
+        if (str(row.get("approved_by_user", "")).lower() != "true"
+            or row.get("queue_status") not in {"APPROVED", "PREPARED"}
+            or queue_prepare_block_reason(row)):
+            raise ValueError("dedicated_target_not_allowed")
+        # Validate the source without granting it extension access.
+        source = human_navigation_source(row)
+        if not is_origin_allowed(normalize_origin(source), allow_loopback_http=allow_loopback_http)[0]:
+            raise ValueError("dedicated_target_not_allowed")
+        return
+    origin = approved_candidate_origin(row)
+    validate_dedicated_target_url(target_url_for_campaign(row), approved_candidate_origin=origin,
+        allow_loopback_http=allow_loopback_http)
+
+
+def _wait_for_human_navigation(page, source: str) -> str:
+    """Only navigate/read/wait; the person handles the challenge in the original tab."""
+    first_landing = []
+    def navigated(frame):
+        if frame == page.main_frame and not first_landing:
+            url = str(frame.url)
+            if _is_valid_target_url(url) and not is_knshow_url(url):
+                first_landing.append(url)
+    deadline = time.monotonic() + HUMAN_NAVIGATION_TIMEOUT_SEC
+    page.on("framenavigated", navigated)
+    try:
+        try:
+            page.goto(source, wait_until="domcontentloaded",
+                timeout=max(1, min(60000, HUMAN_NAVIGATION_TIMEOUT_SEC * 1000)))
+        except PlaywrightTimeoutError:
+            # A slow load is still observed, never retried or clicked.
+            pass
+        while time.monotonic() < deadline:
+            if first_landing:
+                return first_landing[0]
+            page.wait_for_timeout(min(250, max(1, (deadline - time.monotonic()) * 1000)))
+        raise HumanNavigationError("human_navigation_timeout")
+    finally:
+        page.remove_listener("framenavigated", navigated)
+
+
+def _prepare_human_destination(page, context, campaign, session_state, *, allow_loopback_http: bool):
+    _refuse_in_pilot("human_navigation")
+    clear_active_origin(context)
+    _validate_candidate_start(campaign, allow_loopback_http=allow_loopback_http)
+    landed = ""
+    if not needs_human_navigation(campaign):
+        # Query-free saved URLs may no longer reach the form. Try once, then
+        # return to the person's original knshow link with no active origin.
+        try:
+            response = page.goto(target_url_for_campaign(campaign), wait_until="domcontentloaded", timeout=60000)
+            if _is_valid_target_url(page.url) and not is_knshow_url(page.url):
+                if normalize_origin(page.url) != approved_candidate_origin(campaign):
+                    raise HumanNavigationError("human_navigation_origin_changed", stop=True)
+            if ((response is None or response.status < 400) and not is_knshow_url(page.url)
+                    and page.locator("form").count()):
+                landed = str(page.url)
+        except HumanNavigationError:
+            raise
+        except Exception:
+            pass
+        if landed and normalize_origin(landed) != approved_candidate_origin(campaign):
+            raise HumanNavigationError("human_navigation_origin_changed", stop=True)
+    if not landed:
+        source = human_navigation_source(campaign)
+        if not source:
+            raise HumanNavigationError("human_navigation_source_missing", stop=True)
+        session_state.update(current_step="human_navigation", current_url="", current_title="",
+            message=HUMAN_NAVIGATION_MESSAGE)
+        save_assisted_session_state(session_state)
+        print(HUMAN_NAVIGATION_MESSAGE)
+        landed = _wait_for_human_navigation(page, source)
+    try:
+        origin = normalize_origin(landed)
+    except ValueError:
+        raise HumanNavigationError("invalid_origin") from None
+    allowed, reason = is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)
+    if not allowed:
+        raise HumanNavigationError(reason, stop=reason == "origin_policy_invalid")
+    if normalize_origin(page.url) != origin:
+        raise HumanNavigationError("human_navigation_origin_changed", stop=True)
+    # Body exists only in memory. Failure to read/check it is a safe stop.
+    policy = detect_automation_restrictions(page.locator("body").inner_text(timeout=5000))
+    if policy["restricted"]:
+        raise HumanNavigationError("terms_prohibit_automation")
+    session_state["terms_check_uncertain"] = policy["uncertain"] or session_state.get("terms_check_uncertain") is True
+    session_state["human_navigation_origin"] = origin
+    resolution = human_navigation_resolution(landed)
+    campaign.update(vars(resolution))
+    validate_dedicated_target_url(resolution.resolved_entry_url, approved_candidate_origin=origin,
+        allow_loopback_http=allow_loopback_http)
+    return origin, resolution
+
+
+def _save_human_resolution(campaign_id: str, resolution) -> None:
+    _refuse_in_pilot("save_human_resolution")
+    rows = read_csv_rows(_paths.CAMPAIGNS_CSV)
+    matched = False
+    for row in rows:
+        if row.get("campaign_id") == campaign_id:
+            row.update(vars(resolution))
+            matched = True
+    if not matched:
+        raise HumanNavigationError("campaign_resolution_not_saved", stop=True)
+    write_csv_rows(_paths.CAMPAIGNS_CSV, rows, CAMPAIGN_HEADERS)
+
+
 def approved_candidate_origin(row: Mapping[str, object]) -> str:
+    if _PILOT_STORAGE is None and (not row.get("resolved_entry_url") or needs_human_navigation(row)):
+        row = _campaign_navigation_metadata(row)
     if (str(row.get("approved_by_user", "")).strip().lower() != "true"
         or str(row.get("queue_status", "")).upper() not in {"APPROVED", "PREPARED"}
         or queue_prepare_block_reason(row)
@@ -1284,7 +1438,7 @@ def _load_session_candidates(status_filter: str, limit: int) -> list[dict[str, s
     if not statuses:
         statuses = {"APPROVED", "PREPARED"}
     candidates = [
-        row
+        _campaign_navigation_metadata(row)
         for row in approved_queue_rows()
         if str(row.get("queue_status", "")).strip().upper() in statuses
         and str(row.get("approved_by_user", "")).strip().lower() == "true"
@@ -1624,9 +1778,7 @@ def run_assisted_application_session(
     current_rows = {row.get("campaign_id", ""): row for row in candidates}
     try:
         first = current_rows.get(candidate_ids[start_index - 1], {})
-        first_origin = approved_candidate_origin(first)
-        validate_dedicated_target_url(target_url_for_campaign(first),
-            approved_candidate_origin=first_origin, allow_loopback_http=allow_loopback_http_for_tests)
+        _validate_candidate_start(first, allow_loopback_http=allow_loopback_http_for_tests)
     except ValueError:
         first_url = target_url_for_campaign(first)
         reason = _dedicated_origin_rejection_reason(first_url, allow_loopback_http=allow_loopback_http_for_tests)
@@ -1637,10 +1789,7 @@ def run_assisted_application_session(
             for remaining_id in candidate_ids[start_index:]:
                 remaining = current_rows.get(remaining_id, {})
                 try:
-                    remaining_origin = approved_candidate_origin(remaining)
-                    validate_dedicated_target_url(target_url_for_campaign(remaining),
-                        approved_candidate_origin=remaining_origin,
-                        allow_loopback_http=allow_loopback_http_for_tests)
+                    _validate_candidate_start(remaining, allow_loopback_http=allow_loopback_http_for_tests)
                 except ValueError:
                     continue
                 runnable_origin = True
@@ -1670,7 +1819,7 @@ def run_assisted_application_session(
                 clear_active_origin(browser_context)
                 candidate_id = candidate_ids[index - 1]
                 candidate_queue_rows = {row.get("campaign_id", ""): row for row in approved_queue_rows()}
-                campaign = candidate_queue_rows.get(candidate_id, {})
+                campaign = _campaign_navigation_metadata(candidate_queue_rows.get(candidate_id, {}))
                 block_reason = queue_prepare_block_reason(campaign) if campaign else "candidate_missing"
                 if block_reason:
                     session_state.update(
@@ -1790,14 +1939,28 @@ def run_assisted_application_session(
                     continue
 
                 try:
-                    candidate_origin = approved_candidate_origin(campaign)
-                    validate_dedicated_target_url(target_url, approved_candidate_origin=candidate_origin,
-                        allow_loopback_http=allow_loopback_http_for_tests)
-                except ValueError:
-                    reason = _dedicated_origin_rejection_reason(target_url, allow_loopback_http=allow_loopback_http_for_tests)
+                    human_resolution = None
+                    if _PILOT_STORAGE is None and (needs_human_navigation(campaign)
+                            or campaign.get("resolve_status") == "RESOLVED_BY_HUMAN_NAVIGATION"):
+                        try:
+                            candidate_origin, human_resolution = _prepare_human_destination(
+                                page, browser_context, campaign, session_state,
+                                allow_loopback_http=allow_loopback_http_for_tests)
+                        except HumanNavigationError:
+                            raise
+                        except Exception:
+                            raise HumanNavigationError("human_navigation_failed", stop=True) from None
+                        target_url = human_resolution.resolved_entry_url
+                    else:
+                        candidate_origin = approved_candidate_origin(campaign)
+                        validate_dedicated_target_url(target_url, approved_candidate_origin=candidate_origin,
+                            allow_loopback_http=allow_loopback_http_for_tests)
+                except ValueError as exc:
+                    reason = exc.reason if isinstance(exc, HumanNavigationError) else _dedicated_origin_rejection_reason(
+                        target_url, allow_loopback_http=allow_loopback_http_for_tests)
                     clear_active_origin(browser_context)
                     failed += 1
-                    if reason == "origin_policy_invalid":
+                    if reason == "origin_policy_invalid" or (isinstance(exc, HumanNavigationError) and exc.stop):
                         session_state.update(workflow_state="FAILED_SAFE")
                         stop_requested = True
                     else:
@@ -1837,8 +2000,19 @@ def run_assisted_application_session(
                     set_active_origin(browser_context, candidate_origin, session_id,
                         allow_loopback_http=allow_loopback_http_for_tests)
                     seeded_templates = seed_form_templates(browser_context, target_url)
-                    page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+                    if human_resolution is not None:
+                        if normalize_origin(page.url) != candidate_origin:
+                            raise HumanNavigationError("human_navigation_origin_changed", stop=True)
+                        page.reload(wait_until="domcontentloaded", timeout=60000)
+                        if normalize_origin(page.url) != candidate_origin:
+                            clear_active_origin(browser_context)
+                            raise HumanNavigationError("human_navigation_reload_origin_changed", stop=True)
+                    else:
+                        page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
                     extension_state = dedicated_extension_page_state(page, require_ready=True)
+                    if human_resolution is not None:
+                        _save_human_resolution(campaign_id, human_resolution)
+                    candidate_live_url = str(page.url)
                     session_state["extension_id"] = str(
                         extension_state.get("extension_id", "") or ""
                     )
@@ -1871,7 +2045,9 @@ def run_assisted_application_session(
                         session_finished_at=candidate_finished_at,
                         message="ページを開けませんでした。再試行、手動継続、中止を選んでください。",
                         last_action="NAVIGATION_FAILED",
-                        last_reason="NAVIGATION_TIMEOUT" if "timeout" in str(exc).casefold() else "UNKNOWN",
+                        last_reason=exc.reason if isinstance(exc, HumanNavigationError) else (
+                            "NAVIGATION_TIMEOUT" if "timeout" in str(exc).casefold() else "UNKNOWN"),
+                        **({"workflow_state": "FAILED_SAFE"} if human_resolution is not None else {}),
                         submitted_count_auto=0,
                     )
                     save_assisted_session_state(session_state)
@@ -2083,7 +2259,8 @@ def run_assisted_application_session(
                                 continue_after_extension = True
                                 session_state = load_assisted_session_state()
                                 session_state["form_template_persist_status"] = persist_verified_form_template(
-                                    browser_context, page, session_state,
+                                    browser_context, page, {**session_state, "current_url": candidate_live_url}
+                                    if human_resolution is not None else session_state,
                                 )
                             record = result.get("record", {}) if isinstance(result, dict) else {}
                             if continue_after_extension:

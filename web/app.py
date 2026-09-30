@@ -1077,6 +1077,8 @@ def _queue_risk_notice(row: dict[str, str]) -> str:
 def _queue_next_action_label(row: dict[str, str]) -> str:
     if row.get("manual_submitted_at", "").strip() or row.get("submission_method", "").strip().upper() == "MANUAL":
         return "次の候補へ進んでください。"
+    if row.get("readiness_status") == "HUMAN_NAVIGATION_REQUIRED":
+        return "ブラウザで開いて確認画面を通過"
     status = row.get("queue_status", "QUEUED")
     if status == "PREPARED":
         return "Chrome上で内容を確認し、送信した場合だけ『手動送信済みにする』を押してください。"

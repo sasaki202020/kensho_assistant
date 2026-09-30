@@ -1,5 +1,49 @@
 # Claude handoff: non-submit real-site pilot
 
+## 2026-09-30 人の遷移によるURL解決
+
+作業場所`C:\Users\goo10\Projects\wt-nav\kensho_assistant`、ブランチ`codex/human-navigation-resolve`、base `0b6f5f1`。
+拡張機能ソースは変更せず、専用build SHA-256は`98094656368acd5a0dccaf42685b1711853431dc997d526f6656adbc60cc8767`。
+
+resolverは403/503かつ典型シグナルで`HUMAN_NAVIGATION_REQUIRED / bot_challenge`を記録し、
+その実行中は同一ホストへ追加アクセスしない。通常assisted sessionは承認済み未解決候補を
+アクティブorigin未設定でheadedブラウザに開き、本人の遷移を元タブだけで最大300秒待つ。
+チャレンジの突破・偽装・自動操作は実装しない。最初の外部着地だけをorigin policyと本文の規約で審査し、
+有効化・読み戻し確認・reload後に既存入力フローへ進む。別origin遷移は安全停止する。
+タイムアウト・拒否origin・規約禁止はsession内だけでスキップし、キュー・履歴を変更しない。
+解決結果は`campaigns.csv`の既存resolver列へ、query/fragmentなしのURLと
+`RESOLVED_BY_HUMAN_NAVIGATION / human_navigation`を保存する。次回は保存URLを直接開き、
+失敗・フォーム不在なら元のknshowリンクに戻って本人を待つ。
+
+query/fragmentはタブ・documentの厳格な照合の間だけメモリに保持し、sessionファイルからも除去する。
+この経路のPython診断は成果物を保存しない。値なしテンプレート・送信ガード・origin policy・pilot動作は維持する。
+未診断のチャレンジ候補もキューで承認でき、UIに「応募先未確定」を表示する。
+人の遷移で解決した後も、未診断なら`REVIEW_ONLY`でキュー再生成に残し、既存の承認を保持する。
+フォーム診断済み・入力可能とは扱わず、通常の欄対応・入力確認を引き続き必要とする。
+手順と安全境界の正本は[runbook](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)と[security model](EXTENSION_SECURITY_MODEL.md)。
+実サイトアクセス・pushは行わない。ローカルfixtureだけで検証する。
+
+全テストで、作業パス由来の既存later-queue IDに数字が連続すると郵便番号マスクで
+IDが変形する失敗を再現した。`entry_history`では元URLから同じ生成ハッシュを
+再計算できるIDだけを保持する最小修正を追加した。照合できないIDとPIIのマスクは維持する。
+手動応募記録の動作を変える設計変更ではなく、既存assertを保った互換性修正である。
+通常sessionの待機・拒否・規約禁止では、引き続き履歴・キューを書き換えない。
+
+最終検証（2026-09-30、すべてexit 0）：
+
+- 指定のassisted/runtime-origin/dedicatedテスト：`37 passed, 2 warnings in 207.65s (0:03:27)`。
+- 全Pythonテスト：`887 passed, 2 warnings in 1144.62s (0:19:04)`。
+- 拡張unit：`tests 48 / pass 48 / fail 0 / skipped 0`。
+- Web：`WEB_SMOKE_TEST_OK`。preflight：`READY_FOR_5_SITE_PILOT`、`submitted_count_auto=0`。
+- 指定compileallと`git diff --check`：exit 0。Pythonの2警告は既存websockets APIの非推奨警告。
+
+検証専用ガードをworktree内`build/verification`から追加ロードし、非loopback DNS/接続と
+実プロフィールの読み取りを遮断した。一時プロフィール・pytest作業先・キャッシュも`build/`内。
+ガードとログは未追跡のbuild成果物で、本番コードに含めない。実Chromium fixtureで本人操作を
+ハーネスが模擬し、ツールのチャレンジ操作ゼロ・元タブ監視・失敗時の履歴/キュー不変・
+着地後の実拡張入力/ロールバックまで確認した。preflight成功は実サイトpilot成功を意味しない。
+実サイトの互換性・query必須ページでの再遷移はローカル模擬以上には未検証。
+
 ## 2026-09-30 runtime-origin制御
 
 固定専用build SHA-256: `98094656368acd5a0dccaf42685b1711853431dc997d526f6656adbc60cc8767`。

@@ -18,6 +18,33 @@ class ResolveResult:
     resolved_at: str
 
 
+def is_knshow_url(url: str) -> bool:
+    parsed = urlparse(url or "")
+    host = (parsed.hostname or "").casefold().rstrip(".")
+    return parsed.scheme in {"http", "https"} and (
+        host in KNSHOW_HOSTS or any(host.endswith("." + known) for known in KNSHOW_HOSTS))
+
+
+def human_navigation_source(campaign: dict) -> str:
+    return next((str(campaign.get(key) or "") for key in ("entry_url", "knshow_url")
+                 if is_knshow_url(str(campaign.get(key) or ""))), "")
+
+
+def needs_human_navigation(campaign: dict) -> bool:
+    resolved = str(campaign.get("resolved_entry_url") or "")
+    return bool(human_navigation_source(campaign)) and (
+        not resolved or is_knshow_url(resolved)
+        or campaign.get("resolve_status") == "HUMAN_NAVIGATION_REQUIRED")
+
+
+def human_navigation_resolution(url: str) -> ResolveResult:
+    from .origin_policy import normalize_origin
+    origin = normalize_origin(url)
+    safe_url = origin + (urlparse(url).path or "/")
+    return ResolveResult(safe_url, urlparse(origin).netloc, "RESOLVED_BY_HUMAN_NAVIGATION",
+        "human_navigation", datetime.now().astimezone().isoformat(timespec="seconds"))
+
+
 def is_rd_link(url: str) -> bool:
     parsed = urlparse(url or "")
     return parsed.netloc.casefold() in KNSHOW_HOSTS and parsed.path.startswith("/rd/")
@@ -57,7 +84,14 @@ def sanitize_resolved_url(url: str) -> str:
 
 
 def resolve_rd_url(page, rd_url: str, timeout_ms: int = 60000) -> ResolveResult:
-    page.goto(rd_url, wait_until="domcontentloaded", timeout=timeout_ms)
+    response = page.goto(rd_url, wait_until="domcontentloaded", timeout=timeout_ms)
+    if response is not None and response.status in {403, 503}:
+        # Inspect in memory only. Never interact with or retry a challenge.
+        signals = (page.title() + "\n" + page.content()).casefold()
+        if any(marker in signals for marker in ("just a moment", "cf-chl", "challenge-platform")):
+            return ResolveResult("", urlparse(page.url).netloc.casefold(),
+                "HUMAN_NAVIGATION_REQUIRED", "bot_challenge",
+                datetime.now().astimezone().isoformat(timespec="seconds"))
     try:
         page.wait_for_timeout(2500)
     except Exception:
@@ -83,4 +117,5 @@ def target_url_for_campaign(campaign: dict[str, str]) -> str:
 
 
 def has_resolved_form_url(campaign: dict[str, str]) -> bool:
-    return bool(campaign.get("resolved_entry_url", "")) and campaign.get("resolve_status", "") == "RESOLVED"
+    return bool(campaign.get("resolved_entry_url", "")) and campaign.get("resolve_status", "") in {
+        "RESOLVED", "RESOLVED_BY_HUMAN_NAVIGATION"}
