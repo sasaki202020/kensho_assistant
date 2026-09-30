@@ -23,6 +23,7 @@ def main() -> int:
     parser.add_argument("--project-root", type=Path, default=Path(__file__).parents[1])
     parser.add_argument("--runtime-profiles-root", type=Path, default=default_runtime_profiles_root())
     parser.add_argument("--url", default=DEFAULT_TARGET)
+    parser.add_argument("--candidate-id", required=True)
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
@@ -35,9 +36,16 @@ def main() -> int:
         dedicated_extension_page_state,
         launch_dedicated_kensho_context,
         validate_dedicated_target_url,
+        set_active_origin,
     )
+    from kensho_assistant.app.assisted_session import approved_candidate_origin
+    from kensho_assistant.app.apply_queue import approved_queue_rows
 
-    target_url = validate_dedicated_target_url(args.url)
+    candidates = [row for row in approved_queue_rows() if row.get("campaign_id") == args.candidate_id]
+    if len(candidates) != 1:
+        raise SystemExit("diagnostic_candidate_not_approved")
+    origin = approved_candidate_origin(candidates[0])
+    target_url = validate_dedicated_target_url(args.url, approved_candidate_origin=origin)
 
     with sync_playwright() as playwright:
         context = None
@@ -49,6 +57,7 @@ def main() -> int:
                 runtime_profiles_root=args.runtime_profiles_root,
                 headless=args.headless,
             )
+            set_active_origin(context, origin, f"diagnostic-{uuid.uuid4().hex}")
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(1_500)

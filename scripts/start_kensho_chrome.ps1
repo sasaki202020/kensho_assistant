@@ -1,4 +1,5 @@
 param(
+    [Parameter(Mandatory=$true)][string]$CandidateId,
     [string]$TargetUrl = "https://www.epinard.jp/presentquiz/",
     [switch]$VerifyOnly,
     [switch]$Headless
@@ -17,10 +18,10 @@ $RuntimeProfilesRoot = if ($env:KENSHO_CHROME_RUNS_PATH) {
 }
 
 $Manifest = Get-Content (Join-Path $BuildPath "manifest.json") -Raw | ConvertFrom-Json
-if ($Manifest.host_permissions -contains "<all_urls>" -or
-    $Manifest.host_permissions -contains "https://*/*" -or
-    $Manifest.host_permissions -contains "http://*/*") {
-    throw "BLOCKED_EXCESSIVE_HOST_PERMISSION"
+if (($Manifest.host_permissions -join ',') -ne 'https://*/*,http://127.0.0.1/*,http://localhost/*' -or
+    $Manifest.version_name -ne 'dedicated-runtime-origin' -or
+    $null -ne $Manifest.content_scripts -or $null -ne $Manifest.optional_host_permissions) {
+    throw "BLOCKED_INVALID_RUNTIME_ORIGIN_BUILD"
 }
 
 $ExistingDedicated = Get-CimInstance Win32_Process | Where-Object {
@@ -35,9 +36,10 @@ $RunnerArgs = @(
     "--project-root", $ProjectRoot,
     "--runtime-profiles-root", $RuntimeProfilesRoot,
     "--url", $TargetUrl,
+    "--candidate-id", $CandidateId,
     "--verify-only"
 )
 if ($Headless) { $RunnerArgs += "--headless" }
 
-py -3.12 @RunnerArgs
+py -3.13 @RunnerArgs
 exit $LASTEXITCODE

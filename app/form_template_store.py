@@ -10,7 +10,10 @@ from datetime import datetime, timedelta, timezone
 
 from . import paths
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS
-from kensho_assistant.scripts.build_dedicated_extension import load_approved_origins
+from .origin_policy import is_origin_allowed
+
+# In-process fixture seam only; production never enables HTTP templates.
+ALLOW_LOOPBACK_HTTP_FOR_TESTS = False
 
 TEMPLATE_MAX_AGE_DAYS = 180
 _LOCK = threading.RLock()
@@ -50,7 +53,7 @@ def _timestamp(value):
 def _validate(template):
     if not isinstance(template, dict) or set(template) - _KEYS:
         raise ValueError("invalid_form_template")
-    if template.get("origin") not in load_approved_origins(paths.CONFIG_DIR / "approved_origins.json"):
+    if not is_origin_allowed(template.get("origin"), allow_loopback_http=ALLOW_LOOPBACK_HTTP_FOR_TESTS)[0]:
         raise ValueError("unapproved_template_origin")
     origin = _string(template["origin"], r"https?://[a-zA-Z0-9.:[\]-]+", 255)
     pathname = _string(template.get("pathname"), r"/[a-zA-Z0-9_./-]*", 512)

@@ -10,6 +10,7 @@ const BRIDGE_CAPABILITY_KEY = "kenshoBridgeCapability";
 const CONTROL_CAPABILITY_KEY = "kenshoControlCapability";
 const PROGRESS_CAPABILITY_KEY = "kenshoProgressCapability";
 const ACTIVE_TABS_KEY = "kenshoActiveTabs";
+const ACTIVE_ORIGIN_KEY = "kenshoActiveOrigin";
 const SCRIPT_PREFIXES = ["kensho-main-", "kensho-isolated-"];
 const ISOLATED_SCRIPT_FILES = [
   "shared/messages.js",
@@ -45,6 +46,85 @@ const ALLOWED_PROFILE_KEYS = new Set([
 ]);
 const FORBIDDEN_PROFILE_KEYS = /password|passcode|token|secret|cookie|otp|auth/i;
 let reconciliationQueue = Promise.resolve();
+let activeOriginSetThisEpoch = false;
+
+function dedicatedRuntimeOriginMode() {
+  return chrome?.runtime?.getManifest?.()?.version_name === "dedicated-runtime-origin";
+}
+
+async function getActiveOrigin() {
+  const stored = await chrome.storage.session.get(ACTIVE_ORIGIN_KEY);
+  return stored[ACTIVE_ORIGIN_KEY] || null;
+}
+
+function privilegedOriginPattern(value) {
+  const url = new URL(value);
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/*" ||
+      !url.hostname || url.hostname.includes("*") ||
+      !(url.protocol === "https:" || (url.protocol === "http:" &&
+        ["127.0.0.1", "localhost"].includes(url.hostname))) ||
+      (url.protocol === "https:" && url.port)) throw new Error("invalid_active_origin");
+  if (`${url.origin}/*` !== value) throw new Error("invalid_active_origin");
+  return value;
+}
+
+async function unregisterManagedScripts() {
+  const scripts = await chrome.scripting.getRegisteredContentScripts();
+  const ids = scripts.filter(isManagedScript).map(script => script.id);
+  if (ids.length) await chrome.scripting.unregisterContentScripts({ids});
+}
+
+function queueOriginTransition(operation) {
+  reconciliationQueue = reconciliationQueue.catch(() => {}).then(operation);
+  return reconciliationQueue;
+}
+
+// Deliberately no runtime message route: only the trusted worker evaluation
+// performed by the dedicated browser owner may call these functions.
+function setActiveOrigin(originPattern, sessionId) {
+  return queueOriginTransition(async () => {
+    if (!dedicatedRuntimeOriginMode()) throw new Error("runtime_origin_mode_required");
+    try {
+      activeOriginSetThisEpoch = false;
+      await configureSessionStorage();
+      await chrome.storage.session.remove(ACTIVE_ORIGIN_KEY);
+      await unregisterManagedScripts();
+      await clearSensitiveSessionState();
+      const pattern = privilegedOriginPattern(originPattern);
+      if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("invalid_session_id");
+      const active = {originPattern: pattern, sessionId};
+      await chrome.storage.session.set({[ACTIVE_ORIGIN_KEY]: active});
+      await reconcileOriginScripts();
+      activeOriginSetThisEpoch = true;
+      return await getActiveOrigin();
+    } catch (error) {
+      activeOriginSetThisEpoch = false;
+      await chrome.storage.session.remove(ACTIVE_ORIGIN_KEY);
+      await unregisterManagedScripts();
+      await clearSensitiveSessionState();
+      throw error;
+    }
+  });
+}
+
+function clearActiveOrigin() {
+  return queueOriginTransition(async () => {
+    if (!dedicatedRuntimeOriginMode()) throw new Error("runtime_origin_mode_required");
+    await chrome.storage.session.remove(ACTIVE_ORIGIN_KEY);
+    activeOriginSetThisEpoch = false;
+    try { await unregisterManagedScripts(); }
+    finally { await clearSensitiveSessionState(); }
+    return null;
+  });
+}
+
+async function senderIsActive(sender) {
+  if (sender?.id !== chrome.runtime.id || !Number.isInteger(sender?.tab?.id) ||
+      sender.frameId !== 0) return false;
+  const active = await getActiveOrigin();
+  return Boolean(active && originPatternForUrl(sender.url || "") === active.originPattern &&
+    originPatternForUrl(sender.tab.url || "") === active.originPattern);
+}
 
 function fixtureBridgeMode() {
   return chrome?.runtime?.getManifest?.()?.version_name === "fixture-bridge";
@@ -108,6 +188,11 @@ async function forgetActiveTab(tabId, clearProfile = true) {
 }
 
 async function injectIntoTab(tabId) {
+  if (dedicatedRuntimeOriginMode()) {
+    const tab = await chrome.tabs.get(tabId);
+    const active = await getActiveOrigin();
+    if (!active || originPatternForUrl(tab.url) !== active.originPattern) return;
+  }
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: false },
     world: "MAIN",
@@ -159,7 +244,7 @@ function registrationsForOrigin(originPattern) {
       allFrames: false,
       runAt: "document_start",
       world: "MAIN",
-      persistAcrossSessions: true,
+      persistAcrossSessions: !dedicatedRuntimeOriginMode(),
     },
     {
       id: ids.isolated,
@@ -168,7 +253,7 @@ function registrationsForOrigin(originPattern) {
       allFrames: false,
       runAt: "document_idle",
       world: "ISOLATED",
-      persistAcrossSessions: true,
+      persistAcrossSessions: !dedicatedRuntimeOriginMode(),
     },
   ];
 }
@@ -190,6 +275,9 @@ function registrationMatches(actual, expected) {
 }
 
 async function registerOriginScripts(originPattern) {
+  if (dedicatedRuntimeOriginMode() && (await getActiveOrigin())?.originPattern !== originPattern) {
+    throw new Error("inactive_origin");
+  }
   const expected = registrationsForOrigin(originPattern);
   const ids = expected.map((item) => item.id);
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids });
@@ -220,7 +308,10 @@ async function grantedOriginPatterns() {
 }
 
 async function reconcileOriginScripts() {
-  const origins = await grantedOriginPatterns();
+  const active = dedicatedRuntimeOriginMode() ? await getActiveOrigin() : null;
+  const origins = dedicatedRuntimeOriginMode()
+    ? (active ? [privilegedOriginPattern(active.originPattern)] : [])
+    : await grantedOriginPatterns();
   const desiredIds = new Set(
     origins.flatMap((origin) => Object.values(scriptIdsForOrigin(origin)))
   );
@@ -640,11 +731,15 @@ async function reportCoordinationFailure(sender, fingerprint) {
 async function originAccessState(senderUrl) {
   const originPattern = originPatternForUrl(senderUrl);
   if (!originPattern) return { allowed: false, originPattern: null };
+  if (dedicatedRuntimeOriginMode()) {
+    return {allowed: (await getActiveOrigin())?.originPattern === originPattern, originPattern};
+  }
   const allowed = await chrome.permissions.contains({ origins: [originPattern] });
   return { allowed, originPattern };
 }
 
 async function requestOriginAccess(senderUrl, tabId) {
+  if (dedicatedRuntimeOriginMode()) throw new Error("runtime_origin_managed");
   const originPattern = originPatternForUrl(senderUrl);
   if (!originPattern) return { granted: false, error: "unsupported_origin" };
   const granted = await chrome.permissions.request({ origins: [originPattern] });
@@ -657,6 +752,7 @@ async function requestOriginAccess(senderUrl, tabId) {
 }
 
 async function disableOrigin(senderUrl, sender) {
+  if (dedicatedRuntimeOriginMode()) throw new Error("runtime_origin_managed");
   const originPattern = originPatternForUrl(senderUrl);
   if (!originPattern) return { removed: false, error: "unsupported_origin" };
   if (!fixtureBridgeMode()) {
@@ -676,9 +772,15 @@ async function disableOrigin(senderUrl, sender) {
 if (typeof chrome !== "undefined" && chrome.runtime) {
   configureSessionStorage().catch(() => {});
   chrome.runtime.onInstalled.addListener(() => {
-    chrome.storage.session.clear();
-    configureSessionStorage();
-    scheduleReconciliation().catch(() => {});
+    queueOriginTransition(async () => {
+      // The initial install event can arrive after a privileged activation.
+      // Preserve only a freshly verified activation from this worker epoch.
+      if (!dedicatedRuntimeOriginMode() || !activeOriginSetThisEpoch) {
+        await chrome.storage.session.clear();
+      }
+      await configureSessionStorage();
+      await reconcileOriginScripts();
+    }).catch(() => {});
   });
   chrome.runtime.onStartup.addListener(() => {
     configureSessionStorage();
@@ -704,7 +806,20 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    (async () => {
+    const respond = sendResponse;
+    let responseCompletion = Promise.resolve();
+    // Recheck at response time too: a pending capability/profile request must
+    // not return sensitive state after a candidate switch.
+    sendResponse = response => {
+      if (!dedicatedRuntimeOriginMode()) { respond(response); return; }
+      responseCompletion = senderIsActive(sender).then(active => respond(active ? response :
+        {ok: false, error: "inactive_origin"})).catch(() => respond({ok: false, error: "safe_failure"}));
+    };
+    const handleMessage = async () => {
+      if (dedicatedRuntimeOriginMode() && !await senderIsActive(sender)) {
+        sendResponse({ok: false, error: "inactive_origin"});
+        return;
+      }
       if (message?.type === "GET_EXTENSION_ID") {
         sendResponse({ok: true, ...extensionIdentity()});
         return;
@@ -855,13 +970,26 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
         return;
       }
       sendResponse({ ok: false, error: "unknown_message" });
-    })().catch(() => sendResponse({ ok: false, error: "safe_failure" }));
+    };
+    const operation = async () => {
+      try { await handleMessage(); }
+      catch (_error) { sendResponse({ok: false, error: "safe_failure"}); }
+      await responseCompletion;
+    };
+    // Finish outstanding content requests before clearing/replacing the origin;
+    // otherwise a delayed bridge response could repopulate a cleared capability.
+    (dedicatedRuntimeOriginMode() ? queueOriginTransition(operation) : operation())
+      .catch(() => respond({ok: false, error: "safe_failure"}));
     return true;
   });
 }
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    dedicatedRuntimeOriginMode,
+    getActiveOrigin,
+    setActiveOrigin,
+    clearActiveOrigin,
     validateProfile,
     injectIntoTab,
     registerOriginGuard,

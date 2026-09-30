@@ -389,6 +389,7 @@ def run_browser_stage(
         evidence["failure_reasons"].append(f"{step}:{reason}")
 
     context = None
+    runtime_profile_dir = None
     worker = None
     page = None
     monitor = None
@@ -402,7 +403,8 @@ def run_browser_stage(
         try:
             # 1. launch + monitor before navigation ---------------------------
             try:
-                validate_dedicated_target_url(url, approved_origins_path=approved_origins_path)
+                validate_dedicated_target_url(url, approved_candidate_origin=ctx.manifest.origin,
+                    allow_loopback_http=cfg.allow_loopback_http_for_tests)
                 context, _browser, verified = launch_dedicated_kensho_context(
                     playwright,
                     run_id=f"pilot-{ctx.pilot_run_id[:12]}",
@@ -411,8 +413,11 @@ def run_browser_stage(
                     headless=bool(cfg.headless),
                     extra_args=tuple(cfg.browser_args),
                 )
+                runtime_profile_dir = browser_manager._OWNED_RUNTIME_PROFILES.get(id(context))
                 if verified["build_sha256"] != preconditions["extension_build_sha256"]:
                     raise RuntimeError("extension_build_changed")
+                browser_manager.set_active_origin(context, ctx.manifest.origin, ctx.pilot_run_id,
+                    allow_loopback_http=cfg.allow_loopback_http_for_tests)
                 worker = _wait_for_registration(context)
                 extension_id = urlsplit(str(worker.url)).hostname or ""
             except Exception as exc:
@@ -647,7 +652,7 @@ def run_browser_stage(
                 page=page, monitor=monitor, nonce=nonce, fake_values=fake_values,
                 undetectable=undetectable, extension_id=extension_id, run_dir=run_dir,
                 fill_started=fill_started, mapping_confirmed=mapping_confirmed,
-                before_controls=before_controls, fail=fail,
+                before_controls=before_controls, fail=fail, runtime_profile_dir=runtime_profile_dir,
             )
     fake_values.clear()
     return evidence
@@ -655,7 +660,7 @@ def run_browser_stage(
 
 def _cleanup(*, ctx, cfg, evidence, steps, context, worker, page, monitor, nonce, fake_values,
              undetectable, extension_id, run_dir, fill_started, mapping_confirmed,
-             before_controls, fail) -> None:
+             before_controls, fail, runtime_profile_dir=None) -> None:
     page_alive = page is not None and not page.is_closed()
 
     # 5a. rollback through the extension (only if a fill may have happened).
@@ -699,6 +704,7 @@ def _cleanup(*, ctx, cfg, evidence, steps, context, worker, page, monitor, nonce
             clear["panel_clear"] = PASS if panel_ok else FAIL
         # Remove control/progress/bridge/profile keys on the verified extension worker.
         if worker is not None:
+            browser_manager.clear_active_origin(context)
             live = _live_worker(context, extension_id)
             clear["sensitive_extension_keys_remaining"] = int(evaluate_worker(live,
                 """async keys => {
@@ -760,7 +766,7 @@ def _cleanup(*, ctx, cfg, evidence, steps, context, worker, page, monitor, nonce
 
     # 5e. close the context; the temporary Chromium profile must be gone.
     if context is not None:
-        profile_dir = browser_manager._OWNED_RUNTIME_PROFILES.get(id(context))
+        profile_dir = runtime_profile_dir
         try:
             close_browser_safely(context)
             removed = profile_dir is not None and not Path(profile_dir).exists()

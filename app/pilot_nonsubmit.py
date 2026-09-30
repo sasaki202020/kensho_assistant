@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Mapping
 
 from . import assisted_session
+from .origin_policy import policy_fingerprint
 from . import paths
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS
 from ..web.app import create_app
@@ -167,9 +168,9 @@ def validate_pilot_nonsubmit_manifest(
     """Strictly validate a single-candidate manifest. Error messages carry no values.
 
     ``allow_loopback_http`` is an in-process test seam for local fixtures: it
-    admits ``http://127.0.0.1:<port>`` only.  The CLI never sets it.
+    admits loopback ``http://127.0.0.1`` / ``http://localhost`` only.  The CLI never sets it.
     """
-    from ..scripts.build_dedicated_extension import load_approved_origins
+    from .origin_policy import is_origin_allowed
 
     if not isinstance(data, dict):
         raise PilotManifestError("manifest_not_object")
@@ -196,7 +197,7 @@ def validate_pilot_nonsubmit_manifest(
     loopback_fixture = (
         allow_loopback_http is True
         and parsed.scheme == "http"
-        and parsed.hostname == "127.0.0.1"
+        and parsed.hostname in {"127.0.0.1", "localhost"}
     )
     if (
         (parsed.scheme != "https" and not loopback_fixture)
@@ -211,12 +212,7 @@ def validate_pilot_nonsubmit_manifest(
     origin = data["origin"]
     if not isinstance(origin, str) or origin != _origin_of(url):
         raise PilotManifestError("manifest_origin_mismatch")
-    origins_path = approved_origins_path or paths.CONFIG_DIR / "approved_origins.json"
-    try:
-        approved = load_approved_origins(origins_path)
-    except (OSError, ValueError):
-        raise PilotManifestError("approved_origins_unavailable") from None
-    if origin not in approved:
+    if not is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)[0]:
         raise PilotManifestError("manifest_origin_not_approved")
 
     start = _parse_date(data["campaign_period_start"], "campaign_period_start")
@@ -443,7 +439,7 @@ def verify_phase5a_preconditions(
         "worktree_clean": True,
         "extension_build_sha256": str(verified["build_sha256"]),
         "extension_version": str(verified["version"]),
-        "config_sha256": _file_sha256(approved_origins_path),
+        "config_sha256": policy_fingerprint(),
         "manifest_sha256": _file_sha256(manifest_path),
     }
 
@@ -475,9 +471,9 @@ def _post_run_invariants(
     except Exception:
         pass
     try:
-        result["config_unchanged"] = _file_sha256(approved_origins_path) == pre["config_sha256"]
+        result["config_unchanged"] = policy_fingerprint() == pre["config_sha256"]
         result["manifest_unchanged"] = _file_sha256(manifest_path) == pre["manifest_sha256"]
-    except PilotError:
+    except (PilotError, ValueError, OSError):
         pass
     return result
 

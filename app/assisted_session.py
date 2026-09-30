@@ -16,6 +16,8 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
 from .apply_queue import _deadline_bucket, approved_queue_rows, load_apply_queue, queue_prepare_block_reason
+from .origin_policy import normalize_origin
+from .browser_manager import set_active_origin, clear_active_origin
 from .apply_queue import mark_hold as _apply_queue_mark_hold
 from .apply_queue import mark_manual_submitted as _apply_queue_mark_manual_submitted
 from .apply_queue import mark_skipped as _apply_queue_mark_skipped
@@ -1244,6 +1246,15 @@ def _is_valid_target_url(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def approved_candidate_origin(row: Mapping[str, object]) -> str:
+    if (str(row.get("approved_by_user", "")).strip().lower() != "true"
+        or str(row.get("queue_status", "")).upper() not in {"APPROVED", "PREPARED"}
+        or queue_prepare_block_reason(row)
+        or not row.get("resolved_entry_url")):
+        raise ValueError("dedicated_target_not_allowed")
+    return normalize_origin(row["resolved_entry_url"])
+
+
 def _session_sort_key(row: Mapping[str, object]) -> tuple[int, int, int, str]:
     deadline_bucket, _ = _deadline_bucket(str(row.get("deadline", "")))
     readiness = 0 if str(row.get("readiness_status", "")) == "READY_FOR_FILL" else 1
@@ -1468,6 +1479,7 @@ def run_assisted_application_session(
     keep_open: bool = False,
     poll_interval_sec: float = 0.5,
     record_trials: bool = False,
+    allow_loopback_http_for_tests: bool = False,
 ) -> dict[str, object]:
     now = _now_iso()
     existing_state = load_assisted_session_state()
@@ -1596,6 +1608,23 @@ def run_assisted_application_session(
     candidate_ids = [candidate_id for candidate_id in candidate_ids if candidate_id]
     start_index = min(max(int(start_index), 1), len(candidate_ids))
 
+    # Resolve approval before starting even the blank dedicated browser.
+    current_rows = {row.get("campaign_id", ""): row for row in candidates}
+    try:
+        first = current_rows.get(candidate_ids[start_index - 1], {})
+        first_origin = approved_candidate_origin(first)
+        validate_dedicated_target_url(target_url_for_campaign(first),
+            approved_candidate_origin=first_origin, allow_loopback_http=allow_loopback_http_for_tests)
+    except ValueError:
+        session_state.update(status="STOPPED", final_status="STOPPED", workflow_state="FAILED_SAFE",
+            current_step="origin_not_approved", submitted_count_auto=0,
+            message="候補の承認またはorigin安全条件を確認できないため停止しました。",
+            session_finished_at=_now_iso(), finished_at=_now_iso())
+        save_assisted_session_state(session_state)
+        return {"status": "stopped", "processed": 0, "ok": 0, "failed": 1,
+            "submitted_count_auto": 0, "message": session_state["message"],
+            "state_path": str(ASSISTED_SESSION_STATE_JSON), "session_id": session_id}
+
     with sync_playwright() as playwright:
         context, page, actual_browser = open_url_in_chrome(
             playwright,
@@ -1607,6 +1636,7 @@ def run_assisted_application_session(
         browser_context = context
         try:
             for index in range(start_index, len(candidate_ids) + 1):
+                clear_active_origin(browser_context)
                 candidate_id = candidate_ids[index - 1]
                 candidate_queue_rows = {row.get("campaign_id", ""): row for row in approved_queue_rows()}
                 campaign = candidate_queue_rows.get(candidate_id, {})
@@ -1729,7 +1759,9 @@ def run_assisted_application_session(
                     continue
 
                 try:
-                    validate_dedicated_target_url(target_url)
+                    candidate_origin = approved_candidate_origin(campaign)
+                    validate_dedicated_target_url(target_url, approved_candidate_origin=candidate_origin,
+                        allow_loopback_http=allow_loopback_http_for_tests)
                 except ValueError:
                     candidate_finished_at = _now_iso()
                     session_state.update(
@@ -1740,7 +1772,7 @@ def run_assisted_application_session(
                         candidate_finished_at=candidate_finished_at,
                         session_finished_at=candidate_finished_at,
                         finished_at=candidate_finished_at,
-                        message="このサイトは専用拡張の許可originに含まれないため停止しました。",
+                        message="候補originの承認または安全条件を確認できないため停止しました。",
                         last_action="DEDICATED_ORIGIN_NOT_APPROVED",
                         last_reason="DEDICATED_ORIGIN_NOT_APPROVED",
                         submitted_count_auto=0,
@@ -1751,6 +1783,8 @@ def run_assisted_application_session(
                     break
 
                 try:
+                    set_active_origin(browser_context, candidate_origin, session_id,
+                        allow_loopback_http=allow_loopback_http_for_tests)
                     seeded_templates = seed_form_templates(browser_context, target_url)
                     page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
                     extension_state = dedicated_extension_page_state(page, require_ready=True)

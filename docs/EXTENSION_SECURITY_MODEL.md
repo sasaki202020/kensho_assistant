@@ -53,7 +53,7 @@ control tokenとPII capabilityをtab IDだけでなくdocument IDにも束縛す
 
 ## フォーム対応の安全境界
 
-通常assisted sessionは、人の欄対応承認後、入力対象一致・無関係欄変更ゼロ・送信なしの検証が合格したテンプレートだけを`data/form_templates.json`へ原子的に保存する。欄情報は構造path、approvedProfileKey、confidenceBand、disabled、readOnlyだけで、入力値・ラベル・selector候補・fieldIdを保存しない。未知キー、未承認origin、不正な型・長さ・日時・pathを拒否する。
+通常assisted sessionは、人の欄対応承認後、入力対象一致・無関係欄変更ゼロ・送信なしの検証が合格したテンプレートだけを`data/form_templates.json`へ原子的に保存する。欄情報は構造path、approvedProfileKey、confidenceBand、disabled、readOnlyだけで、入力値・ラベル・selector候補・fieldIdを保存しない。未知キー、origin policyで拒否されたorigin、不正な型・長さ・日時・pathを拒否する。
 
 承認日時から180日以内、現在の専用拡張versionとbuild SHA-256一致のものだけを候補遷移前にworkerへseedし、読み戻し一致を確認する。同じorigin/pathnameの内容衝突は上書きしない（sessionに`conflict`のみ記録）。既存の厳格なmapping検証・capability binding・入力後検証・送信ガードは維持する。一致した場合だけ既存パネルの解析・確認・入力を進める。seed失敗は消去確認後に人の確認へ戻り、消去を確認できなければ安全停止する。pilotではストアAPIが`PilotIsolationError`となり、Phase 5Aはストアを使わない。
 
@@ -81,18 +81,41 @@ Service Workerの起動ごとに新しいepochを生成する。解析時と入�
 
 ## origin権限
 
-未知サイトでは`activeTab`のみを使う。入力補助を有効化する際は、本人操作で現在の
-originだけを`optional_host_permissions`として許可する。query string、fragment、
-pathnameは権限やscript IDへ保存しない。許可後はMAIN/ISOLATEDの2本を
-`persistAcrossSessions=true`で動的登録し、自動再読み込み後に
-`document_start`ガードを確認できた場合だけ入力する。
+専用ブラウザのビルドは1つに固定する。`host_permissions`は
+`https://*/*`、`http://127.0.0.1/*`、`http://localhost/*`で固定し、
+`optional_host_permissions`と静的`content_scripts`を含めない。
+`version_name=dedicated-runtime-origin`で通常インストール版と区別する。
+`config/approved_origins.json`はビルド・注入判定・テンプレート保存に使わず、
+origin設定変更ではbuild SHA-256が変わらない。ソース変更時は再ビルドと再検証が必要。
 
-`onInstalled`、`onStartup`、Service Worker起動時に現在の許可originと動的登録を
-再照合する。権限のない古い登録は削除し、不足登録は復元する。
+本人がキューで承認した候補のoriginだけを実行時に1つ有効化する（候補承認＝origin承認）。
+`approved_by_user=true`、`APPROVED/PREPARED`、`queue_prepare_block_reason`なしの候補の
+`resolved_entry_url`からoriginを求める。`origin_policy`はコード既定拒否リストと
+`config/origin_denylist.json`をマージし、SNS・認証・決済の指定ドメインと全サブドメイン、
+login/signin/account/auth/payを含むサブドメイン、userinfo、非標準ポートを拒否する。
+HTTPSのみで、loopback HTTPは明示されたインプロセスのテスト用フラグだけで許可する。
+銀行・カードの全ドメインを網羅する保証はない。規約確認と本人の判断は引き続き必要。
 
-`<all_urls>`の常時権限は持たない。「セッション情報を消去」はPIIだけを削除する。
-「このサイトで自動起動しない」は動的登録、origin権限、PIIを順に削除し、
-再読み込み後は自動注入しない。
+アクティブoriginは`chrome.storage.session`の`TRUSTED_CONTEXTS`に保存する。
+Pythonは候補遷移前に期限付きworker evaluateで`setActiveOrigin`を呼び、
+origin/sessionと登録内容の読み戻し一致を確認する。不一致・timeoutではブラウザを閉じ、遷移しない。
+workerは`permissions.getAll()`を使わずアクティブoriginのMAIN/ISOLATEDだけを登録し、
+`persistAcrossSessions=false`とする。未設定時は登録ゼロ。候補切替では旧登録をすべて解除してから
+新originを登録する。解除・終了・異常時は全管理対象登録と一時プロフィール/capabilityを消去し、
+消去確認不能なら専用コンテキストを閉じて一時プロファイルを削除する。
+
+設定・解除のruntimeメッセージ経路は存在しない。content script・ページ・外部メッセージから
+アクティブoriginを変更できない。content scriptの全メッセージで、送信元拡張ID・top frame・
+送信元originとタブoriginの一致を確認し、非アクティブoriginへプロフィール・capability・
+テンプレートを返さない。応答時にもoriginを再確認する。登録解除は既存documentのガードを
+撤去しないが、旧documentからの要求を拒否し、以後のロードには注入しない。
+
+pilotでは人が書いたmanifest自体を候補originの承認とし、同じorigin policyと固定ビルドを使う。
+manifestのoriginだけを有効化し、終了時に解除する。通常テンプレートストアには触らない。
+
+通常インストール版は従来の`activeTab`、本人操作による`optional_host_permissions`と
+`permissions.request`、許可originの永続動的登録を維持する。
+専用版の広いホスト権限を通常版の権限付与フローと混同しない。
 
 ## Side Panel移行
 

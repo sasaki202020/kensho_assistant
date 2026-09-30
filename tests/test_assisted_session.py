@@ -313,8 +313,10 @@ def test_session_runner_processes_only_approved_prepared_rows(monkeypatch, tmp_p
     monkeypatch.setattr("kensho_assistant.app.assisted_session.mark_manual_submitted", lambda queue_id: True)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.load_profile", lambda: profile_loads.append(True) or {"first_name": "太郎"})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.target_url_for_campaign", lambda campaign: campaign["resolved_entry_url"])
-    monkeypatch.setattr("kensho_assistant.app.assisted_session.validate_dedicated_target_url", lambda url: url)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.validate_dedicated_target_url", lambda url, **kwargs: url)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.dedicated_extension_page_state", lambda page, require_ready=False: {"status": "PASS"})
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.set_active_origin", lambda *a, **k: None)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.clear_active_origin", lambda *a, **k: None)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.open_url_in_chrome", fake_open_browser)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
 
@@ -342,7 +344,7 @@ def test_session_runner_handles_zero_candidates(monkeypatch, tmp_path) -> None:
     assert result["submitted_count_auto"] == 0
 
 
-def test_session_runner_skips_invalid_url_without_opening_form(monkeypatch, tmp_path) -> None:
+def test_session_runner_rejects_invalid_url_before_opening_browser(monkeypatch, tmp_path) -> None:
     calls: list[str] = []
 
     class FakeLocator:
@@ -388,11 +390,13 @@ def test_session_runner_skips_invalid_url_without_opening_form(monkeypatch, tmp_
     monkeypatch.setattr("kensho_assistant.app.assisted_session.mark_skipped", lambda queue_id, path=None: True)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.load_profile", lambda: {"first_name": "太郎"})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.target_url_for_campaign", lambda campaign: "")
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.set_active_origin", lambda *a, **k: None)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.clear_active_origin", lambda *a, **k: None)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.open_url_in_chrome", lambda playwright, url, browser_name="chrome", **_kwargs: (context, FakePage(), browser_name))
     monkeypatch.setattr("kensho_assistant.app.assisted_session.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
 
     result = run_assisted_application_session(status_filter="APPROVED,PREPARED", limit=1, browser="chrome", keep_open=False)
-    assert result["status"] == "completed"
+    assert result["status"] == "stopped"
     assert result["processed"] == 0
     assert result["failed"] == 1
     assert calls == []
@@ -439,8 +443,10 @@ def test_session_runner_stops_when_candidate_is_removed(monkeypatch, tmp_path) -
     monkeypatch.setattr("kensho_assistant.app.assisted_session.approved_queue_rows", lambda rows=None: next(queue_calls, []))
     monkeypatch.setattr("kensho_assistant.app.assisted_session.load_profile", lambda: {"first_name": "太郎"})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.target_url_for_campaign", lambda campaign: campaign["resolved_entry_url"])
-    monkeypatch.setattr("kensho_assistant.app.assisted_session.validate_dedicated_target_url", lambda url: url)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.validate_dedicated_target_url", lambda url, **kwargs: url)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.dedicated_extension_page_state", lambda page, require_ready=False: {"status": "PASS"})
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.set_active_origin", lambda *a, **k: None)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.clear_active_origin", lambda *a, **k: None)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.open_url_in_chrome", lambda playwright, url, browser_name="chrome", **_kwargs: (context, FakePage(), browser_name))
     monkeypatch.setattr("kensho_assistant.app.assisted_session.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
 
@@ -530,8 +536,10 @@ def test_session_runner_resumes_from_existing_state(monkeypatch, tmp_path) -> No
     monkeypatch.setattr("kensho_assistant.app.assisted_session.mark_manual_submitted", lambda queue_id: True)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.load_profile", lambda: {"first_name": "太郎"})
     monkeypatch.setattr("kensho_assistant.app.assisted_session.target_url_for_campaign", lambda campaign: campaign["resolved_entry_url"])
-    monkeypatch.setattr("kensho_assistant.app.assisted_session.validate_dedicated_target_url", lambda url: url)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.validate_dedicated_target_url", lambda url, **kwargs: url)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.dedicated_extension_page_state", lambda page, require_ready=False: {"status": "PASS"})
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.set_active_origin", lambda *a, **k: None)
+    monkeypatch.setattr("kensho_assistant.app.assisted_session.clear_active_origin", lambda *a, **k: None)
     monkeypatch.setattr("kensho_assistant.app.assisted_session.open_url_in_chrome", lambda playwright, url, browser_name="chrome", **_kwargs: (FakeContext(), FakePage(), browser_name))
     monkeypatch.setattr("kensho_assistant.app.assisted_session.sync_playwright", lambda: __import__("contextlib").nullcontext(object()))
 

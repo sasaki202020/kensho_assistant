@@ -17,6 +17,57 @@ _OWNED_RUNTIME_PROFILES: dict[int, Path] = {}
 _DEDICATED_BUILDS: dict[int, dict[str, object]] = {}
 
 
+def _runtime_origin_worker(context):
+    """Read-only readiness retries before any origin mutation is attempted."""
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        worker = live_extension_worker(context, "chrome-extension://", timeout=min(2.0, deadline - time.monotonic()))
+        if worker is not None:
+            try:
+                if evaluate_worker(worker, "() => dedicatedRuntimeOriginMode()", timeout=2.0) is True:
+                    return worker
+            except Exception:
+                pass
+        time.sleep(0.05)
+    raise RuntimeError("dedicated_extension_worker_mismatch")
+
+
+def set_active_origin(context, origin: str, session_id: str, *, allow_loopback_http: bool = False) -> None:
+    """Privileged, bounded worker operation; navigation requires exact readback."""
+    from .origin_policy import normalize_origin, is_origin_allowed
+    if not is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)[0]:
+        raise ValueError("dedicated_target_not_allowed")
+    expected = {"originPattern": normalize_origin(origin) + "/*", "sessionId": session_id}
+    try:
+        worker = _runtime_origin_worker(context)
+        actual = evaluate_worker(worker, """async expected => {
+          await setActiveOrigin(expected.originPattern, expected.sessionId);
+          const active = await getActiveOrigin();
+          const scripts = (await chrome.scripting.getRegisteredContentScripts()).filter(isManagedScript);
+          if (scripts.length !== 2 || scripts.some(s => s.matches.length !== 1 ||
+              s.matches[0] !== expected.originPattern || s.persistAcrossSessions))
+            throw new Error('active_origin_registration_mismatch');
+          return active;
+        }""", expected, timeout=2.0)
+        if actual != expected:
+            raise RuntimeError("active_origin_readback_mismatch")
+    except Exception:
+        # A timeout does not cancel JS; close the owned context before it can navigate.
+        close_browser_safely(context)
+        raise RuntimeError("active_origin_unverified") from None
+
+
+def clear_active_origin(context) -> None:
+    worker = _runtime_origin_worker(context)
+    cleared = evaluate_worker(worker, """async () => {
+      await clearActiveOrigin();
+      return !(await getActiveOrigin()) &&
+        !(await chrome.scripting.getRegisteredContentScripts()).some(isManagedScript);
+    }""", timeout=2.0)
+    if cleared is not True:
+        raise RuntimeError("active_origin_cleanup_unverified")
+
+
 def seed_form_templates(context, target_url: str) -> list[dict[str, object]]:
     """Normal-session only: seed verified value-free metadata before navigation."""
     from . import form_template_store as store
@@ -270,32 +321,22 @@ def create_dedicated_runtime_profile(
 
 
 def validate_dedicated_target_url(
-    url: str,
-    *,
+    url: str, *, approved_candidate_origin: str | None = None,
+    allow_loopback_http: bool = False,
     approved_origins_path: Path | None = None,
 ) -> str:
-    from kensho_assistant.scripts.build_dedicated_extension import load_approved_origins
-
+    from .origin_policy import normalize_origin, is_origin_allowed
     raw = str(url or "").strip()
-    parsed = urlsplit(raw)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("dedicated_target_not_allowed")
-    host = parsed.hostname.lower()
-    if ":" in host:
-        host = f"[{host}]"
-    default_port = 443 if parsed.scheme == "https" else 80
-    port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
-    origin = f"{parsed.scheme}://{host}{port}"
-    origins_path = approved_origins_path or PACKAGE_ROOT / "config" / "approved_origins.json"
-    if origin not in load_approved_origins(origins_path):
-        raise ValueError("dedicated_target_not_allowed")
+    try:
+        parsed = urlsplit(raw)
+        origin = normalize_origin(raw)
+        approved = normalize_origin(approved_candidate_origin)
+        if (parsed.query or parsed.fragment or "?" in raw or "#" in raw
+            or origin != approved
+            or not is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)[0]):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise ValueError("dedicated_target_not_allowed") from None
     return raw
 
 
@@ -308,32 +349,32 @@ def verify_dedicated_extension_build(
     from kensho_assistant.scripts.build_dedicated_extension import (
         build_hash,
         build_dedicated_extension,
-        load_approved_origins,
+        DEDICATED_HOST_PERMISSIONS,
+        DEDICATED_RUNTIME_MODE,
     )
 
     root = project_root.resolve()
     source_dir = root / "extension"
     build_dir = root / "build" / "extension"
-    origins_path = approved_origins_path or root / "config" / "approved_origins.json"
     manifest_path = build_dir / "manifest.json"
     if not manifest_path.is_file():
         raise RuntimeError("dedicated_extension_build_missing")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     source_manifest = json.loads((source_dir / "manifest.json").read_text(encoding="utf-8"))
-    origins = load_approved_origins(origins_path)
-    expected_permissions = [f"{origin}/*" for origin in origins]
+    expected_permissions = DEDICATED_HOST_PERMISSIONS
     if (
         manifest.get("version") != source_manifest.get("version")
         or manifest.get("host_permissions") != expected_permissions
         or "optional_host_permissions" in manifest
+        or "content_scripts" in manifest
+        or manifest.get("version_name") != DEDICATED_RUNTIME_MODE
     ):
         raise RuntimeError("dedicated_extension_build_stale")
     actual_hash = build_hash(build_dir)
-    with tempfile.TemporaryDirectory(prefix="kensho-extension-verify-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="kensho-extension-verify-", dir=root / "build") as temp_dir:
         expected = build_dedicated_extension(
             source_dir=source_dir,
             output_dir=Path(temp_dir) / "extension",
-            approved_origins_path=origins_path,
             isolated_files=isolated_files,
         )
         if actual_hash != expected.build_sha256:
@@ -341,7 +382,7 @@ def verify_dedicated_extension_build(
     return {
         "build_sha256": actual_hash,
         "version": str(manifest.get("version", "")),
-        "approved_origins": origins,
+        "runtime_origin_mode": True,
         "extension_dir": build_dir,
     }
 
@@ -480,10 +521,11 @@ def open_url_in_chrome(
     *,
     use_dedicated_extension: bool = False,
     run_id: str = "",
+    approved_candidate_origin: str | None = None,
 ):
     if use_dedicated_extension:
         if url != "about:blank":
-            validate_dedicated_target_url(url)
+            validate_dedicated_target_url(url, approved_candidate_origin=approved_candidate_origin)
         context, actual_browser, _verified = launch_dedicated_kensho_context(
             playwright,
             run_id=run_id,
@@ -491,6 +533,8 @@ def open_url_in_chrome(
     else:
         context, actual_browser = launch_chrome_headed(playwright, browser_name)
     try:
+        if use_dedicated_extension and url != "about:blank":
+            set_active_origin(context, approved_candidate_origin, run_id)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
     except Exception:
@@ -500,6 +544,13 @@ def open_url_in_chrome(
 
 
 def close_browser_safely(context) -> None:
+    if id(context) in _DEDICATED_BUILDS:
+        try:
+            clear_active_origin(context)
+        except Exception:
+            # Closing the isolated profile is the mandatory fallback if worker
+            # cleanup cannot be verified; no further navigation is permitted.
+            pass
     _DEDICATED_BUILDS.pop(id(context), None)
     profile_dir = _OWNED_RUNTIME_PROFILES.pop(id(context), None)
     try:

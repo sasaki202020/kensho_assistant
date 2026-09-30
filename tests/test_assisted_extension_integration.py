@@ -64,6 +64,7 @@ def local_management_api(app):
     ("version_changed", "rollback"), ("duplicate_tab", "rollback"),
     ("document_changed", "rollback"), ("after_provision_reload", "rollback")])
 def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplog, mutation, cleanup):
+    monkeypatch.setattr(template_store, "ALLOW_LOOPBACK_HTTP_FOR_TESTS", True)
     monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", tmp_path / "form_templates.json")
     web = importlib.import_module("kensho_assistant.web.app")
     state_path = tmp_path / "session.json"
@@ -124,7 +125,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
         monkeypatch.setattr(session, "approved_queue_rows", lambda rows=None: [candidate])
         monkeypatch.setattr(session, "load_apply_queue", lambda: [candidate])
         monkeypatch.setattr(session, "target_url_for_campaign", lambda row: row["resolved_entry_url"])
-        def local_only(url):
+        def local_only(url, **kwargs):
             assert url == target
             return url
         monkeypatch.setattr(session, "validate_dedicated_target_url", local_only)
@@ -160,11 +161,8 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
             context.on("request", record)
             context.route("**/*", lambda route: route.continue_() if urlsplit(route.request.url).hostname == "127.0.0.1" else route.abort())
             try:
-                worker = _wait_for_worker(context)
-                deadline = time.monotonic() + 10
-                while worker.evaluate("async () => chrome.scripting ? (await chrome.scripting.getRegisteredContentScripts()).length : 0") != 2:
-                    assert time.monotonic() < deadline
-                    time.sleep(0.05)
+                worker = browser_manager._runtime_origin_worker(context)
+                assert worker.evaluate("async () => { await scheduleReconciliation(); return (await chrome.scripting.getRegisteredContentScripts()).length; }") == 0
                 page = context.pages[0]
                 page_holder.update(page=page, worker=worker)
                 return context, page, browser
@@ -313,7 +311,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
             return {}, "stop", {}
         monkeypatch.setattr(session, "_wait_for_extension_verified_result", human_fill_and_rollback)
 
-        result = session.run_assisted_application_session(limit=1, keep_open=False, poll_interval_sec=0.01)
+        result = session.run_assisted_application_session(allow_loopback_http_for_tests=True, limit=1, keep_open=False, poll_interval_sec=0.01)
 
     if mutation:
         assert not observed["post_fill"]
@@ -349,6 +347,7 @@ def test_templates_survive_new_dedicated_profile(tmp_path, monkeypatch, caplog, 
     web = importlib.import_module("kensho_assistant.web.app")
     state_path = tmp_path / "session.json"
     store_path = tmp_path / "form_templates.json"
+    monkeypatch.setattr(template_store, "ALLOW_LOOPBACK_HTTP_FOR_TESTS", True)
     monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", store_path)
     monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "config")
     monkeypatch.setattr(session, "ASSISTED_SESSION_STATE_JSON", state_path)
@@ -383,7 +382,7 @@ def test_templates_survive_new_dedicated_profile(tmp_path, monkeypatch, caplog, 
         monkeypatch.setattr(session, "approved_queue_rows", lambda rows=None: [candidate])
         monkeypatch.setattr(session, "load_apply_queue", lambda: [candidate])
         monkeypatch.setattr(session, "target_url_for_campaign", lambda row: target)
-        monkeypatch.setattr(session, "validate_dedicated_target_url", lambda url: url if url == target else pytest.fail("nonfixture URL"))
+        monkeypatch.setattr(session, "validate_dedicated_target_url", lambda url, **kwargs: url if url == target else pytest.fail("nonfixture URL"))
         extension_dir = _build_smoke_extension(tmp_path, origin)
         manifest_path = extension_dir / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -400,11 +399,8 @@ def test_templates_survive_new_dedicated_profile(tmp_path, monkeypatch, caplog, 
                 playwright, run_id=f"persist-{cycle[0]}", project_root=tmp_path,
                 runtime_profiles_root=tmp_path / "runtime", headless=True, extra_args=(NO_INTERNET,))
             context.route("**/*", lambda route: route.continue_() if urlsplit(route.request.url).hostname == "127.0.0.1" else route.abort())
-            worker = _wait_for_worker(context)
-            deadline = time.monotonic() + 10
-            while worker.evaluate("async () => chrome.scripting ? (await chrome.scripting.getRegisteredContentScripts()).length : 0") != 2:
-                assert time.monotonic() < deadline
-                time.sleep(0.05)
+            worker = browser_manager._runtime_origin_worker(context)
+            assert worker.evaluate("async () => { await scheduleReconciliation(); return (await chrome.scripting.getRegisteredContentScripts()).length; }") == 0
             page = context.pages[0]
             holder.update(page=page, worker=worker)
             if cycle[0] == 2 or (cycle[0] == 1 and second == "form_changed"):
@@ -472,7 +468,7 @@ def test_templates_survive_new_dedicated_profile(tmp_path, monkeypatch, caplog, 
             filled.append(cycle[0])
             return result
         monkeypatch.setattr(session, "_wait_for_extension_verified_result", fill)
-        session.run_assisted_application_session(limit=1, poll_interval_sec=0.01)
+        session.run_assisted_application_session(allow_loopback_http_for_tests=True, limit=1, poll_interval_sec=0.01)
         if second == "verification_failed":
             assert not store_path.exists()
             assert filled == []
@@ -495,13 +491,13 @@ def test_templates_survive_new_dedicated_profile(tmp_path, monkeypatch, caplog, 
         before = store_path.read_bytes()
         state_path.unlink()
         cycle[0] = 1
-        session.run_assisted_application_session(limit=1, poll_interval_sec=0.01)
+        session.run_assisted_application_session(allow_loopback_http_for_tests=True, limit=1, poll_interval_sec=0.01)
         assert store_path.read_bytes() == before
         if second == "matched":
             assert human_calls == [0] and filled == [0, 1], holder.get("failure")
             state_path.unlink()
             cycle[0] = 2
-            session.run_assisted_application_session(limit=1, poll_interval_sec=0.01)
+            session.run_assisted_application_session(allow_loopback_http_for_tests=True, limit=1, poll_interval_sec=0.01)
             assert human_calls == [0, 2] and filled == [0, 1]
         else:
             assert human_calls == [0, 1] and filled == [0]

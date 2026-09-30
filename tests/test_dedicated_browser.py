@@ -66,7 +66,7 @@ def test_load_approved_origins_normalizes_and_rejects_non_origin_values(tmp_path
         load_approved_origins(config)
 
 
-def test_build_has_exact_permissions_and_static_main_and_isolated_scripts(tmp_path: Path) -> None:
+def test_build_has_fixed_permissions_and_runtime_scripts_only(tmp_path: Path) -> None:
     source = _source_extension(tmp_path)
     config = tmp_path / "approved.json"
     config.write_text(
@@ -82,26 +82,11 @@ def test_build_has_exact_permissions_and_static_main_and_isolated_scripts(tmp_pa
     )
     manifest = json.loads((result.output_dir / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["host_permissions"] == ["https://www.epinard.jp/*"]
+    assert manifest["host_permissions"] == ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"]
     assert "optional_host_permissions" not in manifest
     assert "<all_urls>" not in json.dumps(manifest)
-    assert "https://*/*" not in manifest["host_permissions"]
-    assert manifest["content_scripts"] == [
-        {
-            "matches": ["https://www.epinard.jp/*"],
-            "js": ["content/submit-guard.js"],
-            "run_at": "document_start",
-            "all_frames": False,
-            "world": "MAIN",
-        },
-        {
-            "matches": ["https://www.epinard.jp/*"],
-            "js": ["shared/messages.js", "content/isolated-guard.js", "content/overlay.js"],
-            "run_at": "document_idle",
-            "all_frames": False,
-            "world": "ISOLATED",
-        },
-    ]
+    assert manifest["version_name"] == "dedicated-runtime-origin"
+    assert "content_scripts" not in manifest
 
 
 def test_build_is_deterministic_and_does_not_copy_runtime_data(tmp_path: Path) -> None:
@@ -134,6 +119,22 @@ def test_build_is_deterministic_and_does_not_copy_runtime_data(tmp_path: Path) -
     assert not (output / "profile.enc").exists()
 
 
+def test_build_is_independent_of_origin_config(tmp_path: Path) -> None:
+    source = _source_extension(tmp_path)
+    config = tmp_path / 'approved.json'
+    kwargs = dict(source_dir=source, output_dir=tmp_path / 'build' / 'extension',
+                  approved_origins_path=config,
+                  isolated_files=['shared/messages.js', 'content/isolated-guard.js', 'content/overlay.js'])
+    config.write_text(json.dumps({'schema_version': 1, 'origins': ['https://first.test']}))
+    first = build_dedicated_extension(**kwargs)
+    config.write_text(json.dumps({'schema_version': 1, 'origins': ['https://second.test']}))
+    assert build_dedicated_extension(**kwargs).build_sha256 == first.build_sha256
+    config.unlink()
+    assert build_dedicated_extension(**kwargs).build_sha256 == first.build_sha256
+    assert verify_dedicated_extension_build(project_root=tmp_path,
+        isolated_files=kwargs['isolated_files'])['build_sha256'] == first.build_sha256
+
+
 def test_dedicated_target_rejects_url_data_outside_exact_origin(tmp_path: Path) -> None:
     config = tmp_path / "approved.json"
     config.write_text(
@@ -142,7 +143,7 @@ def test_dedicated_target_rejects_url_data_outside_exact_origin(tmp_path: Path) 
     )
 
     assert validate_dedicated_target_url(
-        "https://www.epinard.jp/presentquiz/", approved_origins_path=config
+        "https://www.epinard.jp/presentquiz/", approved_candidate_origin="https://www.epinard.jp"
     ) == "https://www.epinard.jp/presentquiz/"
     for rejected in (
         "https://example.com/presentquiz/",
@@ -151,7 +152,7 @@ def test_dedicated_target_rejects_url_data_outside_exact_origin(tmp_path: Path) 
         "https://user@example.com/presentquiz/",
     ):
         with pytest.raises(ValueError, match="dedicated_target_not_allowed"):
-            validate_dedicated_target_url(rejected, approved_origins_path=config)
+            validate_dedicated_target_url(rejected, approved_candidate_origin="https://www.epinard.jp")
 
 
 def test_build_canonicalizes_text_newlines_and_preserves_binary(tmp_path: Path) -> None:

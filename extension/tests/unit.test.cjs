@@ -1141,3 +1141,81 @@ test("worker template storage is origin/path scoped, idempotent, and append-only
   assert.equal(templateStorageKey(url), Object.keys(values)[0]);
   delete global.chrome;
 });
+
+
+test("dedicated reconciliation never consults broad permissions and transitions fail closed", async () => {
+  const values = {};
+  let scripts = [];
+  let messageListener;
+  let installListener;
+  let accessLevel;
+  let permissionReads = 0;
+  const event = {addListener: () => {}};
+  global.chrome = {
+    runtime: {id: 'fixture-extension', getManifest: () => ({version: '0.2.0', version_name: 'dedicated-runtime-origin'}),
+      onInstalled: {addListener: fn => { installListener = fn; }}, onStartup: event, onMessage: {addListener: fn => { messageListener = fn; }}},
+    action: {onClicked: event}, tabs: {onUpdated: event, onRemoved: event},
+    permissions: {getAll: async () => { permissionReads++; throw new Error('broad_permissions_must_not_be_read'); }},
+    scripting: {
+      getRegisteredContentScripts: async ({ids} = {}) => scripts.filter(s => !ids || ids.includes(s.id)),
+      unregisterContentScripts: async ({ids}) => { scripts = scripts.filter(s => !ids.includes(s.id)); },
+      registerContentScripts: async next => { scripts.push(...next); },
+    },
+    storage: {session: {
+      get: async key => key === null ? {...values} : {[key]: values[key]},
+      set: async next => Object.assign(values, next),
+      clear: async () => { for (const k of Object.keys(values)) delete values[k]; },
+      remove: async key => { for (const k of Array.isArray(key) ? key : [key]) delete values[k]; },
+      setAccessLevel: async value => { accessLevel = value.accessLevel; },
+    }},
+  };
+  delete require.cache[require.resolve('../service-worker.js')];
+  const worker = require('../service-worker.js');
+  try {
+    await worker.scheduleReconciliation();
+    assert.deepEqual(scripts, []);
+    await worker.setActiveOrigin('https://campaign.test/*', 'session-one');
+    installListener();
+    await worker.scheduleReconciliation();
+    assert.deepEqual(await worker.getActiveOrigin(), {originPattern:'https://campaign.test/*', sessionId:'session-one'});
+    assert.equal(accessLevel, 'TRUSTED_CONTEXTS');
+    assert.equal(permissionReads, 0);
+    assert.deepEqual(scripts.map(s => s.matches), [['https://campaign.test/*'], ['https://campaign.test/*']]);
+    assert.ok(scripts.every(s => s.persistAcrossSessions === false));
+    const send = (type, url, extra = {}) => new Promise(resolve => messageListener({type, ...extra},
+      {id:'fixture-extension', url, tab:{id:42, url}, frameId:0, documentId:'fixture-document'}, resolve));
+    for (const type of ['SET_ACTIVE_ORIGIN', 'CLEAR_ACTIVE_ORIGIN', 'REQUEST_ORIGIN_ACCESS', 'DISABLE_ORIGIN_ACCESS']) {
+      assert.equal((await send(type, 'https://campaign.test/form', {originPattern:'https://other.test/*'})).ok, false);
+    }
+    assert.deepEqual(await worker.getActiveOrigin(), {originPattern:'https://campaign.test/*', sessionId:'session-one'});
+    for (const sender of [
+      {id:'external-extension', url:'https://campaign.test/form', tab:{id:42, url:'https://campaign.test/form'}, frameId:0},
+      {id:'fixture-extension', url:'https://campaign.test/form', tab:{id:42, url:'https://campaign.test/form'}, frameId:1},
+      {id:'fixture-extension', url:'https://campaign.test/form', tab:{id:42, url:'https://other.test/form'}, frameId:0},
+      {id:'fixture-extension', url:'https://campaign.test/form', frameId:0},
+    ]) {
+      const response = await new Promise(resolve => messageListener({type:'GET_SESSION_STATUS'}, sender, resolve));
+      assert.deepEqual(response, {ok:false, error:'inactive_origin'});
+    }
+    for (const type of ['GET_SESSION_STATUS', 'CONSUME_BRIDGE_PROFILE', 'GET_BRIDGE_CAPABILITY_STATUS', 'GET_FORM_TEMPLATE', 'SAVE_FORM_TEMPLATE']) {
+      assert.deepEqual(await send(type, 'https://other.test/form'), {ok:false, error:'inactive_origin'});
+    }
+    values.kenshoSessionProfile = {};
+    values.kenshoBridgeCapability = {};
+    await worker.setActiveOrigin('https://other.test/*', 'session-one');
+    assert.equal(values.kenshoSessionProfile, undefined);
+    assert.equal(values.kenshoBridgeCapability, undefined);
+    assert.deepEqual(scripts.map(s => s.matches), [['https://other.test/*'], ['https://other.test/*']]);
+    await assert.rejects(worker.setActiveOrigin('https://*/*', 'session-one'), /invalid_active_origin/);
+    assert.deepEqual(scripts, []);
+    assert.equal(await worker.getActiveOrigin(), null);
+    await worker.setActiveOrigin('https://campaign.test/*', 'session-one');
+    await worker.clearActiveOrigin();
+    assert.deepEqual(scripts, []);
+    assert.equal(await worker.getActiveOrigin(), null);
+    assert.equal(permissionReads, 0);
+  } finally {
+    await worker.scheduleReconciliation();
+    delete global.chrome;
+  }
+});

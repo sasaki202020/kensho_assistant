@@ -1,5 +1,24 @@
 # Claude handoff: non-submit real-site pilot
 
+## 2026-09-30 runtime-origin制御
+
+固定専用build SHA-256: `98094656368acd5a0dccaf42685b1711853431dc997d526f6656adbc60cc8767`。
+
+作業ブランチ`codex/runtime-origin-gating`、base `006a0cb`。専用ビルドはorigin一覧に依存せず、
+HTTPS全体とテストfixture用loopback HTTPのホスト権限を固定する。静的content scriptは持たない。
+通常sessionはキューで本人が承認した候補のresolved entry originを1つだけ有効化し、
+pilotは本人が書いたmanifestのoriginを1つだけ有効化する。どちらも`origin_policy`の拒否を優先する。
+worker特権evaluateの設定と登録読み戻しが一致するまで候補へ遷移しない。
+未設定・解除後は注入ゼロ。候補切替・終了・異常時は旧登録と一時プロフィール/capabilityを消去する。
+通常インストール版のoptional権限フロー、送信ガード、本人の規約確認・認証・最終送信は維持する。
+
+`config/approved_origins.json`は互換ファイルとして残すがビルド・注入判定には使わない。
+旧`approved_origins_path`引数は呼び出し互換性のため受け付けるが内容を読まない。
+pilotの`config_sha256/config_unchanged`は有効origin policyのhashを表す。
+実サイト検証・pushは実施せず、loopback fixtureと非loopback DNS遮断で検証する。
+詳細は[security model](EXTENSION_SECURITY_MODEL.md)と[runbook](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)が正本。
+この変更は過去の実サイト承認やpilot fingerprintを引き継がない。以下の過去build hashは履歴である。
+
 Updated: 2026-09-30 JST
 
 ## 通常assisted session（worktree `codex/assist-integration`）

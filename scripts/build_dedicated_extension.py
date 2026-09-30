@@ -31,6 +31,9 @@ EXCLUDED_PARTS = {
     "profile.enc",
     ".env",
 }
+DEDICATED_HOST_PERMISSIONS = ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"]
+DEDICATED_RUNTIME_MODE = "dedicated-runtime-origin"
+
 TEXT_SUFFIXES = {".js", ".json", ".html", ".css", ".md", ".txt"}
 
 
@@ -101,15 +104,11 @@ def build_dedicated_extension(
     *,
     source_dir: Path,
     output_dir: Path,
-    approved_origins_path: Path,
+    approved_origins_path: Path | None = None,
     isolated_files: list[str] | None = None,
 ) -> BuildResult:
     source_dir = source_dir.resolve()
     output_dir = output_dir.resolve()
-    origins = load_approved_origins(approved_origins_path)
-    if not origins:
-        raise ValueError("approved_origins_empty")
-    matches = [f"{origin}/*" for origin in origins]
     source_manifest = json.loads((source_dir / "manifest.json").read_text(encoding="utf-8"))
     manifest = dict(source_manifest)
     manifest["permissions"] = [
@@ -118,23 +117,9 @@ def build_dedicated_extension(
         if permission != "activeTab"
     ]
     manifest.pop("optional_host_permissions", None)
-    manifest["host_permissions"] = matches
-    manifest["content_scripts"] = [
-        {
-            "matches": matches,
-            "js": ["content/submit-guard.js"],
-            "run_at": "document_start",
-            "all_frames": False,
-            "world": "MAIN",
-        },
-        {
-            "matches": matches,
-            "js": list(isolated_files or DEFAULT_ISOLATED_FILES),
-            "run_at": "document_idle",
-            "all_frames": False,
-            "world": "ISOLATED",
-        },
-    ]
+    manifest["host_permissions"] = list(DEDICATED_HOST_PERMISSIONS)
+    manifest["version_name"] = DEDICATED_RUNTIME_MODE
+    manifest.pop("content_scripts", None)
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="kensho-extension-build-", dir=output_dir.parent) as temp:
@@ -153,25 +138,24 @@ def build_dedicated_extension(
         if output_dir.exists():
             shutil.rmtree(output_dir)
         shutil.copytree(staging, output_dir)
-    return BuildResult(output_dir, tuple(origins), build_sha256)
+    return BuildResult(output_dir, (), build_sha256)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build the exact-origin dedicated Chrome extension")
+    parser = argparse.ArgumentParser(description="Build the fixed runtime-origin dedicated Chrome extension")
     parser.add_argument("--project-root", type=Path, default=Path(__file__).parents[1])
     args = parser.parse_args()
     root = args.project_root.resolve()
     result = build_dedicated_extension(
         source_dir=root / "extension",
         output_dir=root / "build" / "extension",
-        approved_origins_path=root / "config" / "approved_origins.json",
     )
     print(
         json.dumps(
             {
                 "status": "PASS",
                 "output_dir": str(result.output_dir),
-                "approved_origins": list(result.origins),
+                "runtime_origin_mode": True,
                 "build_sha256": result.build_sha256,
             },
             ensure_ascii=False,

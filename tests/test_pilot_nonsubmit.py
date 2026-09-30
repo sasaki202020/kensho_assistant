@@ -284,6 +284,12 @@ def test_manifest_accepts_single_valid_candidate(env):
     assert manifest.expected_fingerprint == "fp-123"
 
 
+def test_manifest_approval_is_independent_of_static_origin_config(env):
+    env['config'].unlink()
+    manifest = _validate(env, url='https://new-campaign.test/form', origin='https://new-campaign.test')
+    assert manifest.origin == 'https://new-campaign.test'
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -297,7 +303,7 @@ def test_manifest_accepts_single_valid_candidate(env):
         {"url": URL + "#frag"},
         {"url": "https://user:pw@www.example-campaign.test/present/entry"},
         {"origin": "https://other.example-campaign.test"},
-        {"url": "https://unapproved.test/entry", "origin": "https://unapproved.test"},
+        {"url": "https://login.yahoo.co.jp/entry", "origin": "https://login.yahoo.co.jp"},
         {"campaign_period_start": "not-a-date"},
         {"campaign_period_end": "2026-08-31"},
         {"campaign_period_start": "2026-09-25"},

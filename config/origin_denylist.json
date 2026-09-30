@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "domains": [
+    "x.com", "twitter.com", "instagram.com", "facebook.com", "line.me",
+    "tiktok.com", "youtube.com", "google.com", "apple.com", "amazon.co.jp",
+    "amazon.com", "rakuten.co.jp", "paypal.com", "paypay.ne.jp", "login.yahoo.co.jp"
+  ]
+}

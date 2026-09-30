@@ -31,5 +31,5 @@
 - `profile.enc`は拡張機能から直接読みません。MVPの一時プロフィールは`chrome.storage.session`だけに保持し、永続保存しません。
 - `profile.enc`の正式保存先は`%LOCALAPPDATA%\kensho_assistant\profile.enc`です。リポジトリ内へ保存しません。
 - `assisted_session`だけが候補ロック、進行状態、手動送信報告の正本です。拡張機能へ候補キューや履歴を複製しません。
-- 拡張機能は本人が明示許可したoriginだけで自動起動し、未許可originや外部origin iframeへ注入しません。
+- 専用ブラウザでは、本人がキューで承認した候補のoriginだけを実行時に1つ有効化します（候補承認＝origin承認）。拒否リストのoriginは不可で、未承認originや外部origin iframeへ注入しません。
 - 新旧拡張機能の二重起動を検出した場合は入力を無効化し、一時プロフィールを消去して安全停止します。

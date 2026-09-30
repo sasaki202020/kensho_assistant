@@ -33,17 +33,18 @@
 
 ## 自動注入だけの診断
 
-現在の正本では、許可済みoriginを含む固定済みの`build/extension`と、毎回新しい専用
+現在の正本では、origin一覧に依存しない固定ビルド`build/extension`と、毎回新しい専用
 Chromiumコンテキストを使う。既存のChromeプロファイルやCookieは読み込まない。
 この経路で毎回ツールバーを押す必要はない。通常インストール版の初回権限操作と混同しない。
 
 正本ルートで、次の既存コマンドを使う。
 
 ```powershell
-py -3.13 -B scripts/run_dedicated_chrome.py --verify-only --headless --url https://www.epinard.jp/presentquiz/
+py -3.13 -B scripts/run_dedicated_chrome.py --verify-only --headless --candidate-id <承認済み候補ID> --url https://www.epinard.jp/presentquiz/
 ```
 
-- `config/approved_origins.json`にないorigin、query、fragmentを含むURLは拒否する。
+- キューで本人が承認した候補のresolved entry originと一致し、`origin_policy`が許可したURLだけを受け付ける。query、fragment、userinfoと非標準ポートは拒否する。
+- 候補遷移前にworkerへアクティブoriginを1つ設定し、読み戻し一致を確認する。未設定・解除後は注入ゼロ。候補切替と終了時に旧登録・一時プロフィール・capabilityを解除する。
 - 固定ビルドが現在のソースと一致しなければ停止する。診断中にビルドし直さない。
 - パネル1個・ガード1個だけでは不十分。`guard_verified=true`も必要。
 - MAIN worldの実状態から`locked`、`integrity`、`installedAtDocumentStart`を確認する。
@@ -114,7 +115,7 @@ py -3.13 -m kensho_assistant.scripts.build_dedicated_extension
 ```
 
 - 上記以外のkeyは拒否。`url`はhttpsのみ、query・fragment・認証情報不可。`origin`は`url`と一致し、
-  `config/approved_origins.json`に含まれること。当日が期間外なら拒否。
+  `origin_policy`が許可すること（人がmanifestを書くこと自体がorigin承認）。当日が期間外なら拒否。
 - `expected_fingerprint`を指定し、実フォームと異なれば`FORM_CHANGED_REVIEW_REQUIRED`で入力前に停止する。
 
 ### 実行
@@ -128,7 +129,7 @@ py -3.13 -m kensho_assistant.main pilot-nonsubmit --manifest data/pilot/manifest
 
 portの指定オプションはない（8787固定）。処理順序と停止条件:
 
-1. 事前条件: clean worktree・HEAD、専用buildのソース照合、`config/approved_origins.json`とmanifestの
+1. 事前条件: clean worktree・HEAD、専用buildのソース照合、コード既定値を含むorigin policyとmanifestの
    SHA-256を記録。不一致なら何もbindせず`REFUSED`。
 2. 通常保存領域（`data/apply_queue.csv`、`data/entries/`、通常の`data/assisted_session/session.json`等）の
    SHA-256をpilot保存領域へ切り替える前に取得。

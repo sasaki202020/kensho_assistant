@@ -8,6 +8,7 @@ from kensho_assistant.app import paths, form_template_store as store
 
 @pytest.fixture
 def storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "ALLOW_LOOPBACK_HTTP_FOR_TESTS", True)
     monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", tmp_path / "form_templates.json")
     monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "config")
     paths.CONFIG_DIR.mkdir()
@@ -36,7 +37,7 @@ def test_save_load_without_values(storage):
 
 
 @pytest.mark.parametrize("change", [
-    {"value": "INPUT-SENTINEL"}, {"origin": "https://unapproved.invalid"},
+    {"value": "INPUT-SENTINEL"}, {"origin": "https://accounts.google.com"},
     {"fields": [{"path": "html[0]/input[0]", "approvedProfileKey": "password"}]},
     {"fields": [{"path": "INPUT-SENTINEL", "approvedProfileKey": "email"}]},
     {"fields": [{"path": "html[0]/input[0]", "approvedProfileKey": "email", "value": "INPUT-SENTINEL"}]},
@@ -120,6 +121,18 @@ def test_cli_summary_and_explicit_revoke(storage, capsys):
 def test_saved_at_type_is_validated(storage):
     with pytest.raises(ValueError):
         store.save_template({**template(), "savedAt": []}, build_sha256="a" * 64)
+
+
+def test_policy_allowed_https_template_needs_no_static_origin_list(storage):
+    (paths.CONFIG_DIR / 'approved_origins.json').unlink()
+    assert store.save_template({**template(), 'origin': 'https://campaign.test'}, build_sha256='a' * 64) == 'saved'
+
+
+def test_loopback_template_requires_explicit_test_flag(storage, monkeypatch):
+    monkeypatch.setattr(store, 'ALLOW_LOOPBACK_HTTP_FOR_TESTS', False)
+    with pytest.raises(ValueError, match='unapproved_template_origin'):
+        store.save_template(template(), build_sha256='a' * 64)
+    assert not storage.exists()
 
 
 @pytest.mark.parametrize("field", [
