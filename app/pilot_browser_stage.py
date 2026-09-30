@@ -42,7 +42,9 @@ from .browser_manager import (
     validate_dedicated_target_url,
 )
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS
-from .pilot_network_monitor import SentinelNetworkMonitor, service_worker_network_events
+from .pilot_network_monitor import (
+    SentinelNetworkMonitor, service_worker_network_events, live_extension_worker, evaluate_worker,
+)
 from .pilot_residue import check_sentinel_residue
 
 PASS = "PASS"
@@ -117,17 +119,10 @@ def interactive_mapping_confirmer(field: Mapping[str, object]) -> bool:
 # ----------------------------------------------------------------- panel I/O
 
 def _extension_worker(context, timeout: float = 10.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        for worker in list(context.service_workers):
-            url = str(worker.url or "")
-            if url.startswith("chrome-extension://") and url.endswith("/service-worker.js"):
-                return worker
-        try:
-            context.wait_for_event("serviceworker", timeout=500)
-        except Exception:
-            pass
-    raise RuntimeError("extension_worker_not_found")
+    worker = live_extension_worker(context, "chrome-extension://", timeout=timeout)
+    if worker is None:
+        raise RuntimeError("extension_worker_not_found")
+    return worker
 
 
 def _wait_for_registration(context, timeout: float = 10.0):
@@ -140,7 +135,7 @@ def _wait_for_registration(context, timeout: float = 10.0):
     while time.monotonic() < deadline:
         try:
             worker = _extension_worker(context, timeout=max(deadline - time.monotonic(), 0.1))
-            count = worker.evaluate(
+            count = evaluate_worker(worker,
                 """async () => {
                   if (!chrome.scripting?.getRegisteredContentScripts) return 0;
                   const scripts = await chrome.scripting.getRegisteredContentScripts();
@@ -197,8 +192,8 @@ def _click(page, selector: str) -> None:
 
 def _live_worker(context, extension_id: str):
     """The current worker of the pinned extension id (it may have restarted)."""
-    worker = _extension_worker(context, timeout=5.0)
-    if urlsplit(str(worker.url)).hostname != extension_id:
+    worker = live_extension_worker(context, f"chrome-extension://{extension_id}/", timeout=2.0)
+    if worker is None:
         raise RuntimeError("dedicated_extension_worker_mismatch")
     return worker
 
@@ -206,7 +201,7 @@ def _live_worker(context, extension_id: str):
 def _isolated_inspect(context, extension_id: str, url: str, field_ids: list[str]) -> dict[str, object] | None:
     """Security booleans and input types from the extension's isolated world."""
     try:
-        return _live_worker(context, extension_id).evaluate(
+        return evaluate_worker(_live_worker(context, extension_id),
             """async ({url, ids}) => {
               const tabs = (await chrome.tabs.query({})).filter(tab => tab.url === url);
               if (tabs.length !== 1) throw new Error('candidate_tab_not_unique');
@@ -590,6 +585,7 @@ def run_browser_stage(
 
             # 4. fill through the extension -----------------------------------
             before_controls = _controls(page)
+            monitor.enable_pre_send_blocking()
             monitor.mark_fill_started(approved_keys)
             fill_started = True
             navigations["armed"] = True
@@ -701,12 +697,10 @@ def _cleanup(*, ctx, cfg, evidence, steps, context, worker, page, monitor, nonce
                 hit = ""
             panel_ok = hit == "セッション情報消去済み"
             clear["panel_clear"] = PASS if panel_ok else FAIL
-        # Remove control/progress/bridge/profile keys on the verified extension
-        # worker (browser_manager.clear_extension_control_token picks
-        # service_workers[0], which can be a page Service Worker).
+        # Remove control/progress/bridge/profile keys on the verified extension worker.
         if worker is not None:
             live = _live_worker(context, extension_id)
-            clear["sensitive_extension_keys_remaining"] = int(live.evaluate(
+            clear["sensitive_extension_keys_remaining"] = int(evaluate_worker(live,
                 """async keys => {
                   await chrome.storage.session.remove(keys);
                   const stored = await chrome.storage.session.get(null);

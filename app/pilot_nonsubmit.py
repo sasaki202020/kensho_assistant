@@ -504,6 +504,8 @@ def phase5a_overall(evidence: Mapping[str, object]) -> str:
     if (
         "FAIL" in statuses
         or monitor.get("status") == "FAIL"
+        or (isinstance(monitor.get("blocked_sentinel_attempts"), int)
+            and monitor["blocked_sentinel_attempts"] > 0)
         or residue.get("status") == "FAIL"
         or hashes.get("identical") is not True
     ):
@@ -516,6 +518,8 @@ def phase5a_overall(evidence: Mapping[str, object]) -> str:
         and not evidence.get("failure_reasons")
         and monitor.get("status") == "PASS"
         and monitor.get("sentinel_network_leak") == 0
+        and monitor.get("blocked_sentinel_attempts") == 0
+        and monitor.get("pre_send_blocking_enabled") is True
         and monitor.get("extension_non_loopback_requests") == 0
         and monitor.get("undetectable_fields_count") == 0
         and residue.get("status") == "PASS"

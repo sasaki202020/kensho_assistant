@@ -552,6 +552,10 @@ class SentinelNetworkMonitor:
         self._pending = 0
         self._last_activity = time.monotonic()
         self._final_channels: dict[str, object] | None = None
+        self._pre_send_blocking = False
+        self._pending_verdicts: dict[object, tuple[str, bool]] = {}
+        self._blocker_errors = 0
+        self._unload_network_blocking = False
         self.counts = {
             "page_requests_total": 0,
             "page_external_requests": 0,
@@ -566,6 +570,8 @@ class SentinelNetworkMonitor:
             "opaque_requests_before_fill": 0,
             "websocket_frames_sent": 0,
             "requests_after_clear": 0,
+            "blocked_opaque_requests": 0,
+            "blocked_sentinel_attempts": 0,
         }
 
     @property
@@ -583,6 +589,8 @@ class SentinelNetworkMonitor:
                 self._attached_late = True
         context.add_init_script(_INIT_SCRIPT % _js_string(self._init_key))
         context.on("request", self._on_request)
+        context.on("requestfinished", self._on_request_finished)
+        context.on("requestfailed", self._on_request_failed)
         context.on("page", self._on_page)
         for page in list(context.pages):
             self._on_page(page)
@@ -736,6 +744,17 @@ class SentinelNetworkMonitor:
                 if non_loopback:
                     self.counts["page_external_requests"] += 1
 
+        verdict = self._request_verdict(request, url, after_fill)
+        if self._pre_send_blocking and non_loopback:
+            self._pending_verdicts[self._request_key(request)] = (verdict, after_fill)
+        else:
+            self._record_verdict(verdict, after_fill)
+
+    @staticmethod
+    def _request_key(request):
+        return getattr(request, "_impl_obj", request)
+
+    def _request_verdict(self, request, url: str, after_fill: bool) -> str:
         try:
             method = str(request.method or "GET").upper()
         except Exception:
@@ -749,8 +768,7 @@ class SentinelNetworkMonitor:
         except Exception:
             body = None
             if method not in _BODYLESS_METHODS:
-                self._record_verdict(OPAQUE, after_fill)
-                return
+                return OPAQUE
         verdicts = [
             classify_payload(self._matcher, url, content_type="text/plain"),
             classify_payload(
@@ -765,8 +783,7 @@ class SentinelNetworkMonitor:
             verdicts.append(LEAK)
         verdict = _merge(verdicts)
         if verdict == LEAK:
-            self._record_verdict(LEAK, after_fill)
-            return
+            return LEAK
         # Bodies Playwright could not read (Blob, FormData with files, streams)
         # arrive as None; compare against the declared length.  Blocking call.
         if method not in _BODYLESS_METHODS:
@@ -793,7 +810,58 @@ class SentinelNetworkMonitor:
                     verdict = LEAK
             except Exception:
                 verdict = _merge([verdict, OPAQUE])
-        self._record_verdict(verdict, after_fill)
+        return verdict
+
+    def enable_pre_send_blocking(self) -> None:
+        """Pilot only: keep this route installed until the context closes.
+
+        Only counts and verdicts are retained. SW requests may bypass routing;
+        their existing attribution/observability checks remain in force.
+        """
+        if not self._started or self._fill_started or self._pre_send_blocking:
+            raise RuntimeError("invalid_pre_send_blocking_phase")
+        self._context.route("**/*", self._pre_send_route)
+        self._pre_send_blocking = True
+
+    def _pre_send_route(self, route) -> None:
+        request = route.request
+        url = str(request.url or "")
+        if not _is_network_url(url) or _is_loopback(url):
+            route.continue_()
+            return
+        verdict = self._request_verdict(request, url, self._fill_started)
+        if verdict in (OPAQUE, LEAK):
+            pending = self._pending_verdicts.pop(self._request_key(request), None)
+            try:
+                route.abort("blockedbyclient")
+            except Exception:
+                self._blocker_errors += 1
+                if pending:
+                    self._pending_verdicts[self._request_key(request)] = pending
+                # Failure to abort does not prove whether the request left.
+                self._record_verdict(OPAQUE, self._fill_started)
+                return
+            self._pending_verdicts.pop(self._request_key(request), None)
+            if verdict == OPAQUE:
+                self.counts["blocked_opaque_requests"] += 1
+            else:
+                self.counts["blocked_sentinel_attempts"] += 1
+        else:
+            route.continue_()
+            pending = self._pending_verdicts.pop(self._request_key(request), None)
+            if pending:
+                self._record_verdict(*pending)
+
+    def _on_request_finished(self, request) -> None:
+        pending = self._pending_verdicts.pop(self._request_key(request), None)
+        if pending:
+            self._record_verdict(*pending)
+
+    def _on_request_failed(self, request) -> None:
+        pending = self._pending_verdicts.pop(self._request_key(request), None)
+        if pending:
+            # A route-unseen failure does not prove pre-send prevention.
+            self._record_verdict(OPAQUE, pending[1])
 
     def _on_websocket(self, websocket) -> None:
         after_fill = self._fill_started
@@ -983,9 +1051,19 @@ class SentinelNetworkMonitor:
         for page in list(self._pages):
             try:
                 if not page.is_closed():
+                    if self._pre_send_blocking:
+                        # Chromium can dispatch pagehide beacons without a
+                        # BrowserContext.route callback. Block all network at
+                        # the page target for its final navigation, after
+                        # extension/session cleanup and the quiet period.
+                        cdp = self._context.new_cdp_session(page)
+                        cdp.send("Network.enable")
+                        cdp.send("Network.setBlockedURLs", {"urls": ["http://*/*", "https://*/*"]})
+                        self._unload_network_blocking = True
                     page.goto("about:blank")
             except Exception:
-                pass
+                if self._pre_send_blocking:
+                    self._blocker_errors += 1
         self._pump(grace_seconds)
         for page in list(self._pages):
             try:
@@ -1018,6 +1096,10 @@ class SentinelNetworkMonitor:
             reasons.append("tabs_not_closed")
         if self._pending:
             reasons.append("requests_still_pending")
+        if self._pending_verdicts:
+            reasons.append("route_unobserved_requests_pending")
+        if self._blocker_errors:
+            reasons.append("pre_send_abort_failed")
         if counts["opaque_requests"]:
             reasons.append("opaque_requests_after_fill")
         channels = self._final_channels or {}
@@ -1048,7 +1130,8 @@ class SentinelNetworkMonitor:
         else:
             undetectable = len(set(self._filled_keys) & self._undetectable)
 
-        if leak_value not in (0, UNVERIFIED) or ext_value not in (0, UNVERIFIED):
+        if (counts["blocked_sentinel_attempts"] or
+                leak_value not in (0, UNVERIFIED) or ext_value not in (0, UNVERIFIED)):
             status = "FAIL"
         elif UNVERIFIED in (leak_value, ext_value, undetectable) or undetectable:
             status = UNVERIFIED
@@ -1058,6 +1141,8 @@ class SentinelNetworkMonitor:
         counts["extension_non_loopback_requests"] = ext_value
         return {
             **counts,
+            "pre_send_blocking_enabled": self._pre_send_blocking,
+            "unload_network_blocking_enabled": self._unload_network_blocking,
             "undetectable_fields_count": undetectable,
             "sw_network_events_observable": self._probe_seen,
             "quiet_period_completed": self._quiet_completed,

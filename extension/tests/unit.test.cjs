@@ -1,6 +1,35 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+test("overlay capability keys include only approved fillable mappings", () => {
+  const fs = require("node:fs");
+  const vm = require("node:vm");
+  const source = fs.readFileSync(require.resolve("../content/overlay.js"), "utf8");
+  const fn = source.slice(source.indexOf("  function confirmedProfileKeys()"),
+    source.indexOf("  function mappingPreviewProfile()"));
+  const fields = [
+    {fieldId: "name", fieldType: "full_name", confidence: 1},
+    {fieldId: "kana", fieldType: "full_name_kana", confidence: 1},
+    {fieldId: "mail", fieldType: "email", confidence: 1},
+    {fieldId: "phone", fieldType: "phone", confidence: 1},
+    {fieldId: "birthday", fieldType: "birth_date", confidence: 1},
+    {fieldId: "radio", fieldType: "gender", type: "radio", confidence: 1},
+  ];
+  const mappingDecisions = {name: {action: "approve"}, kana: {action: "approve"},
+    phone: {action: "skip"}, radio: {action: "approve"}};
+  const {previewMasked} = require("../content/form-filler.js");
+  const masked = {last_name: "***", first_name: "***", last_name_kana: "***",
+    first_name_kana: "***", email: "***", phone: "***", birth_date: "***", gender: "***"};
+  for (const templateApproved of [false, true]) {
+    const previewResult = previewMasked({fields}, masked, {templateApproved, mappingDecisions});
+    const keys = vm.runInNewContext(fn + "confirmedProfileKeys()", {previewResult, mappingDecisions});
+    assert.deepEqual(Array.from(keys), ["last_name", "first_name", "last_name_kana", "first_name_kana"]);
+  }
+  const legacy = previewMasked({fields}, masked);
+  assert.equal(legacy.items.find(item => item.fieldId === "mail").fillAllowed, true);
+  assert.equal(legacy.templateApproved, true);
+});
+
 test("autocomplete tokens distinguish full names, split birthdays and unsupported parts", () => {
   const {matchField} = require("../content/field-matcher.js");
   for (const [autocomplete, expected] of [

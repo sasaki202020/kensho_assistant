@@ -871,7 +871,14 @@ def _normalize_state(state: Mapping[str, object] | None = None) -> dict[str, obj
     payload = default_assisted_session_state()
     if state:
         for key, value in state.items():
-            payload[key] = _redact_value(value)
+            # The extension fingerprint is an eight-digit FNV hash. Generic
+            # phone redaction can corrupt hashes beginning with digits and
+            # make the capability binding fail after a valid mapping.
+            if (key == "form_fingerprint" and isinstance(value, str)
+                    and len(value) == 8 and all(ch in "0123456789abcdef" for ch in value)):
+                payload[key] = value
+            else:
+                payload[key] = _redact_value(value)
     if not payload.get("state_health"):
         payload["state_health"] = "missing"
     payload["state_health"] = str(payload.get("state_health", "missing") or "missing").strip().lower()

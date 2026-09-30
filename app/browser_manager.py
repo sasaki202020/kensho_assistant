@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .paths import CHROME_USER_DATA_DIR, PACKAGE_ROOT
+from .pilot_network_monitor import live_extension_worker, evaluate_worker
 
 
 _OWNED_RUNTIME_PROFILES: dict[int, Path] = {}
@@ -22,12 +23,11 @@ def confirmed_extension_mapping(context, page, extension_id: str, expected_url: 
     state = dedicated_extension_page_state(page, require_ready=True)
     if state.get("extension_id") != extension_id:
         raise RuntimeError("dedicated_extension_worker_mismatch")
-    workers = [worker for worker in context.service_workers
-               if worker.url == f"chrome-extension://{extension_id}/service-worker.js"]
-    if len(workers) != 1:
+    worker = live_extension_worker(context, f"chrome-extension://{extension_id}/service-worker.js", timeout=2.0)
+    if worker is None:
         raise RuntimeError("dedicated_extension_worker_mismatch")
     try:
-        return workers[0].evaluate(
+        return evaluate_worker(worker,
             """async url => {
               const tabs = (await chrome.tabs.query({})).filter(tab => tab.url === url);
               if (tabs.length !== 1) throw new Error('candidate_tab_not_unique');
@@ -81,12 +81,11 @@ def provision_extension_control_token(
     expected_url: str = "",
 ) -> None:
     """Place a short-lived control token directly in the dedicated worker session."""
-    workers = list(getattr(context, "service_workers", []) or [])
-    worker = workers[0] if workers else context.wait_for_event("serviceworker", timeout=10000)
     expected_prefix = f"chrome-extension://{str(extension_id or '').strip()}/"
-    if not str(getattr(worker, "url", "") or "").startswith(expected_prefix):
+    worker = live_extension_worker(context, expected_prefix, timeout=2.0)
+    if worker is None:
         raise RuntimeError("dedicated_extension_worker_mismatch")
-    worker.evaluate(
+    evaluate_worker(worker,
         """async ({sessionId, token, binding, expectedUrl}) => {
           const tabs = await chrome.tabs.query({active: true, currentWindow: true});
           const tabId = binding ? binding.tab_id : tabs[0]?.id;
@@ -114,10 +113,10 @@ def provision_extension_control_token(
 
 
 def clear_extension_control_token(context) -> None:
-    workers = list(getattr(context, "service_workers", []) or [])
-    if not workers:
+    worker = live_extension_worker(context, "chrome-extension://", timeout=2.0)
+    if worker is None:
         return
-    workers[0].evaluate(
+    evaluate_worker(worker,
         "async () => chrome.storage.session.remove(['kenshoControlCapability', 'kenshoProgressCapability'])"
     )
 

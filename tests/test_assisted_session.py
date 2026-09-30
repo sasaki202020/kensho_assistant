@@ -60,6 +60,7 @@ def test_extension_capability_requires_canonical_origin_fingerprint_and_state(
     )
     assert issued["token"] == "safe-token"
 
+
     with pytest.raises(ValueError, match="invalid_capability_payload"):
         issue_extension_capability(
             session_id="session-1", candidate_id="candidate-1",
@@ -91,6 +92,17 @@ def test_extension_capability_requires_canonical_origin_fingerprint_and_state(
             profile={"email": "fixture@example.invalid"},
             profile_keys=["email"],
         )
+
+
+def test_extension_fingerprint_survives_state_redaction(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kensho_assistant.app.assisted_session.ASSISTED_SESSION_STATE_JSON",
+        tmp_path / "session.json",
+    )
+    save_assisted_session_state({"form_fingerprint": "8233585c", "message": "09012345678"})
+    state = load_assisted_session_state()
+    assert state["form_fingerprint"] == "8233585c"
+    assert "09012345678" not in (tmp_path / "session.json").read_text(encoding="utf-8")
 
 
 def test_assisted_session_runner_has_no_direct_profile_fill_path() -> None:

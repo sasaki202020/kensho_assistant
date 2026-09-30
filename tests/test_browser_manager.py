@@ -1,4 +1,7 @@
 from pathlib import Path
+import asyncio
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -93,6 +96,46 @@ def test_control_token_is_provisioned_directly_to_service_worker() -> None:
     assert "chrome.storage.session.set" in calls[0][0]
     assert "chrome.tabs.query" in calls[0][0]
     assert "tab_id: tabId" in calls[0][0]
+
+
+@pytest.mark.parametrize("operation", ["mapping", "provision", "clear", "inspect"])
+def test_stopped_worker_calls_have_deadline(operation):
+    from kensho_assistant.app import browser_manager as manager
+    from kensho_assistant.app import pilot_browser_stage as stage
+
+    class StoppedWorker:
+        url = "chrome-extension://extension-id/service-worker.js"
+
+        def __init__(self):
+            self.bounded_called = False
+            self._impl_obj = SimpleNamespace(evaluate=self.pending_evaluate)
+            self._sync = asyncio.run
+
+        def evaluate(self, *_args):
+            raise AssertionError("unbounded_worker_evaluation")
+
+        async def pending_evaluate(self, *_args):
+            self.bounded_called = True
+            await asyncio.sleep(30)
+
+    worker = StoppedWorker()
+    context = SimpleNamespace(service_workers=[worker])
+    page = _GuardPage(_verified_page_state())
+    page.url = "http://127.0.0.1/form"
+    started = time.monotonic()
+    try:
+        if operation == "mapping":
+            manager.confirmed_extension_mapping(context, page, "extension-id", page.url)
+        elif operation == "provision":
+            manager.provision_extension_control_token(context, "session", "token", "extension-id")
+        elif operation == "clear":
+            manager.clear_extension_control_token(context)
+        else:
+            assert stage._isolated_inspect(context, "extension-id", page.url, []) is None
+    except (TimeoutError, RuntimeError):
+        pass
+    assert time.monotonic() - started < 3
+    assert worker.bounded_called is True
 
 
 def _verified_page_state():

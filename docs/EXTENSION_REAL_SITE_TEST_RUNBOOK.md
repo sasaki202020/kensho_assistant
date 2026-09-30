@@ -162,6 +162,14 @@ PASSにはならない。架空プロフィールに値がないキー（都道�
 `session_clear`、`steps`（各段階の`PASS`/`FAIL`/`STOPPED`/`UNVERIFIED`/`NOT_RUN`）、`monitor`（通信監視の全結果）、
 `residue`、`normal_store_hashes`、`submitted_count_auto=0`、`stop_reason`、`overall`。
 
+`monitor.pre_send_blocking_enabled`、`monitor.unload_network_blocking_enabled`、
+`monitor.blocked_opaque_requests`、`monitor.blocked_sentinel_attempts`も記録する。
+入力直前から終了まで非loopbackの不透明な本文・センチネル入り要求をrouteでabortする。
+abortできた不透明な要求だけは未確認理由から外せる。route未観測・abort失敗は
+`UNVERIFIED`を維持する。unload時はChromiumがbeaconをrouteへ通知しない場合があり、
+終了直前のページ側ネットワーク遮断と受信側確認を併用する。WebSocketと拡張機能
+Service Worker通信はrouteだけで保証できないため別監視を維持する。
+
 `overall`:
 
 - `REAL_SITE_NON_SUBMIT_PASS`: 実サイトで全段階PASS、`sentinel_network_leak=0`、
@@ -169,11 +177,26 @@ PASSにはならない。架空プロフィールに値がないキー（都道�
   invariants不変のときだけ。
 - `LOCAL_FIXTURE_NON_SUBMIT_PASS`: 同条件をローカルfixture（`127.0.0.1`）で満たした場合。実サイト合格ではない。
 - `UNVERIFIED`: 未測定・不透明な通信・検出不能欄を含む。PASSではない。
+- `blocked_sentinel_attempts>0`は、送出前にabortできても送信試行として`FAIL`。
 - `STOPPED`: 入力前ブロック、`MAPPING_NOT_APPROVED`、`FORM_CHANGED_REVIEW_REQUIRED`等で停止。
 - `FAIL`: 漏洩・残存・rollback不完全・hash差分等。
 
 CLI終了コード: PASS=0、完了したがPASSでない=3、事前条件等で拒否=2。
 nonce・入力値はファイル・ログ・標準出力のどこにも書かない。
+PASSは**遮断下のPASS**であり、無遮断で安全だったとの主張には使わない。
+架空のカナ値は英数字センチネルのため、実サイト初回はカナ欄を不承認にすることを推奨する。
+
+### エピナール型fixtureのリハーサル
+
+`tests/pilot_e2e_fixtures/epinard_like.html`はクイズ3問、氏名・フリガナ、
+生年月日3select、郵便番号、住所、電話、メール、自由記述、必須メルマガラジオを持つ。
+氏名・フリガナ・メール・住所だけを承認し、capability要求6キー、4欄入力、対象外欄0変更、
+rollback、clear、残存0を検証する。Blob beacon、値なしfetch、値入り遅延fetch、
+unload beaconを発火させ、`external.test`を試験専用loopback受信側へ割り当てて
+受信件数0をサーバー側で検査する。他の非loopback DNSは遮断する。送信試行のある
+fixture結果はFAIL、route未観測ならUNVERIFIEDを残す。実サイト合格ではない。
+このworktreeのローカル検証では`C:\Users\goo10\Projects\wt-reh\kensho_assistant`を
+カレントディレクトリとし、`PYTHONPATH=C:\Users\goo10\Projects\wt-reh`を使用する。
 
 ### Service Worker通信の観測について
 

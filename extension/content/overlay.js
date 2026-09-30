@@ -285,7 +285,7 @@
     };
     for (const item of previewResult.items || []) {
       const decision = mappingDecisions[item.fieldId];
-      if (decision?.action === "skip") continue;
+      if (decision?.action !== "approve" || item.fillAllowed !== true) continue;
       const key = decision?.profileKey || item.profileKey || item.fieldType;
       if (key === "full_name") {
         appendKey("last_name");

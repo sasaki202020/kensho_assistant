@@ -484,3 +484,21 @@ def test_cli_hardcodes_port_8787(env, monkeypatch):
     assert calls[0][0] == Path(env["manifest_path"])
     assert calls[0][1]["port"] == 8787
     assert pilot.PILOT_WEB_PORT == 8787
+
+
+def test_blocked_sentinel_attempt_prevents_phase5a_pass_even_if_monitor_misreports_pass():
+    evidence = {
+        "target_kind": "loopback_fixture",
+        "steps": {"fill": "PASS"},
+        "monitor": {"status": "PASS", "sentinel_network_leak": 0,
+                    "blocked_sentinel_attempts": 0, "pre_send_blocking_enabled": True,
+                    "extension_non_loopback_requests": 0, "undetectable_fields_count": 0},
+        "residue": {"status": "PASS", "total": 0},
+        "normal_store_hashes": {"identical": True},
+        "post_fill": {"submitted_count_auto": 0, "auto_submit_detected": 0},
+        "submitted_count_auto": 0,
+        "invariants_after": {"commit": True},
+    }
+    assert pilot.phase5a_overall(evidence) == "LOCAL_FIXTURE_NON_SUBMIT_PASS"
+    evidence["monitor"]["blocked_sentinel_attempts"] = 1
+    assert pilot.phase5a_overall(evidence) == "FAIL"

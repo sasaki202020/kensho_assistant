@@ -44,6 +44,22 @@ extension Service Worker traffic was invisible to Playwright, so earlier `extens
 values (including the 2026-09-26 read-only diagnostic) were not measurements.
 
 No real-site Phase 5A run has happened. `REAL_SITE_NON_SUBMIT_PASS` has **not** been achieved.
+
+## Worktree rehearsal update (2026-09-30)
+
+Branch `codex/pilot-rehearsal` uses only local fixtures. The extension capability request now includes
+only fields explicitly approved for filling. Worker evaluation is bounded so a stopped MV3 worker cannot
+hold cleanup indefinitely. Pilot fill enables pre-send routing: opaque or sentinel-bearing external
+requests are aborted, with separate blocked counts. A blocked sentinel attempt fails Phase 5A. During
+tab shutdown, Chromium can bypass the route for an unload beacon, so page network is blocked and the
+unobserved request remains UNVERIFIED. A PASS means PASS under blocking.
+
+The Epinard-like local fixture confirms the approved subset, untouched manual fields, rollback, clear,
+and zero residue. Its controlled `external.test` destination resolves only to a loopback fixture;
+all other non-loopback DNS is blocked. The receiver count is checked on the server. The fake kana
+values are ASCII sentinels, so leave kana unapproved on a first real-site attempt. An eight-character
+hex form fingerprint could be corrupted by general phone redaction; the state save now preserves only
+that exact fingerprint shape. This update does not claim `REAL_SITE_NON_SUBMIT_PASS`.
 Next: merge/freeze the commit, build with `py -3.13 -m kensho_assistant.scripts.build_dedicated_extension`,
 stop the resident web app, recheck one candidate's official conditions, then run
 `py -3.13 -m kensho_assistant.main pilot-nonsubmit --manifest data/pilot/manifests/<id>.json` once with

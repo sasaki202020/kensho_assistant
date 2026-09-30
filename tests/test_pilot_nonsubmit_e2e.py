@@ -52,7 +52,21 @@ class _Handler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
+    def do_GET(self) -> None:
+        if self.path == "/pilot_e2e_fixtures/epinard_like_leak.html":
+            body = (TESTS_ROOT / "pilot_e2e_fixtures" / "epinard_like.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
     def do_POST(self) -> None:  # autosave sink; body is read and discarded
+        self.server.received_posts += 1
+        if self.path == "/sink":
+            self.server.received_sink_posts += 1
         length = int(self.headers.get("content-length") or 0)
         if length:
             self.rfile.read(length)
@@ -64,10 +78,12 @@ class _Handler(SimpleHTTPRequestHandler):
 def _fixture_server() -> Iterator[str]:
     handler = lambda *a, **k: _Handler(*a, directory=str(TESTS_ROOT), **k)  # noqa: E731
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server.received_posts = 0
+    server.received_sink_posts = 0
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        yield f"http://127.0.0.1:{server.server_port}", server
     finally:
         server.shutdown()
         server.server_close()
@@ -161,6 +177,12 @@ def e2e(tmp_path, monkeypatch):
         return profile
     monkeypatch.setattr(pilot, "build_fake_profile", capturing_build)
     api_paths: list[str] = []
+    capability_keys: list[list[str]] = []
+    real_issue = session.issue_extension_capability
+    def observed_issue(**kwargs):
+        capability_keys.append(list(kwargs["profile_keys"]))
+        return real_issue(**kwargs)
+    monkeypatch.setattr(web, "issue_extension_capability", observed_issue)
     real_create_app = pilot.create_app
 
     def observed_create_app(**kwargs):
@@ -175,7 +197,7 @@ def e2e(tmp_path, monkeypatch):
 
     repo = _make_clean_repo(tmp_path / "repo")
     api_port = _free_port()
-    with _fixture_server() as origin:
+    with _fixture_server() as (origin, fixture_server):
         project = tmp_path / "project"
         project.mkdir()
         extension_dir = _build_smoke_extension(project, origin)
@@ -222,7 +244,8 @@ def e2e(tmp_path, monkeypatch):
             return confirm
 
         def run(page: str = "form.html", *, approve=frozenset({"last_name", "first_name", "email"}),
-                allow_undetectable: bool = False, quiet: float = 0.5, **manifest_extra):
+                allow_undetectable: bool = False, quiet: float = 0.5,
+                browser_args=(NO_INTERNET,), **manifest_extra):
             config_obj = pilot.Phase5AConfig(
                 confirmer=confirmer_for(set(approve)),
                 allow_undetectable=allow_undetectable,
@@ -232,7 +255,7 @@ def e2e(tmp_path, monkeypatch):
                 headless=True,
                 quiet_min_seconds=quiet,
                 quiet_seconds=0.5,
-                browser_args=(NO_INTERNET,),
+                browser_args=browser_args,
                 allow_loopback_http_for_tests=True,
                 output=lambda *_a, **_k: None,
             )
@@ -250,6 +273,8 @@ def e2e(tmp_path, monkeypatch):
             "normal": [queue, data / "entries" / "entry_history.jsonl", normal_state],
             "project": project, "repo": repo, "config": config, "write_manifest": write_manifest,
             "api_port": api_port,
+            "capability_keys": capability_keys,
+            "origin": origin, "fixture_server": fixture_server,
         }
 
 
@@ -332,6 +357,68 @@ def test_happy_path_name_email_only_passes(e2e, capfd):
     assert CAPABILITY_PATH in e2e["api_paths"]
 
     assert {str(p): _sha256(p) for p in e2e["normal"]} == before
+    _assert_common_isolation(e2e)
+    _assert_nonce_nowhere(e2e, result, capfd)
+
+
+@pytest.mark.parametrize("mode", ["opaque", "leak"])
+def test_epinard_like_approved_subset_is_restored_and_egress_blocked(e2e, capfd, mode):
+    before = {str(p): _sha256(p) for p in e2e["normal"]}
+    # Only this controlled hostname maps to the loopback fixture. All other
+    # non-loopback names remain unresolvable and no Internet host is contacted.
+    resolver = (
+        "--host-resolver-rules=MAP external.test 127.0.0.1, "
+        "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost"
+    )
+    result = e2e["run"](
+        "epinard_like_leak.html" if mode == "leak" else "epinard_like.html",
+        browser_args=(resolver,), quiet=1.0,
+        approve=frozenset({"full_name", "full_name_kana", "email", "street"}),
+    )
+    evidence = _evidence(result)
+    assert evidence["approved_profile_keys"] == [
+        "email", "first_name", "first_name_kana", "last_name", "last_name_kana", "street"
+    ]
+    assert e2e["capability_keys"] == [[
+        "last_name", "first_name", "last_name_kana", "first_name_kana", "street", "email"
+    ]]
+    assert evidence["steps"]["mapping_confirmed"] == "PASS", evidence
+    assert evidence["steps"]["fill"] == "PASS", (evidence["steps"], evidence["failure_reasons"], evidence["monitor"])
+    assert evidence["post_fill"]["filled_count"] == 4
+    assert evidence["post_fill"]["unrelated_changed_count"] == 0
+    assert evidence["post_fill"]["unapproved_value_count"] == 0
+    assert evidence["post_fill"]["submitted_count_auto"] == 0
+    assert evidence["steps"]["rollback"] == "PASS"
+    assert evidence["steps"]["session_clear"] == "PASS"
+    assert evidence["residue"]["status"] == "PASS" and evidence["residue"]["total"] == 0
+    monitor = evidence["monitor"]
+    assert monitor["pre_send_blocking_enabled"] is True
+    assert monitor["blocked_sentinel_attempts"] + monitor["blocked_opaque_requests"] > 0
+    assert monitor["sentinel_network_leak"] in (0, "UNVERIFIED")
+    assert e2e["fixture_server"].received_sink_posts == 0
+    assert monitor["unload_network_blocking_enabled"] is True
+    assert evidence["overall"] == ("FAIL" if monitor["blocked_sentinel_attempts"] else "UNVERIFIED")
+    assert {str(p): _sha256(p) for p in e2e["normal"]} == before
+    _assert_common_isolation(e2e)
+    _assert_nonce_nowhere(e2e, result, capfd)
+
+
+def test_stopped_extension_worker_during_cleanup_does_not_skip_later_steps(e2e, capfd, monkeypatch):
+    evaluate_worker = stage.evaluate_worker
+    def stopped_during_clear(worker, expression, arg=None, **kwargs):
+        if "chrome.storage.session.remove(keys)" in expression:
+            raise TimeoutError("stopped_worker")
+        return evaluate_worker(worker, expression, arg, **kwargs)
+    monkeypatch.setattr(stage, "evaluate_worker", stopped_during_clear)
+    result = e2e["run"]()
+    evidence = _evidence(result)
+    assert evidence["steps"]["fill"] == "PASS"
+    assert evidence["steps"]["rollback"] == "PASS"
+    assert evidence["steps"]["session_clear"] == "FAIL"
+    assert evidence["session_clear"]["end_pilot_session"] is True
+    assert evidence["steps"]["quiet_period"] == "PASS"
+    assert evidence["steps"]["lock_release"] == "PASS"
+    assert evidence["steps"]["context_close"] == "PASS"
     _assert_common_isolation(e2e)
     _assert_nonce_nowhere(e2e, result, capfd)
 
