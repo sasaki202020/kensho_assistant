@@ -31,6 +31,12 @@ EXCLUDED_PARTS = {
     "profile.enc",
     ".env",
 }
+TEXT_SUFFIXES = {".js", ".json", ".html", ".css", ".md", ".txt"}
+
+
+def _canonical_content(path: Path) -> bytes:
+    content = path.read_bytes()
+    return content.replace(b"\r\n", b"\n") if path.suffix.lower() in TEXT_SUFFIXES else content
 
 
 @dataclass(frozen=True)
@@ -73,7 +79,7 @@ def _copy_source(source_dir: Path, destination: Path) -> None:
             continue
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+        target.write_bytes(_canonical_content(source))
 
 
 def build_hash(root: Path) -> str:
@@ -82,7 +88,7 @@ def build_hash(root: Path) -> str:
         relative = path.relative_to(root).as_posix().encode("utf-8")
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
-        content = path.read_bytes()
+        content = _canonical_content(path)
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return digest.hexdigest()
@@ -138,6 +144,7 @@ def build_dedicated_extension(
         (staging / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
+            newline="\n",
         )
         for required in ["content/submit-guard.js", *(isolated_files or DEFAULT_ISOLATED_FILES)]:
             if not (staging / required).is_file():

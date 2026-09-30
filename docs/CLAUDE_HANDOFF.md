@@ -8,7 +8,9 @@ Base commit: `684d24d`. 通常assisted sessionに値なしの永続テンプレ�
 
 新規ストアテスト、実Chromiumの新規プロファイル再利用・条件不一致・検証不合格テスト、pilotのストアAPI呼び出し禁止とSHA-256不変確認で回帰を検証する。実サイト検証は行わない。専用ビルドを更新したら全チェックを再実行し、承認を再取得する。
 
-統合試験で、通常session UUID内の7桁数字が既存の郵便番号マスクにより変形し、bridge bindingが拒否される不具合を再現した。通常sessionの32桁hex UUIDだけを保持し、pilot有効時の処理は従来どおりとする。専用build実測値は`5204db8360fd649ad6f96ef237f1220fa71579974de43515526e581b0f87ba2e`で、base commitの追跡済みextension/configからの再ビルドも同じ値だった（今回extensionコードは変更していない）。
+統合試験で、通常session UUID内の7桁数字が既存の郵便番号マスクにより変形し、bridge bindingが拒否される不具合を再現した。通常sessionの32桁hex UUIDだけを保持し、pilot有効時の処理は従来どおりとする。旧専用buildハッシュは改行コード依存のため失効。このcommitで再計算（下記）。
+
+2026-09-30 パートA: `.js/.json/.html/.css/.md/.txt`のビルド出力とハッシュ入力をCRLF→LFへ正規化し、`extension/** text eol=lf`を指定した。このcommitで再計算した専用build SHA-256: `a0bda86a44479f14ac528417fabcbfcb4fefd7eb9778b37a86eefe73d3e8f880`。source再ビルド照合と起動時snapshot照合は同じ`build_hash()`を使用する。CRLF/LF一致、1文字差・バイナリ差の検出、バイナリ保持と既存build/verify系をローカル検証（`10 passed in 17.64s`）。実サイト承認・pilot fingerprintの更新を意味しない。
 
 2026-09-30の最終ローカル検証: 指定関連テスト`96 passed, 2 warnings in 235.17s (0:03:55)`、全Pythonテスト`773 passed, 2 warnings in 857.83s (0:14:17)`、Node`42 passed / 0 failed`、`WEB_SMOKE_TEST_OK`、preflight`READY_FOR_5_SITE_PILOT`、compileallとdiff check成功。警告2件はwebsocketsの既存DeprecationWarning。検証はloopback fixtureだけで、実サイト検証・Git pushは行っていない。入力値のUTF-8/UTF-16検査、再利用時の欄承認呼び出しゼロ、構造/版/build/期限の不一致、seed読み戻し失敗、検証不合格時の保存禁止、pilotのストアAPI呼び出しゼロ・SHA-256不変を確認した。
 
@@ -25,7 +27,7 @@ The project assists with contest entry and stops before final submission. Only t
 - Branch before this handoff: `codex/high-value-kensho-v1`
 - Code HEAD before this handoff: `81e71fc6842db5e61ccb887db36f8cbf72abbd82`
 - Source worktree was clean before adding this document. Recheck Git state after checkout.
-- Extension version: `0.2.0`; dedicated build SHA-256 observed on 2026-09-26: `24999e6b09c18d7b62ba413f1dd1200c81a7d5388ca87349c72db7a58a3b7fd8`. Verify the current build before using it.
+- Extension version: `0.2.0`; 旧dedicated build SHA-256は失効。このcommitで再計算（上記）。使用前に現在のbuildを検証する。
 - Local verification on 2026-09-26: Python full suite `604 passed, 2 warnings`; targeted integration `57 passed`; Node extension `41 passed`; extension local smoke, Web smoke, P1 preflight, compileall, and `git diff --check` passed. Rerun the commands listed in `GOAL_NON_SUBMIT_PILOT.md` after any implementation change.
 
 ## Real-page observations

@@ -14,6 +14,7 @@ from kensho_assistant.app.browser_manager import (
 )
 from kensho_assistant.scripts.build_dedicated_extension import (
     build_dedicated_extension,
+    build_hash,
     load_approved_origins,
 )
 
@@ -151,6 +152,54 @@ def test_dedicated_target_rejects_url_data_outside_exact_origin(tmp_path: Path) 
     ):
         with pytest.raises(ValueError, match="dedicated_target_not_allowed"):
             validate_dedicated_target_url(rejected, approved_origins_path=config)
+
+
+def test_build_canonicalizes_text_newlines_and_preserves_binary(tmp_path: Path) -> None:
+    source = _source_extension(tmp_path)
+    config = tmp_path / "approved.json"
+    config.write_text(json.dumps({"schema_version": 1, "origins": ["http://127.0.0.1"]}))
+    scripts = ["shared/messages.js", "content/isolated-guard.js", "content/overlay.js"]
+    binary = b"\x00\xff\r\n\x01"
+    (source / "asset.bin").write_bytes(binary)
+    for suffix in ("js", "json", "html", "css", "md", "txt"):
+        (source / f"sample.{suffix}").write_bytes(b"first\nsecond\n")
+    kwargs = dict(source_dir=source, approved_origins_path=config, isolated_files=scripts)
+    first = build_dedicated_extension(output_dir=tmp_path / "build" / "extension", **kwargs)
+    source_hash = build_hash(source)
+    for path in source.rglob("*"):
+        if path.is_file() and path.suffix != ".bin":
+            path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    assert build_hash(source) == source_hash
+    second = build_dedicated_extension(output_dir=tmp_path / "crlf-build", **kwargs)
+    assert first.build_sha256 == second.build_sha256
+    for path in second.output_dir.rglob("*"):
+        if path.is_file() and path.suffix != ".bin":
+            assert b"\r\n" not in path.read_bytes()
+    assert (second.output_dir / "asset.bin").read_bytes() == binary
+    verified = verify_dedicated_extension_build(
+        project_root=tmp_path, approved_origins_path=config, isolated_files=scripts,
+    )
+    assert verified["build_sha256"] == first.build_sha256
+    # Verification must also accept a CRLF checkout of the existing build.
+    for path in first.output_dir.rglob("*"):
+        if path.is_file() and path.suffix != ".bin":
+            path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    assert verify_dedicated_extension_build(
+        project_root=tmp_path, approved_origins_path=config, isolated_files=scripts,
+    )["build_sha256"] == first.build_sha256
+    (source / "sample.txt").write_bytes(b"First\nsecond\n")
+    assert build_hash(source) != source_hash
+    changed = build_dedicated_extension(output_dir=tmp_path / "changed-build", **kwargs)
+    assert changed.build_sha256 != first.build_sha256
+    with pytest.raises(RuntimeError, match="dedicated_extension_build_stale"):
+        verify_dedicated_extension_build(
+            project_root=tmp_path, approved_origins_path=config, isolated_files=scripts,
+        )
+    (source / "sample.txt").write_bytes(b"first\nsecond\n")
+    (source / "asset.bin").write_bytes(binary.replace(b"\r\n", b"\n"))
+    assert build_hash(source) != source_hash
+    binary_changed = build_dedicated_extension(output_dir=tmp_path / "binary-build", **kwargs)
+    assert binary_changed.build_sha256 != first.build_sha256
 
 
 def test_dedicated_build_verification_detects_stale_source(tmp_path: Path) -> None:
