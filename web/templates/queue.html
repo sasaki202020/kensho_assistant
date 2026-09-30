@@ -105,10 +105,13 @@
         <span class="pill {{ 'red' if row.queue_status in ['BLOCKED', 'SKIPPED', 'MANUALLY_SUBMITTED'] else 'blue' }}">{{ row.queue_status }}</span>
       </div>
       <div class="muted">{{ row.one_line_reason or "安全順で並べています" }}</div>
+      {% if row.terms_notice %}
+      <div class="muted">{{ row.terms_notice }}</div>
+      {% endif %}
       {% if row.risk_notice %}
       <div class="muted">{{ row.risk_notice }}</div>
       {% endif %}
-      {% if row.queue_status == 'APPROVED' %}
+      {% if row.queue_status == 'APPROVED' and not row.terms_prepare_disabled %}
       <div class="muted">承認済みです。Chrome応募準備の対象になります。</div>
       {% endif %}
     </div>
@@ -124,7 +127,7 @@
       </div>
       <div class="actions">
         <form method="post" action="/queue/{{ row.queue_id }}/approve"><input type="hidden" name="next_url" value="/queue"><input type="hidden" name="approved_note" value="応募対象として承認"><button class="btn" type="submit" onclick="return confirm('この懸賞を応募対象にします。応募条件・締切・個人情報の取り扱いを確認しましたか？ アプリは自動送信しません。最後の送信はあなた自身が行います。')">応募対象にする</button></form>
-        <form method="post" action="/queue/{{ row.queue_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/queue/{{ row.queue_id }}/prepare"><input type="hidden" name="next_url" value="/queue"><button class="btn primary" type="submit">Chromeで応募準備</button></form>
+        <form method="post" action="/queue/{{ row.queue_id }}/chrome-prepare" data-prepare-form data-prepare-api-url="/api/queue/{{ row.queue_id }}/prepare"><input type="hidden" name="next_url" value="/queue"><button class="btn primary" type="submit"{% if row.terms_prepare_disabled %} disabled{% endif %}>Chromeで応募準備</button></form>
         <form method="post" action="/queue/{{ row.queue_id }}/hold"><input type="hidden" name="next_url" value="/queue"><button class="btn" type="submit">保留</button></form>
         <form method="post" action="/queue/{{ row.queue_id }}/skip"><input type="hidden" name="next_url" value="/queue"><button class="btn" type="submit">スキップ</button></form>
         <form method="post" action="/queue/{{ row.queue_id }}/manual-submitted"><input type="hidden" name="next_url" value="/queue"><button class="btn" type="submit" onclick="return confirm('これはアプリが送信する機能ではありません。あなた自身がChrome上で応募送信した場合だけ記録してください。記録すると次の候補へ進めます。')">手動送信済みにする</button></form>
@@ -149,6 +152,9 @@
         <div>締切</div><div>{{ detail.deadline or "未取得" }}</div>
         <div>URL</div><div class="break">{{ detail.resolved_entry_url or "未取得" }}</div>
         <div>現在の状態</div><div>{{ detail.state_label or detail.queue_status or "未処理" }}</div>
+        {% if detail.terms_notice %}
+        <div>規約の確認</div><div>{{ detail.terms_notice }}</div>
+        {% endif %}
         <div>最終操作</div><div>{{ detail.last_action_label or detail.last_action or "なし" }}</div>
         <div>次にやること</div><div>{{ detail.next_action_label or detail.next_action or "Chromeで応募準備をしてください。" }}</div>
         <div>自動送信</div><div>{{ detail.auto_submit_label or "無効" }}</div>

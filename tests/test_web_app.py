@@ -12,6 +12,25 @@ from kensho_assistant.ui.data_loader import load_apply_queue
 from kensho_assistant.web.app import WEB_HOST, WEB_PORT, create_app, _decorate_queue_row, _one_line_reason, _review_item_summary, _risk_class, _sort_campaign_rows, _start_chrome_prepare, _start_prepare_all
 
 
+def test_terms_notices_on_queue_list_and_detail(monkeypatch):
+    row = {
+        "queue_id": "terms-fixture", "campaign_id": "terms-fixture",
+        "campaign_name": "Local terms fixture", "queue_status": "APPROVED",
+        "approved_by_user": "true", "deadline": "2099-12-31",
+        "terms_automation_restricted": "true", "terms_check_uncertain": "false",
+    }
+    monkeypatch.setattr("kensho_assistant.web.app.load_apply_queue", lambda: [row])
+    with TestClient(create_app()) as client:
+        response = client.get("/queue")
+        assert response.status_code == 200
+        assert response.text.count("規約で自動入力禁止（手動で応募してください）") >= 2
+        assert 'type="submit" disabled>Chromeで応募準備' in response.text
+        row.update(terms_automation_restricted="false", terms_check_uncertain="true")
+        response = client.get("/queue")
+        assert response.text.count("規約の確認が必要（自動応募に関する記載あり）") >= 2
+        assert 'type="submit" disabled>Chromeで応募準備' not in response.text
+
+
 def test_web_app_routes_show_safety_text() -> None:
     app = create_app()
     with TestClient(app) as client:

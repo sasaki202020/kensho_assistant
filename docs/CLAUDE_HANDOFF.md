@@ -8,6 +8,8 @@ Read [AGENTS.md](../AGENTS.md), [GOAL_NON_SUBMIT_PILOT.md](GOAL_NON_SUBMIT_PILOT
 
 The project assists with contest entry and stops before final submission. Only the person may submit. CAPTCHA, login, SNS actions, and consent remain manual. Do not read real profiles, `.env`, cookies, or browser profiles for the pilot.
 
+応募規約の自動入力制限は [HIGH_VALUE_RULES.md](HIGH_VALUE_RULES.md#自動入力に関する規約) を参照。フォーム診断で本文を保存せず `terms_policy` の判定・時刻のみ追加し、キューの `terms_automation_restricted` が真なら既存の `queue_prepare_block_reason` 経由で準備・候補読込・拡張機能capability発行を `terms_prohibit_automation` で除外する。期限・手動送信済みの判定順序と手動応募記録は維持する。`uncertain` はUIで注意表示するがブロックしない。未診断の旧レコードと本文取得失敗は規約確認済みとみなさず、実サイト・別ページ・画像の規約の検証は未実施。`codex/terms-automation-check` の変更では `app/assisted_session.py`、`app/browser_manager.py`、`extension/` を変更しない。
+
 ## Verified baseline
 
 - Branch before this handoff: `codex/high-value-kensho-v1`

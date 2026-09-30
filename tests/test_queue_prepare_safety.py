@@ -25,6 +25,115 @@ def candidate(**changes):
     }
 
 
+@pytest.mark.parametrize("value", [True, "true", "TRUE", " true "])
+def test_terms_restriction_blocks_prepare(value):
+    assert apply_queue.queue_prepare_block_reason(candidate(terms_automation_restricted=value)) == "terms_prohibit_automation"
+
+
+def test_terms_restriction_preserves_existing_reason_order():
+    row = candidate(terms_automation_restricted="true", deadline="2000-01-01")
+    assert apply_queue.queue_prepare_block_reason(row) == "campaign_expired"
+    row["submission_method"] = "MANUAL"
+    assert apply_queue.queue_prepare_block_reason(row) == "already_manually_submitted"
+
+
+@pytest.mark.parametrize("value", [False, "false", "", None])
+def test_uncertain_terms_do_not_block_prepare(value):
+    assert apply_queue.queue_prepare_block_reason(candidate(
+        terms_automation_restricted=value, terms_check_uncertain="true",
+    )) == ""
+
+
+def test_terms_inspection_reaches_queue_and_csv(tmp_path):
+    rows = apply_queue.build_apply_queue(
+        campaigns=[candidate(form_readiness_status="READY_FOR_FILL")],
+        inspections={"fixture": {"terms_policy": {
+            "restricted": True, "categories": ["automated_entry", "proxy_entry"],
+            "uncertain": False, "checked_at": "2026-09-30T10:00:00+09:00",
+        }}}, entries=[], existing_queue=[],
+    )
+    path = tmp_path / "queue.csv"
+    apply_queue.save_apply_queue(rows, path)
+    row = apply_queue.load_apply_queue(path)[0]
+    assert row["terms_automation_restricted"] == "true"
+    assert row["terms_restriction_categories"] == "automated_entry, proxy_entry"
+    assert row["terms_check_uncertain"] == "false"
+    assert row["terms_checked_at"] == "2026-09-30T10:00:00+09:00"
+    assert row["auto_submit_allowed"] == "false"
+
+
+def test_queue_rebuild_preserves_restriction_if_inspection_is_legacy():
+    existing = candidate(terms_automation_restricted="true", terms_restriction_categories="proxy_entry")
+    row = apply_queue.build_apply_queue(
+        campaigns=[candidate(form_readiness_status="READY_FOR_FILL")],
+        inspections={"fixture": {}}, entries=[], existing_queue=[existing],
+    )[0]
+    assert apply_queue.queue_prepare_block_reason(row) == "terms_prohibit_automation"
+
+
+def test_terms_candidates_excluded_from_engine_and_assisted_selection(monkeypatch):
+    rows = [candidate(terms_automation_restricted="true", queue_status="PREPARED"),
+            candidate(campaign_id="open", queue_status="PREPARED", terms_check_uncertain="true")]
+    before = deepcopy(rows)
+    assert [r["campaign_id"] for r in apply_queue.approved_queue_rows(rows)] == ["open"]
+    assert [r["campaign_id"] for r in apply_queue.approved_queue_pending_rows(rows)] == ["open"]
+    monkeypatch.setattr(assisted_session, "approved_queue_rows", lambda: rows)
+    assert [r["campaign_id"] for r in assisted_session._load_session_candidates("PREPARED", 1)] == ["open"]
+    monkeypatch.setattr(engine, "load_apply_queue", lambda _path: rows)
+    calls = []
+    monkeypatch.setattr(engine, "run_prepared_campaign_dry_run", lambda cid, **kw: calls.append(cid) or {"campaign_id": cid})
+    engine.run_prepared_campaigns_dry_run_all(limit=1)
+    assert calls == ["open"]
+    assert rows == before
+
+
+def test_terms_rejected_before_engine_profile_access(monkeypatch):
+    calls = []
+    monkeypatch.setattr(engine, "read_csv_rows", lambda _path: [candidate()])
+    monkeypatch.setattr(engine, "load_apply_queue", lambda _path: [candidate(terms_automation_restricted="true")])
+    monkeypatch.setattr(engine, "load_profile", lambda: calls.append("profile") or {})
+    with pytest.raises(ValueError, match="terms_prohibit_automation"):
+        engine.run_prepared_campaign_dry_run("fixture")
+    assert calls == []
+
+
+def test_terms_restriction_does_not_block_manual_submission_record(tmp_path):
+    path = tmp_path / "queue.csv"
+    apply_queue.save_apply_queue([candidate(terms_automation_restricted="true")], path)
+    assert apply_queue.mark_manual_submitted("fixture", path)
+    saved = apply_queue.load_apply_queue(path)[0]
+    assert saved["submission_method"] == "MANUAL"
+    assert saved["manual_submitted_at"]
+    assert saved["terms_automation_restricted"] == "true"
+
+
+@pytest.mark.parametrize("route", [
+    "/api/queue/fixture/prepare", "/api/approved/fixture/prepare",
+    "/queue/fixture/chrome-prepare", "/queue/session/fixture/chrome-prepare",
+    "/queue/fixture/prepare", "/queue/session/fixture/prepare",
+])
+def test_terms_web_prepare_never_launches_or_changes_state(monkeypatch, route):
+    calls = []
+    row = candidate(terms_automation_restricted="true")
+    monkeypatch.setattr("kensho_assistant.web.app._queue_item_for_id", lambda _id: row)
+    monkeypatch.setattr("kensho_assistant.web.app._start_chrome_prepare", lambda *a, **k: calls.append("launch"))
+    monkeypatch.setattr("kensho_assistant.web.app.mark_prepared", lambda *a: calls.append("prepared"))
+    monkeypatch.setattr("kensho_assistant.web.app.set_age_fill_user_approved", lambda *a: calls.append("age"))
+    with TestClient(create_app()) as client:
+        response = client.post(route + "?allow_age_fill=true", follow_redirects=False)
+    assert calls == []
+    if route.startswith("/api/"):
+        assert response.json()["blocked_reason"] == "terms_prohibit_automation"
+        assert response.json()["submitted_count_auto"] == 0
+        assert response.json()["message"] == "規約で自動入力禁止（手動で応募してください）"
+
+
+def test_terms_assisted_capability_rechecks_current_queue(monkeypatch):
+    monkeypatch.setattr(assisted_session, "load_apply_queue", lambda: [candidate(terms_automation_restricted="true")])
+    with pytest.raises(ValueError, match="terms_prohibit_automation"):
+        assisted_session.validate_extension_candidate("fixture")
+
+
 @pytest.mark.parametrize("deadline", [
     "2000/01/01 17:00 (remaining 6 days)",
     "2000-01-01T23:59:00+09:00",

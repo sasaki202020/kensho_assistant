@@ -13,7 +13,9 @@ def _write_env(path: Path, key: str) -> None:
     path.write_text(f"KENSHO_PROFILE_KEY={key}\n", encoding="utf-8")
 
 
-def test_resolve_profile_path_prefers_explicit_environment_override(tmp_path: Path) -> None:
+def test_resolve_profile_path_prefers_explicit_environment_override(tmp_path: Path, monkeypatch) -> None:
+    # Model an external store even when pytest's temp root is inside the worktree.
+    monkeypatch.setattr("kensho_assistant.app.paths.PACKAGE_ROOT", tmp_path / "repository")
     configured = tmp_path / "private" / "profile.enc"
 
     resolved = resolve_profile_path(
@@ -26,7 +28,8 @@ def test_resolve_profile_path_prefers_explicit_environment_override(tmp_path: Pa
     assert resolved == configured.resolve()
 
 
-def test_resolve_profile_path_defaults_to_local_app_data(tmp_path: Path) -> None:
+def test_resolve_profile_path_defaults_to_local_app_data(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("kensho_assistant.app.paths.PACKAGE_ROOT", tmp_path / "repository")
     resolved = resolve_profile_path({"LOCALAPPDATA": str(tmp_path)})
 
     assert resolved == (tmp_path / "kensho_assistant" / "profile.enc").resolve()
