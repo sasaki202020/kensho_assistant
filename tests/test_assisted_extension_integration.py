@@ -59,8 +59,11 @@ def local_management_api(app):
         assert not thread.is_alive()
 
 
-@pytest.mark.parametrize("mutation", [None, "form_changed", "template_unconfirmed", "version_changed", "duplicate_tab", "document_changed", "after_provision_reload"])
-def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplog, mutation):
+@pytest.mark.parametrize("mutation,cleanup", [(None, "rollback"), (None, "clear"),
+    ("form_changed", "rollback"), ("template_unconfirmed", "rollback"),
+    ("version_changed", "rollback"), ("duplicate_tab", "rollback"),
+    ("document_changed", "rollback"), ("after_provision_reload", "rollback")])
+def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplog, mutation, cleanup):
     monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", tmp_path / "form_templates.json")
     web = importlib.import_module("kensho_assistant.web.app")
     state_path = tmp_path / "session.json"
@@ -116,6 +119,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
             "campaign_id": "local-integration", "campaign_name": "Local fixture",
             "queue_status": "APPROVED", "approved_by_user": "true",
             "resolved_entry_url": target,
+            "terms_check_uncertain": "true",
         }
         monkeypatch.setattr(session, "approved_queue_rows", lambda rows=None: [candidate])
         monkeypatch.setattr(session, "load_apply_queue", lambda: [candidate])
@@ -181,7 +185,28 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
 
         def human_mapping(**_kwargs):
             page = page_holder["page"]
+            if mutation is None:
+                page.evaluate("""() => {
+                  const form = document.querySelector('#entry-form');
+                  form.insertAdjacentHTML('beforeend', `
+                    <fieldset><legend>クイズ回答</legend>
+                      <label><input type="radio" name="quiz" required>選択肢A</label>
+                      <label><input type="radio" name="quiz">選択肢B</label></fieldset>
+                    <label>アンケート<textarea name="survey" required style=""></textarea></label>
+                    <label>メルマガ選択<select name="newsletter" required style="outline:1px dotted blue!important">
+                      <option value="">選択してください</option><option>不要</option></select></label>
+                    <label>生年月日<input type="date" name="birthday" required></label>
+                    <a href="/terms">利用規約</a><a href="#requirements">応募要項</a>`);
+                  document.querySelector('#terms').required = true;
+                  const spacer = document.createElement('div');
+                  spacer.style.height = '1500px';
+                  document.querySelector('[name="custom_required_answer"]').closest('label').before(spacer);
+                  window.fixtureSubmitClicks = 0;
+                  document.querySelector('#submit-button').addEventListener('click', () => window.fixtureSubmitClicks++);
+                }""")
+                observed["original_styles"] = page.locator("#entry-form").evaluate("f => Array.from(f.elements, e => e.getAttribute('style'))")
             host = page.locator("#kensho-assistant-overlay-host")
+            assert host.locator("#pre-submit-review").is_hidden()
             host.locator("#analyze").click()
             page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.dataset.kenshoStatus === 'analyzed'")
             host.locator("#preview-button").click()
@@ -225,6 +250,8 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
                     page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.dataset.kenshoStatus === 'analyzed'")
                     host.locator("#preview-button").click()
                     page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.dataset.kenshoStatus === 'previewed'")
+                if mutation is None:
+                    assert page.locator("#entry-form").evaluate("f => Array.from(f.elements, e => e.getAttribute('style'))") == observed["original_styles"], "style_changed_before_fill"
                 host.locator("#fill").click()
                 page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.shadowRoot.querySelector('#status').textContent.includes('入力済み')", timeout=7000)
                 state = session.load_assisted_session_state()
@@ -233,12 +260,40 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
                     assert page.locator(f'[name="{key}"]').input_value() == value
                 assert state["submitted_count_auto"] == 0
                 assert not page.locator("#terms").is_checked()
+                assert state["terms_check_uncertain"] is True
+                review = host.locator("#pre-submit-review")
+                assert review.is_visible()
+                review_text = review.text_content()
+                assert "送信前確認" in review_text
+                assert "内容を確認し、送信ボタンはご自身で押してください" in review_text
+                assert "規約に自動応募に関する記載あり・要確認" in review_text
+                for value in profile.values():
+                    assert value not in review_text
+                for label in ("姓", "メールアドレス", "確認用の独自必須項目", "クイズ回答", "アンケート", "メルマガ選択", "生年月日", "利用規約に同意する"):
+                    assert label in review_text
+                assert review.locator("a").count() == 2
+                assert review.locator('button[type="submit"], input, select, textarea').count() == 0
+                assert review.locator("button").count() == 1
+                assert page.evaluate("window.fixtureSubmitClicks") == 0
+                assert page.locator("#entry-form").evaluate("f => Array.from(f.elements).filter(e => e.style.outline.includes('#c77600') || e.style.outline.includes('199, 118, 0')).length") == 7
+                page.evaluate("window.scrollTo(0, 0)")
+                review.locator("button").click()
+                assert page.evaluate("window.scrollY") > 0
+                assert page.locator('[name="custom_required_answer"]').evaluate("e => {const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight}")
+                assert page.evaluate("window.fixtureSubmitClicks") == 0
                 observed["post_fill"] = True
-                host.locator("#rollback").click()
-                page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.shadowRoot.querySelector('#status').textContent.includes('元に戻しました')")
+                host.locator("#rollback" if cleanup == "rollback" else "#clear").click()
+                page.wait_for_function("text => document.querySelector('[data-kensho-extension-root]')?.shadowRoot.querySelector('#status').textContent.includes(text)",
+                                       arg="元に戻しました" if cleanup == "rollback" else "消去済み")
                 assert page.locator("#entry-form").evaluate("f => Array.from(f.elements, e => [e.value, e.checked, e.selectedIndex])") == observed["before"]
+                restored_styles = page.locator("#entry-form").evaluate("f => Array.from(f.elements, e => e.getAttribute('style'))")
+                assert restored_styles == observed["original_styles"], "review_style_restore_mismatch"
+                assert review.is_hidden()
+                assert review.text_content() == ""
+                assert page.locator("#entry-form").evaluate("f => Array.from(f.elements).filter(e => e.style.outline.includes('#c77600') || e.style.outline.includes('199, 118, 0')).length") == 0
                 observed["rollback"] = True
-                host.locator("#clear").click()
+                if cleanup == "rollback":
+                    host.locator("#clear").click()
                 page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.shadowRoot.querySelector('#status').textContent.includes('消去')")
                 persisted = worker.evaluate("async () => [await chrome.storage.local.get(null), await chrome.storage.sync.get(null), await chrome.storage.session.get(null)]")
                 assert "LOCAL-SENTINEL-92741" not in json.dumps(persisted)
@@ -252,7 +307,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
                 assert guard["blockedAttempts"] == 0
                 observed["clear"] = True
             except Exception as error:
-                errors.append(type(error).__name__)
+                errors.append((type(error).__name__, error.__traceback__.tb_lineno))
                 observed["stop_reason"] = host.locator("#status").text_content()
                 raise
             return {}, "stop", {}
@@ -269,7 +324,7 @@ def test_real_assisted_mapping_bridge_fill_rollback(tmp_path, monkeypatch, caplo
         assert not list((tmp_path / "runtime").iterdir())
         return
     assert observed["post_fill"], (observed.get("stop_reason"), errors, result["message"])
-    assert observed["rollback"] and observed["clear"]
+    assert observed["rollback"] and observed["clear"], (observed.get("stop_reason"), errors)
     assert result["submitted_count_auto"] == 0
     assert result["ok"] == 0
     assert not list((tmp_path / "runtime").iterdir())
@@ -411,6 +466,8 @@ def test_templates_survive_new_dedicated_profile(tmp_path, monkeypatch, caplog, 
                 raise
             assert page.locator('[name=email]').input_value() == profile["email"]
             assert not page.locator("#terms").is_checked()
+            assert page.locator("#kensho-assistant-overlay-host").locator("#pre-submit-review").is_visible()
+            assert "規約に自動応募に関する記載あり・要確認" not in page.locator("#kensho-assistant-overlay-host").locator("#pre-submit-review").text_content()
             assert session.load_assisted_session_state()["unrelated_changed_count"] == 0
             filled.append(cycle[0])
             return result

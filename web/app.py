@@ -3112,6 +3112,9 @@ def create_app(
             "workflow_state": str(state.get("workflow_state", "") or ""),
             "progress_token": str(state.get("_extension_progress_token", "") or ""),
             "submitted_count_auto": 0,
+            **({"terms_check_uncertain": state.get("terms_check_uncertain") is True}
+               if pilot_run_id is None and pilot_storage_active() is None
+               and isinstance(state.get("terms_check_uncertain"), bool) else {}),
         }
 
     @app.post("/api/session/extension-capability/revoke")

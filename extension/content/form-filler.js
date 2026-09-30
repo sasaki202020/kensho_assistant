@@ -545,6 +545,7 @@
     return {
       status: "POST_FILL_VERIFICATION_PASSED",
       filledCount,
+      filledFieldIds: [...targetIds],
       rollbackComplete: false,
       verification: {
         fingerprintChanged: false,

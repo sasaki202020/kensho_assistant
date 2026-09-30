@@ -917,6 +917,8 @@ def _normalize_state(state: Mapping[str, object] | None = None) -> dict[str, obj
     payload["current_campaign_id"] = str(payload.get("current_campaign_id", "") or "")
     payload["current_campaign_name"] = str(payload.get("current_campaign_name", "") or "")
     payload["current_queue_status"] = str(payload.get("current_queue_status", "") or "")
+    if _PILOT_STORAGE is None:
+        payload["terms_check_uncertain"] = payload.get("terms_check_uncertain") is True
     payload["current_step"] = str(payload.get("current_step", "") or "")
     payload["current_url"] = str(payload.get("current_url", "") or "")
     payload["current_title"] = str(payload.get("current_title", "") or "")
@@ -1672,6 +1674,8 @@ def run_assisted_application_session(
                     current_campaign_id=campaign_id,
                     current_campaign_name=campaign_name,
                     current_queue_status=str(campaign.get("queue_status", "") or ""),
+                    **({"terms_check_uncertain": str(campaign.get("terms_check_uncertain", "")).strip().lower() == "true"}
+                       if _PILOT_STORAGE is None else {}),
                     current_url=str(target_url or ""),
                     current_title=campaign_name,
                     candidate_started_at=candidate_started_at,

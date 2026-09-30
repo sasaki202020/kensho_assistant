@@ -1,6 +1,105 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function reviewControl({type = "text", label = "項目", value = "", required = true,
+  checked = false, name = "", style = null, disabled = false, readOnly = false} = {}) {
+  const attributes = new Map(style === null ? [] : [["style", style]]);
+  const labelNode = {cloneNode: () => ({textContent: label, querySelectorAll: () => []})};
+  return {type, labels: [labelNode], value, required, checked, name, disabled, readOnly,
+    getAttribute: key => attributes.get(key) ?? null,
+    setAttribute: (key, val) => attributes.set(key, val),
+    removeAttribute: key => attributes.delete(key),
+    matches: () => false, closest: () => null,
+    style: {setProperty: (key, val, priority) =>
+      attributes.set("style", `${attributes.get("style") || ""};${key}:${val}!${priority}`)},
+  };
+}
+
+test("pre-submit filled rows use existing masks and contain no raw values", () => {
+  const {maskedFilled} = require("../content/overlay.js");
+  const {maskValue} = require("../shared/redaction.js");
+  const controls = {
+    email: reviewControl({label: "メール", value: "review-sentinel@example.invalid"}),
+    name: reviewControl({label: "氏名", value: "LOCAL-REVIEW-SENTINEL"}),
+    birthday: reviewControl({value: "2000-01-01"}),
+  };
+  const items = Object.keys(controls).map(fieldId => ({fieldId, fieldType: fieldId}));
+  const rows = maskedFilled(items, ["email", "name"], id => controls[id], maskValue);
+  assert.deepEqual(rows, [
+    {label: "メール", maskedValue: maskValue("email", controls.email.value)},
+    {label: "氏名", maskedValue: maskValue("name", controls.name.value)},
+  ]);
+  for (const control of Object.values(controls)) assert.ok(!JSON.stringify(rows).includes(control.value));
+});
+
+test("required extraction handles radio groups, consent, survey, select and birthdays without values", () => {
+  const {missingRequired} = require("../content/overlay.js");
+  const controls = [
+    reviewControl({label: "クイズ", type: "radio", name: "quiz", value: "SECRET-OPTION"}),
+    reviewControl({type: "radio", name: "quiz", required: false}),
+    reviewControl({label: "同意", type: "checkbox", value: "SECRET-CONSENT"}),
+    reviewControl({label: "アンケート"}),
+    reviewControl({label: "メルマガ", type: "select-one"}),
+    reviewControl({label: "生年月日", type: "date"}),
+    reviewControl({required: false}), reviewControl({value: "FILLED-SENTINEL"}),
+    reviewControl({type: "hidden"}), reviewControl({disabled: true}), reviewControl({readOnly: true}),
+  ];
+  const missing = missingRequired({elements: controls});
+  assert.deepEqual(missing.map(row => row.label), ["クイズ", "同意", "アンケート", "メルマガ", "生年月日"]);
+  assert.equal(missing[0].elements.length, 2);
+  assert.ok(missing.every(row => Object.keys(row).sort().join() === "elements,label"));
+  controls[1].checked = true;
+  controls[2].checked = true;
+  assert.deepEqual(missingRequired({elements: controls}).map(row => row.label), ["アンケート", "メルマガ", "生年月日"]);
+  controls[1].name = "other-quiz";
+  assert.equal(missingRequired({elements: controls})[0].label, "クイズ");
+});
+
+test("highlight cleanup restores exact absent, empty and important inline styles and never values", () => {
+  const {createHighlights} = require("../content/overlay.js");
+  const controls = [null, "", "color:red;outline:1px dotted blue!important"].map(style =>
+    reviewControl({style, value: "UNCHANGED-SENTINEL"}));
+  const originals = controls.map(control => control.getAttribute("style"));
+  const entries = [{elements: controls}];
+  const highlights = createHighlights();
+  highlights.apply(entries);
+  highlights.apply(entries);
+  for (const control of controls) assert.ok(control.getAttribute("style").includes("3px solid #c77600"));
+  highlights.clear();
+  highlights.clear();
+  assert.deepEqual(controls.map(control => control.getAttribute("style")), originals);
+  assert.ok(controls.every(control => control.value === "UNCHANGED-SENTINEL"));
+});
+
+test("terms list excludes script URLs and query credentials and opens nothing", () => {
+  const {termsLinks} = require("../content/overlay.js");
+  const links = [
+    ["規約", "/terms"], ["応募要項", "#requirements"], ["プライバシー", "javascript:alert(1)"],
+    ["注意事項", "/terms?token=SECRET"], ["通常リンク", "/other"],
+  ].map(([label, href]) => ({...reviewControl({label}), cloneNode: () =>
+    ({textContent: label, querySelectorAll: () => []}), getAttribute: () => href}));
+  assert.deepEqual(termsLinks({baseURI: "http://127.0.0.1/form", querySelectorAll: () => links}), [
+    {label: "規約", href: "http://127.0.0.1/terms"},
+    {label: "応募要項", href: "http://127.0.0.1/form#requirements"},
+    {label: "注意事項", href: null},
+  ]);
+});
+
+test("highlight cleanup also removes Chromium's lazily serialized empty style attribute", () => {
+  const {createHighlights} = require("../content/overlay.js");
+  const element = reviewControl();
+  const remove = element.removeAttribute;
+  let pending = true;
+  element.removeAttribute = key => {
+    if (pending) {element.setAttribute(key, ""); pending = false;}
+    else remove(key);
+  };
+  const highlights = createHighlights();
+  highlights.apply([{elements: [element]}]);
+  highlights.clear();
+  assert.equal(element.getAttribute("style"), null);
+});
+
 test("overlay capability keys include only approved fillable mappings", () => {
   const fs = require("node:fs");
   const vm = require("node:vm");

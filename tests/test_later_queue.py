@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import socket
 
 from fastapi.testclient import TestClient
 
@@ -124,6 +125,12 @@ def test_later_queue_status_transitions_and_entry_sync(tmp_path: Path, monkeypat
 
 
 def test_later_queue_cli_commands_round_trip(tmp_path: Path, monkeypatch, capsys):
+    # Page metadata below is fictional; DNS must be a fixture too, so this
+    # unit test keeps the SSRF check without resolving an Internet hostname.
+    def fixture_dns(host, *_args, **_kwargs):
+        assert host == "example.com"
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.0.9", 0))]
+    monkeypatch.setattr(socket, "getaddrinfo", fixture_dns)
     queue_path = tmp_path / "later_apply_queue.jsonl"
     history_path = tmp_path / "entry_history.jsonl"
     csv_path = tmp_path / "entry_history.csv"

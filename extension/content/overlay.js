@@ -1,5 +1,108 @@
+(function initializePreSubmitReview(root) {
+  "use strict";
+
+  function staticText(element) {
+    if (!element) return "";
+    const copy = element.cloneNode(true);
+    for (const control of copy.querySelectorAll("input,select,textarea,button,[contenteditable],script,style")) {
+      control.remove();
+    }
+    return String(copy.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function labelFor(element) {
+    return Array.from(element.labels || []).map(staticText).filter(Boolean).join(" / ") ||
+      element.getAttribute("aria-label") || staticText(element.closest?.("label")) || "入力欄（ラベルなし）";
+  }
+
+  function missingRequired(scope) {
+    const controls = Array.from(scope.elements || scope.querySelectorAll("input,select,textarea"));
+    const usable = controls.filter(element =>
+      !element.disabled && !element.matches?.(":disabled") && !element.readOnly &&
+      !["hidden", "submit", "button", "reset", "image"].includes(element.type));
+    const result = [];
+    const seen = new Set();
+    for (const element of usable) {
+      if (!element.required && element.getAttribute("aria-required") !== "true") continue;
+      if (seen.has(element)) continue;
+      let elements = [element];
+      let empty;
+      if (element.type === "radio") {
+        elements = usable.filter(other => other.type === "radio" &&
+          (element.name ? other.name === element.name && other.form === element.form : other === element));
+        elements.forEach(other => seen.add(other));
+        empty = !elements.some(other => other.checked);
+      } else if (element.type === "checkbox") {
+        empty = !element.checked;
+      } else {
+        empty = !String(element.value || "").trim();
+      }
+      if (empty) result.push({
+        label: (element.type === "radio" && staticText(element.closest?.("fieldset")?.querySelector("legend"))) || labelFor(element),
+        elements,
+      });
+    }
+    return result;
+  }
+
+  function maskedFilled(items, fieldIds, resolveElement, maskValue) {
+    const ids = new Set(fieldIds || []);
+    return (items || []).filter(item => ids.has(item.fieldId)).flatMap(item => {
+      const element = resolveElement(item.fieldId);
+      if (!element) return [];
+      return [{label: labelFor(element), maskedValue: maskValue(item.profileKey || item.fieldType, element.value)}];
+    });
+  }
+
+  function termsLinks(documentRoot) {
+    return Array.from(documentRoot.querySelectorAll("a[href]")).flatMap(link => {
+      const label = staticText(link);
+      if (!/規約|応募要項|注意事項|プライバシー|privacy|terms/i.test(label)) return [];
+      try {
+        const url = new URL(link.getAttribute("href"), documentRoot.baseURI);
+        // Never copy query/fragment credentials or script/navigation handlers.
+        if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return [];
+        if (url.search) return [{label, href: null}];
+        return [{label, href: url.href}];
+      } catch (_error) { return []; }
+    });
+  }
+
+  function createHighlights() {
+    const originals = new Map();
+    return {
+      apply(entries) {
+        for (const {elements} of entries) for (const element of elements) {
+          if (!originals.has(element)) originals.set(element, element.getAttribute("style"));
+          element.style.setProperty("outline", "3px solid #c77600", "important");
+          element.style.setProperty("outline-offset", "3px", "important");
+        }
+      },
+      clear() {
+        for (const [element, original] of originals) {
+          // Clear the CSS declaration as well, before restoring attribute absence.
+          element.style.cssText = original || "";
+          if (original === null) {
+            element.removeAttribute("style");
+            // Chromium can lazily serialize the cleared CSSOM as style="".
+            if (element.getAttribute("style") !== null) element.removeAttribute("style");
+          }
+          else element.setAttribute("style", original);
+        }
+        originals.clear();
+      },
+    };
+  }
+
+  const api = Object.freeze({missingRequired, maskedFilled, termsLinks, createHighlights});
+  root.KenshoExtension = root.KenshoExtension || {};
+  root.KenshoExtension.PreSubmitReview = api;
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+})(typeof globalThis !== "undefined" ? globalThis : this);
+
 (function initializeOverlay(root) {
   "use strict";
+  if (typeof document === "undefined") return;
 
   const INSTANCE_EVENT = "kensho-extension-instance-hello";
   const extensionId = String(root.chrome?.runtime?.id || "extension-id-unavailable");
@@ -84,11 +187,14 @@
       .mapping-actions{display:flex;gap:5px;align-items:center;margin-top:5px}
       .mapping-actions select{min-height:28px;flex:1}
       .mapping-actions button{min-height:28px;font-size:12px;padding:2px 5px}
+      #pre-submit-review{max-height:260px;overflow:auto;margin:10px 0;border-top:1px solid #ddd}
+      #pre-submit-review h3{font-size:15px}#pre-submit-review a{color:#145b9a}
     </style>
     <section class="panel" aria-label="懸賞入力補助">
       <h2>懸賞入力補助</h2>
       <div id="status" class="status">未解析・送信ロック中</div>
       <div id="preview" class="preview"></div>
+      <div id="pre-submit-review" hidden></div>
       <div class="actions">
         <button type="button" id="analyze" class="primary"
           data-kensho-action="analyze" aria-label="懸賞フォームを解析">フォーム解析</button>
@@ -131,6 +237,62 @@
   let captchaPending = false;
   let workerEpoch = null;
   let guardState = null;
+  const reviewBox = shadow.getElementById("pre-submit-review");
+  const review = root.KenshoExtension.PreSubmitReview;
+  const highlights = review.createHighlights();
+
+  function clearPreSubmitReview() {
+    highlights.clear();
+    reviewBox.replaceChildren();
+    reviewBox.hidden = true;
+  }
+
+  function renderPreSubmitReview(filled, termsUncertain) {
+    clearPreSubmitReview();
+    const appendText = (tag, text) => {
+      const node = document.createElement(tag);
+      node.textContent = text;
+      reviewBox.append(node);
+      return node;
+    };
+    appendText("h3", "送信前確認");
+    appendText("p", "内容を確認し、送信ボタンはご自身で押してください");
+    appendText("h4", "入力した欄");
+    const resolve = root.KenshoExtension.FormDetector.resolveElement;
+    for (const item of review.maskedFilled(previewResult.items, filled.filledFieldIds, resolve,
+      root.KenshoExtension.Redaction.maskValue)) {
+      appendText("div", `${item.label}: ${item.maskedValue}`);
+    }
+    const firstFilled = (filled.filledFieldIds || []).map(resolve).find(Boolean);
+    const scope = firstFilled?.form || document;
+    const missing = review.missingRequired(scope);
+    appendText("h4", "人が埋める必要がある欄");
+    if (!missing.length) appendText("div", "未入力の必須欄は検出されませんでした。応募条件と任意欄も確認してください。");
+    for (const entry of missing) appendText("div", entry.label);
+    highlights.apply(missing);
+    if (missing.length) {
+      const scroll = appendText("button", "最初の未入力必須欄へ移動");
+      scroll.type = "button";
+      scroll.addEventListener("click", () => missing[0].elements[0].scrollIntoView({block: "center"}));
+    }
+    appendText("h4", "規約・応募要項");
+    if (termsUncertain) appendText("p", "規約に自動応募に関する記載あり・要確認").className = "warning";
+    const links = review.termsLinks(document);
+    for (const link of links) {
+      if (!link.href) {
+        appendText("div", `${link.label}（ページ上のリンクから確認してください）`);
+        continue;
+      }
+      const anchor = appendText("a", link.label);
+      anchor.href = link.href;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      reviewBox.append(document.createElement("br"));
+    }
+    if (!links.length) appendText("div", "該当リンク未検出。ページの規約と応募条件を確認してください。");
+    reviewBox.hidden = false;
+  }
+  root.addEventListener("pagehide", clearPreSubmitReview);
 
   function machineStatusFor(text, warning) {
     if (/入力済み/.test(text)) return "filled";
@@ -172,6 +334,7 @@
   }
 
   async function rollbackAndReport(filledCount) {
+    clearPreSubmitReview();
     if (!analysis) return {ok: false, result: {rollbackComplete: false, restoredCount: 0}};
     const required = await sendMessage({
       type: "REPORT_EXTENSION_PROGRESS",
@@ -657,6 +820,10 @@
         return;
       }
       setStatus(`入力済み（${filled.filledCount}項目）・人間確認待ち`);
+      // Only the normal session API supplies this boolean; pilot is unchanged.
+      if (typeof progress.terms_check_uncertain === "boolean") {
+        renderPreSubmitReview(filled, progress.terms_check_uncertain);
+      }
     } else if (filled.status === "HUMAN_MAPPING_REQUIRED") {
       setStatus("入力前確認が必要・欄対応を承認してください", true);
     } else if (filled.status.includes("ROLLBACK_REQUIRED")) {
@@ -701,6 +868,7 @@
   });
 
   shadow.getElementById("clear").addEventListener("click", async () => {
+    clearPreSubmitReview();
     if (root.KenshoExtension.FormFiller.hasRollbackSnapshot()) {
       const report = await rollbackAndReport(0);
       if (!report.ok || !report.result.rollbackComplete) {
@@ -737,6 +905,7 @@
   });
 
   shadow.getElementById("disable-origin").addEventListener("click", async () => {
+    clearPreSubmitReview();
     if (root.KenshoExtension.FormFiller.hasRollbackSnapshot()) {
       const report = await rollbackAndReport(0);
       if (!report.ok || !report.result.rollbackComplete) {

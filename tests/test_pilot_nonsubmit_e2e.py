@@ -202,6 +202,17 @@ def e2e(tmp_path, monkeypatch):
         return app
     monkeypatch.setattr(pilot, "create_app", observed_create_app)
 
+    real_click = stage._click
+    def pilot_click_without_normal_review(page, selector):
+        if selector == "#rollback":
+            panel = page.locator("#kensho-assistant-overlay-host").locator("#pre-submit-review")
+            assert panel.is_hidden()
+            assert panel.text_content() == ""
+            assert "terms_check_uncertain" not in session.load_assisted_session_state()
+            assert page.evaluate("() => Array.from(document.querySelectorAll('input,select,textarea')).filter(e => e.style.outline.includes('199, 118, 0')).length") == 0
+        return real_click(page, selector)
+    monkeypatch.setattr(stage, "_click", pilot_click_without_normal_review)
+
     repo = _make_clean_repo(tmp_path / "repo")
     api_port = _free_port()
     with _fixture_server() as (origin, fixture_server):

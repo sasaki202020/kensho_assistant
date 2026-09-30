@@ -2,9 +2,9 @@
 
 Updated: 2026-09-30 JST
 
-## Persistent form mappings (worktree `codex/persist-form-templates`)
+## 通常assisted session（worktree `codex/assist-integration`）
 
-Base commit: `684d24d`. 通常assisted sessionに値なしの永続テンプレートを追加した。SSOTは`data/form_templates.json`で、承認から180日以内かつ専用拡張version/build SHA-256一致のものだけを新しい一時プロファイルへseedする。拡張側コード・送信ガード・Phase 5A経路は変更しない。初回の人の欄対応承認と入力後検証合格が保存条件で、再利用時は既存パネル操作と厳格なbinding検証を通して入力する。内容衝突は上書きせず`conflict`をsessionへ記録する。失効CLIと安全条件は[runbook](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)と[security model](EXTENSION_SECURITY_MODEL.md)を参照。
+今回のbase commit: `a8e31b8`。前回（base `684d24d`）は通常assisted sessionに値なしの永続テンプレートを追加した。SSOTは`data/form_templates.json`で、承認から180日以内かつ専用拡張version/build SHA-256一致のものだけを新しい一時プロファイルへseedする。前回の変更では拡張側コード・送信ガード・Phase 5A経路を変更していない。初回の人の欄対応承認と入力後検証合格が保存条件で、再利用時は既存パネル操作と厳格なbinding検証を通して入力する。内容衝突は上書きせず`conflict`をsessionへ記録する。失効CLIと安全条件は[runbook](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)と[security model](EXTENSION_SECURITY_MODEL.md)を参照。
 
 新規ストアテスト、実Chromiumの新規プロファイル再利用・条件不一致・検証不合格テスト、pilotのストアAPI呼び出し禁止とSHA-256不変確認で回帰を検証する。実サイト検証は行わない。専用ビルドを更新したら全チェックを再実行し、承認を再取得する。
 
@@ -12,7 +12,11 @@ Base commit: `684d24d`. 通常assisted sessionに値なしの永続テンプレ�
 
 2026-09-30 パートA: `.js/.json/.html/.css/.md/.txt`のビルド出力とハッシュ入力をCRLF→LFへ正規化し、`extension/** text eol=lf`を指定した。このcommitで再計算した専用build SHA-256: `a0bda86a44479f14ac528417fabcbfcb4fefd7eb9778b37a86eefe73d3e8f880`。source再ビルド照合と起動時snapshot照合は同じ`build_hash()`を使用する。CRLF/LF一致、1文字差・バイナリ差の検出、バイナリ保持と既存build/verify系をローカル検証（`10 passed in 17.64s`）。実サイト承認・pilot fingerprintの更新を意味しない。
 
-2026-09-30の最終ローカル検証: 指定関連テスト`96 passed, 2 warnings in 235.17s (0:03:55)`、全Pythonテスト`773 passed, 2 warnings in 857.83s (0:14:17)`、Node`42 passed / 0 failed`、`WEB_SMOKE_TEST_OK`、preflight`READY_FOR_5_SITE_PILOT`、compileallとdiff check成功。警告2件はwebsocketsの既存DeprecationWarning。検証はloopback fixtureだけで、実サイト検証・Git pushは行っていない。入力値のUTF-8/UTF-16検査、再利用時の欄承認呼び出しゼロ、構造/版/build/期限の不一致、seed読み戻し失敗、検証不合格時の保存禁止、pilotのストアAPI呼び出しゼロ・SHA-256不変を確認した。
+2026-09-30 パートB: 通常sessionの入力後検証成功時だけ「送信前確認」を表示する。実際に入力した欄のラベルと既存マスク、未入力必須欄（ラジオ群・同意・アンケート・選択・生年月日を含む）のラベルと一時枠線、スクロール操作、規約リンクと候補の値なしbool警告を追加した。rollback/clearでstyle属性の有無と内容を完全復元する。ChromiumのCSSOMによる空style再生成もloopbackで再現して対処した。送信・同意ボタン、送信ガード、手動送信後の進行は変更しない。pilotへのAPI応答は従来どおりで、確認パネルと枠線の非表示を回帰試験で確認する。最新専用build SHA-256はこのcommitで再計算: `5c99b0c5312779370ca8d4ba51f49694f3af27e77a5ac2dd084c06e9ab4d4930`。旧buildに束縛された通常テンプレートは再承認が必要。実サイトや本人プロフィールでの確認は行わない。
+
+今回の最終ローカル検証: 指定関連テスト`88 passed, 2 warnings in 243.71s (0:04:03)`、全Pythonテスト`820 passed, 2 warnings in 798.29s (0:13:18)`、Node`47 passed / 0 failed`、`WEB_SMOKE_TEST_OK`、preflight`READY_FOR_5_SITE_PILOT`、compileallとdiff check成功。警告2件はwebsocketsの既存DeprecationWarning。非loopback DNSと通信、本人プロフィール・`.env`・実ブラウザプロフィールの読取りを一時検証ガードで遮断し、loopback fixtureだけを利用した。Web smokeの一時ガード挿入は元のバイト列へ復元した。初回の全テストは既存キューCLI単体テストの未mock DNSにより`1 failed, 819 passed`となったため、同テストのDNSもfixture化（既存assert変更なし）し、全件を再実行して合格した。一時検証ファイルは成果物に含めない。実サイト検証・Git pushは行っていない。
+
+前回のローカル検証（参考記録）: 指定関連テスト`96 passed, 2 warnings in 235.17s (0:03:55)`、全Pythonテスト`773 passed, 2 warnings in 857.83s (0:14:17)`、Node`42 passed / 0 failed`。前回は入力値のUTF-8/UTF-16検査、再利用時の欄承認呼び出しゼロ、構造/版/build/期限の不一致、seed読み戻し失敗、検証不合格時の保存禁止、pilotのストアAPI呼び出しゼロ・SHA-256不変を確認した。
 
 ## Source of truth
 
