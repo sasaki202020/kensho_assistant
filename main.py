@@ -1995,9 +1995,32 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_form_templates(args: argparse.Namespace) -> int:
+    from .app import form_template_store
+    if args.template_action == "list":
+        summaries = form_template_store.list_summaries()
+        print(json.dumps({"count": len(summaries), "templates": summaries}, ensure_ascii=False))
+    else:
+        if args.all and args.pathname:
+            raise ValueError("--all cannot be combined with --pathname")
+        print(json.dumps({"revoked_count": form_template_store.revoke(
+            origin=None if args.all else args.origin, pathname=args.pathname)}, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="main.py", description="Kensho entry assistant")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    templates = subparsers.add_parser("form-templates", help="list or revoke value-free form mappings")
+    template_sub = templates.add_subparsers(dest="template_action", required=True)
+    template_list = template_sub.add_parser("list")
+    template_list.set_defaults(func=cmd_form_templates)
+    template_revoke = template_sub.add_parser("revoke")
+    selection = template_revoke.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--origin")
+    selection.add_argument("--all", action="store_true")
+    template_revoke.add_argument("--pathname")
+    template_revoke.set_defaults(func=cmd_form_templates)
 
     collect = subparsers.add_parser("collect", help="collect campaigns from knshow")
     collect.add_argument("--limit", type=int, default=20, help="number of campaigns to collect")

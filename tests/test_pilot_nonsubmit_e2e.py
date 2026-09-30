@@ -29,6 +29,7 @@ import pytest
 
 from kensho_assistant.app import assisted_session as session
 from kensho_assistant.app import paths
+from kensho_assistant.app import form_template_store
 from kensho_assistant.app import profile_manager
 from kensho_assistant.app.extension_bridge import CapabilityBridge
 from kensho_assistant.app.pilot_network_monitor import SW_NETWORK_EVENTS_ENV
@@ -136,6 +137,12 @@ def e2e(tmp_path, monkeypatch):
     (data / "entries" / "entry_history.jsonl").write_text('{"id":"normal-entry"}\n', encoding="utf-8")
     normal_state = data / "assisted_session" / "session.json"
     normal_state.write_text(json.dumps({"session_id": "normal", "workflow_state": "IDLE"}), encoding="utf-8")
+    template_path = data / "form_templates.json"
+    template_path.write_text("[]\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "FORM_TEMPLATES_JSON", template_path)
+    template_calls: list[str] = []
+    for name in ("load_templates", "get_templates_for_origin", "save_template", "list_summaries", "revoke"):
+        monkeypatch.setattr(form_template_store, name, _forbidden("form_template_store." + name, template_calls))
     pilot_dir = data / "pilot"
     (pilot_dir / "runs").mkdir(parents=True)
 
@@ -270,12 +277,13 @@ def e2e(tmp_path, monkeypatch):
             "tmp": tmp_path, "data": data, "pilot_dir": pilot_dir, "run": run, "asked": asked,
             "nonces": nonces, "profiles": profiles, "api_paths": api_paths,
             "loader_calls": loader_calls, "queue_reads": queue_reads, "writes": writes,
-            "normal": [queue, data / "entries" / "entry_history.jsonl", normal_state],
+            "normal": [queue, data / "entries" / "entry_history.jsonl", normal_state, template_path],
             "project": project, "repo": repo, "config": config, "write_manifest": write_manifest,
             "api_port": api_port,
             "capability_keys": capability_keys,
             "origin": origin, "fixture_server": fixture_server,
         }
+        assert template_calls == []
 
 
 def _evidence(result) -> dict:

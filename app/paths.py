@@ -8,6 +8,7 @@ from typing import Mapping
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = PACKAGE_ROOT / "config"
 DATA_DIR = PACKAGE_ROOT / "data"
+FORM_TEMPLATES_JSON = DATA_DIR / "form_templates.json"
 LATER_QUEUE_DIR = DATA_DIR / "queue"
 AGENT_STATUS_DIR = DATA_DIR / "agent_status"
 AGENT_ORG_JSON = AGENT_STATUS_DIR / "agent_org.json"

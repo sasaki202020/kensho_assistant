@@ -27,6 +27,9 @@ from .browser_manager import (
     dedicated_extension_page_state,
     open_url_in_chrome,
     provision_extension_control_token,
+    seed_form_templates,
+    prepare_seeded_mapping,
+    persist_verified_form_template,
     validate_dedicated_target_url,
 )
 from .entry_url_resolver import target_url_for_campaign
@@ -874,8 +877,11 @@ def _normalize_state(state: Mapping[str, object] | None = None) -> dict[str, obj
             # The extension fingerprint is an eight-digit FNV hash. Generic
             # phone redaction can corrupt hashes beginning with digits and
             # make the capability binding fail after a valid mapping.
-            if (key == "form_fingerprint" and isinstance(value, str)
-                    and len(value) == 8 and all(ch in "0123456789abcdef" for ch in value)):
+            # Normal runner UUIDs are binding metadata, not form values. Keep
+            # their exact shape; the pilot's existing redaction stays unchanged.
+            if (isinstance(value, str) and all(ch in "0123456789abcdef" for ch in value)
+                    and ((key == "form_fingerprint" and len(value) == 8)
+                        or (_PILOT_STORAGE is None and key == "session_id" and len(value) == 32))):
                 payload[key] = value
             else:
                 payload[key] = _redact_value(value)
@@ -1741,6 +1747,7 @@ def run_assisted_application_session(
                     break
 
                 try:
+                    seeded_templates = seed_form_templates(browser_context, target_url)
                     page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
                     extension_state = dedicated_extension_page_state(page, require_ready=True)
                     session_state["extension_id"] = str(
@@ -1915,15 +1922,21 @@ def run_assisted_application_session(
                         submitted_count_auto=0,
                     )
                     save_assisted_session_state(session_state)
-                    decision, snapshot = _wait_for_user_decision(
-                        page=page,
-                        baseline_url=str(session_state.get("current_url", "") or ""),
-                        campaign=campaign,
-                        session_id=session_id,
-                        index=index,
-                        total=len(candidate_ids),
-                        poll_interval_sec=poll_interval_sec,
-                    )
+                    reused_mapping = prepare_seeded_mapping(browser_context, page,
+                        str(session_state.get("extension_id", "") or ""),
+                        str(session_state.get("current_url", "") or ""), seeded_templates)
+                    if reused_mapping:
+                        decision, snapshot = "mapping_confirmed", {}
+                    else:
+                        decision, snapshot = _wait_for_user_decision(
+                            page=page,
+                            baseline_url=str(session_state.get("current_url", "") or ""),
+                            campaign=campaign,
+                            session_id=session_id,
+                            index=index,
+                            total=len(candidate_ids),
+                            poll_interval_sec=poll_interval_sec,
+                        )
                     if decision == "mapping_confirmed":
                         session_state = _record_handled_action(
                             session_state,
@@ -1963,6 +1976,8 @@ def run_assisted_application_session(
                                 binding=mapping_binding,
                                 expected_url=str(session_state.get("current_url", "") or ""),
                             )
+                            if reused_mapping:
+                                page.locator("#kensho-assistant-overlay-host").locator("#fill").click(timeout=2000)
                             result, extension_decision, extension_snapshot = (
                                 _wait_for_extension_verified_result(
                                     campaign=campaign,
@@ -1978,6 +1993,9 @@ def run_assisted_application_session(
                             else:
                                 continue_after_extension = True
                                 session_state = load_assisted_session_state()
+                                session_state["form_template_persist_status"] = persist_verified_form_template(
+                                    browser_context, page, session_state,
+                                )
                             record = result.get("record", {}) if isinstance(result, dict) else {}
                             if continue_after_extension:
                                 session_state = _record_state_from_result(

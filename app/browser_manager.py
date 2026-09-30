@@ -14,6 +14,137 @@ from .pilot_network_monitor import live_extension_worker, evaluate_worker
 
 
 _OWNED_RUNTIME_PROFILES: dict[int, Path] = {}
+_DEDICATED_BUILDS: dict[int, dict[str, object]] = {}
+
+
+def seed_form_templates(context, target_url: str) -> list[dict[str, object]]:
+    """Normal-session only: seed verified value-free metadata before navigation."""
+    from . import form_template_store as store
+    store._guard()
+    build = _DEDICATED_BUILDS.get(id(context))
+    if not build:
+        return []
+    parsed = urlsplit(target_url)
+    try:
+        templates = store.get_templates_for_origin(
+            f"{parsed.scheme}://{parsed.netloc}", extension_version=build["version"],
+            build_sha256=build["build_sha256"],
+        )
+    except (OSError, ValueError):
+        return []
+    if not templates:
+        return []
+    worker = live_extension_worker(context, "chrome-extension://", timeout=2.0)
+    if worker is None:
+        return []
+    # Only metadata reaches this evaluation. No storage.session/profile reads.
+    projected = [{k: v for k, v in item.items() if k not in {"savedAt", "extension_build_sha256"}}
+        for item in templates]
+    try:
+        verified = evaluate_worker(worker, """async templates => {
+          const values = {};
+          for (const item of templates) {
+            const key = templateStorageKey(item.origin + item.pathname);
+            if (!key || item.extensionVersion !== chrome.runtime.getManifest().version)
+              throw new Error('seed_invalid');
+            values[key] = templateApi().sanitizeTemplate(item);
+          }
+          const keys = Object.keys(values);
+          try {
+            await chrome.storage.local.set(values);
+            const readback = await chrome.storage.local.get(keys);
+            if (keys.some(key => JSON.stringify(templateApi().sanitizeTemplate(readback[key])) !== JSON.stringify(values[key])))
+              throw new Error('seed_readback_failed');
+            return true;
+          } catch (_) { await chrome.storage.local.remove(keys); return false; }
+        }""", projected, timeout=2.0)
+        if verified is True:
+            return templates
+    except TimeoutError:
+        # Cancellation of the Python wait does not cancel pending JS writes.
+        # Close this context without navigating; readback cannot prove quiescence.
+        raise RuntimeError("form_template_seed_cleanup_unverified") from None
+    except Exception:
+        # Completed failures can fall back only after removal and readback.
+        pass
+    try:
+        cleared = evaluate_worker(worker, """async templates => {
+          const keys = templates.map(t => templateStorageKey(t.origin + t.pathname));
+          await chrome.storage.local.remove(keys);
+          const readback = await chrome.storage.local.get(keys);
+          return keys.every(key => !readback[key]);
+        }""", projected, timeout=2.0)
+        if cleared is True:
+            return []
+    except Exception:
+        pass
+    raise RuntimeError("form_template_seed_cleanup_unverified")
+
+
+def prepare_seeded_mapping(context, page, extension_id: str, expected_url: str, templates) -> bool:
+    """Use only the existing panel; the strict mapping check remains mandatory."""
+    from . import form_template_store as store
+    store._guard()
+    parsed = urlsplit(expected_url)
+    if not any(item["pathname"] == parsed.path for item in templates):
+        return False
+    try:
+        host = page.locator("#kensho-assistant-overlay-host")
+        host.locator("#analyze").click(timeout=2000)
+        page.wait_for_function("() => ['analyzed', 'blocked'].includes(document.querySelector('[data-kensho-extension-root]')?.dataset.kenshoStatus)", timeout=5000)
+        if host.get_attribute("data-kensho-status") != "analyzed":
+            return False
+        host.locator("#preview-button").click(timeout=2000)
+        page.wait_for_function("() => document.querySelector('[data-kensho-extension-root]')?.dataset.kenshoStatus === 'previewed'", timeout=5000)
+        binding = confirmed_extension_mapping(context, page, extension_id, expected_url)
+        return any(item["pathname"] == parsed.path and item["fingerprint"] == binding["fingerprint"] for item in templates)
+    except Exception:
+        return False
+
+
+def persist_verified_form_template(context, page, state) -> str:
+    """Only a real successful progress event may promote a human confirmation."""
+    from . import form_template_store as store
+    store._guard()
+    build = _DEDICATED_BUILDS.get(id(context))
+    if not build:
+        return "unavailable"
+    if (state.get("workflow_state") != "HUMAN_ACTION_REQUIRED"
+        or state.get("current_step") != "post_fill_verified"
+        or state.get("last_action") != "POST_FILL_VERIFIED"
+        or state.get("submitted_count_auto") != 0
+        or state.get("unrelated_changed_count") != 0
+        or not state.get("filled_field_count")):
+        return "not_verified"
+    expected_url = state.get("current_url", "")
+    if page.url != expected_url:
+        return "page_changed"
+    try:
+        extension_state = dedicated_extension_page_state(page, require_ready=True)
+        if (extension_state.get("submitted_count_auto") != 0
+            or extension_state.get("auto_submit_detected") != 0
+            or extension_state.get("extension_id") != state.get("extension_id")):
+            return "not_verified"
+        worker = live_extension_worker(context,
+            f"chrome-extension://{state['extension_id']}/service-worker.js", timeout=2.0)
+        if worker is None:
+            return "unavailable"
+        template = evaluate_worker(worker, """async url => {
+          const key = templateStorageKey(url);
+          const value = (await chrome.storage.local.get(key))[key];
+          return value ? templateApi().sanitizeTemplate(value) : null;
+        }""", expected_url, timeout=2.0)
+        template = store.from_extension(template)
+        parsed = urlsplit(expected_url)
+        if (template["origin"] != f"{parsed.scheme}://{parsed.netloc}"
+            or template["pathname"] != parsed.path
+            or template["fingerprint"] != state.get("form_fingerprint")
+            or template["extensionVersion"] != build["version"]):
+            return "not_verified"
+        return store.save_template(template, build_sha256=build["build_sha256"])
+    except Exception:
+        # Exception text can contain page data. Return a fixed metadata status.
+        return "unavailable"
 
 
 def confirmed_extension_mapping(context, page, extension_id: str, expected_url: str) -> dict[str, object]:
@@ -256,6 +387,7 @@ def launch_dedicated_kensho_context(
         shutil.rmtree(profile_dir, ignore_errors=True)
         raise
     _OWNED_RUNTIME_PROFILES[id(context)] = profile_dir
+    _DEDICATED_BUILDS[id(context)] = verified
     return context, "chromium", verified
 
 
@@ -368,6 +500,7 @@ def open_url_in_chrome(
 
 
 def close_browser_safely(context) -> None:
+    _DEDICATED_BUILDS.pop(id(context), None)
     profile_dir = _OWNED_RUNTIME_PROFILES.pop(id(context), None)
     try:
         context.close()

@@ -53,6 +53,10 @@ control tokenとPII capabilityをtab IDだけでなくdocument IDにも束縛す
 
 ## フォーム対応の安全境界
 
+通常assisted sessionは、人の欄対応承認後、入力対象一致・無関係欄変更ゼロ・送信なしの検証が合格したテンプレートだけを`data/form_templates.json`へ原子的に保存する。欄情報は構造path、approvedProfileKey、confidenceBand、disabled、readOnlyだけで、入力値・ラベル・selector候補・fieldIdを保存しない。未知キー、未承認origin、不正な型・長さ・日時・pathを拒否する。
+
+承認日時から180日以内、現在の専用拡張versionとbuild SHA-256一致のものだけを候補遷移前にworkerへseedし、読み戻し一致を確認する。同じorigin/pathnameの内容衝突は上書きしない（sessionに`conflict`のみ記録）。既存の厳格なmapping検証・capability binding・入力後検証・送信ガードは維持する。一致した場合だけ既存パネルの解析・確認・入力を進める。seed失敗は消去確認後に人の確認へ戻り、消去を確認できなければ安全停止する。pilotではストアAPIが`PilotIsolationError`となり、Phase 5Aはストアを使わない。
+
 初回フォームは、候補の信頼度にかかわらず、欄ごとの人間確認が完了するまで
 実PIIを入力しない。信頼度0.95以上は確認画面へ候補として表示し、0.75以上
 0.95未満は人間が割り当てを承認した場合だけ入力し、0.75未満は入力しない。

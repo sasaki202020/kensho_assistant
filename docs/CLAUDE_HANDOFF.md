@@ -2,6 +2,16 @@
 
 Updated: 2026-09-30 JST
 
+## Persistent form mappings (worktree `codex/persist-form-templates`)
+
+Base commit: `684d24d`. 通常assisted sessionに値なしの永続テンプレートを追加した。SSOTは`data/form_templates.json`で、承認から180日以内かつ専用拡張version/build SHA-256一致のものだけを新しい一時プロファイルへseedする。拡張側コード・送信ガード・Phase 5A経路は変更しない。初回の人の欄対応承認と入力後検証合格が保存条件で、再利用時は既存パネル操作と厳格なbinding検証を通して入力する。内容衝突は上書きせず`conflict`をsessionへ記録する。失効CLIと安全条件は[runbook](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)と[security model](EXTENSION_SECURITY_MODEL.md)を参照。
+
+新規ストアテスト、実Chromiumの新規プロファイル再利用・条件不一致・検証不合格テスト、pilotのストアAPI呼び出し禁止とSHA-256不変確認で回帰を検証する。実サイト検証は行わない。専用ビルドを更新したら全チェックを再実行し、承認を再取得する。
+
+統合試験で、通常session UUID内の7桁数字が既存の郵便番号マスクにより変形し、bridge bindingが拒否される不具合を再現した。通常sessionの32桁hex UUIDだけを保持し、pilot有効時の処理は従来どおりとする。専用build実測値は`5204db8360fd649ad6f96ef237f1220fa71579974de43515526e581b0f87ba2e`で、base commitの追跡済みextension/configからの再ビルドも同じ値だった（今回extensionコードは変更していない）。
+
+2026-09-30の最終ローカル検証: 指定関連テスト`96 passed, 2 warnings in 235.17s (0:03:55)`、全Pythonテスト`773 passed, 2 warnings in 857.83s (0:14:17)`、Node`42 passed / 0 failed`、`WEB_SMOKE_TEST_OK`、preflight`READY_FOR_5_SITE_PILOT`、compileallとdiff check成功。警告2件はwebsocketsの既存DeprecationWarning。検証はloopback fixtureだけで、実サイト検証・Git pushは行っていない。入力値のUTF-8/UTF-16検査、再利用時の欄承認呼び出しゼロ、構造/版/build/期限の不一致、seed読み戻し失敗、検証不合格時の保存禁止、pilotのストアAPI呼び出しゼロ・SHA-256不変を確認した。
+
 ## Source of truth
 
 Read [AGENTS.md](../AGENTS.md), [GOAL_NON_SUBMIT_PILOT.md](GOAL_NON_SUBMIT_PILOT.md), and [EXTENSION_REAL_SITE_TEST_RUNBOOK.md](EXTENSION_REAL_SITE_TEST_RUNBOOK.md) before changing or running anything. The older `CODEX_HANDOFF.md` contains obsolete test counts and is not the current status record.

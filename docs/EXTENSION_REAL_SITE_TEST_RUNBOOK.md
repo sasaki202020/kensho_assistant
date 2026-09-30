@@ -10,6 +10,10 @@
 
 ## 事前条件
 
+通常`prepare-session`では、一度人が欄対応を承認し入力後検証が合格すると、値なしのテンプレートを`data/form_templates.json`へ保存する。180日以内かつorigin/pathname/fingerprint/拡張version/build一致の場合だけ、次の一時Chromiumで既存パネルから入力まで進む。条件不一致は再確認が必要。CAPTCHA、ログイン、規約同意、最終送信は引き続き本人が行う。pilotには適用しない。
+
+保存済み件数・origin・pathname・欄数・承認日時の確認は`py -3.13 -m kensho_assistant.main form-templates list`。再承認や衝突解消は`py -3.13 -m kensho_assistant.main form-templates revoke --origin <origin> [--pathname <path>]`、全失効は`revoke --all`（明示フラグ必須、確認プロンプトなし）。値と欄の構造pathは一覧に出ない。版・buildが変わった場合も旧承認を自動更新しない。
+
 1. ブランチとcommit SHAを記録する。
 2. 全テスト、Webスモーク、P1 preflightが成功していることを確認する。
 3. `submitted_count_auto=0`を確認する。
