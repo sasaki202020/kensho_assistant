@@ -53,14 +53,12 @@ PILOT_WEB_PORT = 8787  # hardcoded in the Chrome extension service worker
 MANIFEST_REQUIRED_KEYS = frozenset(
     {
         "candidate_id",
-        "url",
-        "origin",
         "campaign_period_start",
         "campaign_period_end",
         "human_verified_at",
     }
 )
-MANIFEST_OPTIONAL_KEYS = frozenset({"expected_fingerprint"})
+MANIFEST_OPTIONAL_KEYS = frozenset({"expected_fingerprint", "url", "origin", "knshow_link"})
 _CANDIDATE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _NONCE_ALPHABET = string.ascii_lowercase + string.digits
 NONCE_LENGTH = 16
@@ -111,6 +109,7 @@ class PilotNonsubmitManifest:
     campaign_period_end: date
     human_verified_at: str
     expected_fingerprint: str = ""
+    knshow_link: str = ""
 
 
 @dataclass
@@ -164,6 +163,7 @@ def validate_pilot_nonsubmit_manifest(
     today: date | None = None,
     approved_origins_path: Path | None = None,
     allow_loopback_http: bool = False,
+    knshow_url_classifier_for_tests: Callable[[str], bool] | None = None,
 ) -> PilotNonsubmitManifest:
     """Strictly validate a single-candidate manifest. Error messages carry no values.
 
@@ -186,7 +186,14 @@ def validate_pilot_nonsubmit_manifest(
     if not isinstance(candidate_id, str) or not _CANDIDATE_ID_RE.fullmatch(candidate_id):
         raise PilotManifestError("manifest_invalid_candidate_id")
 
-    url = data["url"]
+    if ("url" in keys) == ("knshow_link" in keys):
+        raise PilotManifestError("manifest_target_exclusive")
+    human_navigation = "knshow_link" in keys
+    if human_navigation and "origin" in keys:
+        raise PilotManifestError("manifest_origin_with_knshow_link")
+    if not human_navigation and "origin" not in keys:
+        raise PilotManifestError("manifest_missing_keys:origin")
+    url = data["knshow_link"] if human_navigation else data["url"]
     if not isinstance(url, str) or "?" in url or "#" in url:
         raise PilotManifestError("manifest_invalid_url")
     try:
@@ -209,11 +216,24 @@ def validate_pilot_nonsubmit_manifest(
         or any(ch.isspace() for ch in url)
     ):
         raise PilotManifestError("manifest_invalid_url")
-    origin = data["origin"]
-    if not isinstance(origin, str) or origin != _origin_of(url):
-        raise PilotManifestError("manifest_origin_mismatch")
-    if not is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)[0]:
-        raise PilotManifestError("manifest_origin_not_approved")
+    if human_navigation:
+        fixture_source = (loopback_fixture and knshow_url_classifier_for_tests is not None
+                          and knshow_url_classifier_for_tests(url))
+        if (not fixture_source and (parsed.hostname != "www.knshow.com" or parsed.port not in {None, 443})
+                or not re.fullmatch(r"/(?:rd|detail)/[^/?#]+(?:/[^/?#]+)*/?", parsed.path)
+                or parsed.username is not None or parsed.password is not None
+                or any(segment in {".", ".."} for segment in parsed.path.split("/"))
+                or "\\" in url or any(ord(ch) < 32 for ch in url)):
+            raise PilotManifestError("manifest_invalid_knshow_link")
+        origin = ""
+        knshow_link, url = url, ""
+    else:
+        knshow_link = ""
+        origin = data["origin"]
+        if not isinstance(origin, str) or origin != _origin_of(url):
+            raise PilotManifestError("manifest_origin_mismatch")
+        if not is_origin_allowed(origin, allow_loopback_http=allow_loopback_http)[0]:
+            raise PilotManifestError("manifest_origin_not_approved")
 
     start = _parse_date(data["campaign_period_start"], "campaign_period_start")
     end = _parse_date(data["campaign_period_end"], "campaign_period_end")
@@ -243,6 +263,7 @@ def validate_pilot_nonsubmit_manifest(
         campaign_period_end=end,
         human_verified_at=verified,
         expected_fingerprint=str(fingerprint or "").strip(),
+        knshow_link=knshow_link,
     )
 
 
@@ -252,6 +273,7 @@ def load_pilot_nonsubmit_manifest(
     today: date | None = None,
     approved_origins_path: Path | None = None,
     allow_loopback_http: bool = False,
+    knshow_url_classifier_for_tests: Callable[[str], bool] | None = None,
 ) -> PilotNonsubmitManifest:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -262,6 +284,7 @@ def load_pilot_nonsubmit_manifest(
         today=today,
         approved_origins_path=approved_origins_path,
         allow_loopback_http=allow_loopback_http,
+        knshow_url_classifier_for_tests=knshow_url_classifier_for_tests,
     )
 
 
@@ -386,6 +409,8 @@ class Phase5AConfig:
     quiet_seconds: float = 2.0
     browser_args: tuple[str, ...] = ()
     allow_loopback_http_for_tests: bool = False
+    knshow_url_classifier_for_tests: Callable[[str], bool] | None = None
+    human_navigation_timeout_for_tests: float | None = None
     output: Callable[..., None] | None = None
 
 
@@ -561,6 +586,8 @@ def run_pilot_nonsubmit(
         today=today,
         approved_origins_path=approved_origins_path,
         allow_loopback_http=bool(phase5a is not None and phase5a.allow_loopback_http_for_tests),
+        knshow_url_classifier_for_tests=(phase5a.knshow_url_classifier_for_tests
+            if phase5a is not None and phase5a.allow_loopback_http_for_tests else None),
     )
     pre: dict[str, object] = {}
     normal_paths: list[Path] = []
@@ -667,17 +694,19 @@ def _finalize_phase5a(
     steps = {"preconditions": "PASS", **dict(stage_evidence.get("steps", {}) or {})}
     steps["normal_store_hashes"] = "PASS" if hashes["identical"] else "FAIL"
     steps["invariants"] = "PASS" if all(invariants.values()) else "FAIL"
-    host = urllib.parse.urlsplit(manifest.url).hostname or ""
+    target_url = str(stage_evidence.get("url", manifest.url))
+    target_origin = str(stage_evidence.get("origin", manifest.origin))
+    host = urllib.parse.urlsplit(target_url).hostname or ""
     evidence: dict[str, object] = {
         "schema_version": 1,
         "kind": "pilot_nonsubmit_phase5a",
         "run_name": run_name,
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "target_kind": "loopback_fixture" if host == "127.0.0.1" else "real_site",
+        "target_kind": "loopback_fixture" if host in {"127.0.0.1", "localhost"} else "real_site",
         "candidate_id": manifest.candidate_id,
-        "origin": manifest.origin,
-        "url": manifest.url,
+        "origin": target_origin,
+        "url": target_url,
         "commit": pre["commit"],
         "worktree_clean": pre["worktree_clean"],
         "extension_build_sha256": pre["extension_build_sha256"],
@@ -695,6 +724,7 @@ def _finalize_phase5a(
     result_path = run_dir / "result.json"
     _write_json_atomic(result_path, evidence)
     summary.update(
+        origin=target_origin,
         status="PHASE5A_COMPLETED",
         overall=evidence["overall"],
         stop_reason=evidence.get("stop_reason", ""),

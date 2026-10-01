@@ -1,5 +1,29 @@
 # Goal: 実サイト1件の安全な応募準備
 
+## 2026-10-01 Phase 5Aのknshow手動遷移
+
+作業場所`C:\Users\goo10\Projects\wt-pnav\kensho_assistant`、
+ブランチ`codex/pilot-human-navigation`、base `21e185c`。
+`pilot-nonsubmit --manifest <path>`は、応募先未確定の場合に`url`/`origin`の代わりに
+`knshow_link`を受理する。許可形式は`https://www.knshow.com/rd/...`または`/detail/...`のみ。
+manifest例と操作手順の正本は[runbookのPhase 5A手順](EXTENSION_REAL_SITE_TEST_RUNBOOK.md#応募先が未確定のmanifestphase-5a)。
+
+アクティブorigin未設定のheaded専用ブラウザを開き、監視開始後に元リンクへ一度だけ遷移する。
+確認画面は本人が見える元タブで通過する。ツールはチャレンジをclick/fill/evaluateせず、
+UA/stealth/webdriver偽装・Cookie流用・外部突破サービス・連続リトライも行わない。
+最大300秒待って最初の非knshowトップレベル着地だけをorigin policyと本文の規約で審査し、
+タイムアウト・拒否origin・規約禁止は入力/capability発行前にSTOPPED。
+許可originの登録・読み戻し一致後、同じページをreloadし、別originへ移ればSTOPPED。
+既存の欄ごとの本人確認・入力・検証・rollback・clear・静穏待機・残存検査・hash比較を維持する。
+
+着地URLのquery/fragmentはブラウザと厳格な照合の間だけメモリに持ち、保存しない。
+証跡は着地origin/pathと`landing_kind="human_navigation"`のみで、本文・入力値を記録しない。
+通常キュー・履歴・候補状態・値なしテンプレートストアは変更しない。
+送信ガード・origin policy・`phase5a_overall`は緩めず、`submitted_count_auto=0`を維持する。
+拡張機能ソースは不変。実サイトアクセス・pushは行わず、非loopback DNS遮断下の
+ローカルfixtureだけで検証する。`REAL_SITE_NON_SUBMIT_PASS`は未達成。
+以下の過去記録にある「pilotには適用しない」は、当時の通常session実装の範囲を示す。
+
 ## 2026-09-30 runtime-origin制御
 
 作業ブランチ`codex/runtime-origin-gating`、base `006a0cb`。専用ビルドはorigin一覧に依存せず、

@@ -263,7 +263,7 @@ def e2e(tmp_path, monkeypatch):
 
         def run(page: str = "form.html", *, approve=frozenset({"last_name", "first_name", "email"}),
                 allow_undetectable: bool = False, quiet: float = 0.5,
-                browser_args=(NO_INTERNET,), **manifest_extra):
+                browser_args=(NO_INTERNET,), phase_options=None, manifest_path=None, **manifest_extra):
             config_obj = pilot.Phase5AConfig(
                 confirmer=confirmer_for(set(approve)),
                 allow_undetectable=allow_undetectable,
@@ -276,9 +276,10 @@ def e2e(tmp_path, monkeypatch):
                 browser_args=browser_args,
                 allow_loopback_http_for_tests=True,
                 output=lambda *_a, **_k: None,
+                **(phase_options or {}),
             )
             return pilot.run_pilot_nonsubmit(
-                write_manifest(page, **manifest_extra),
+                manifest_path or write_manifest(page, **manifest_extra),
                 port=api_port,
                 approved_origins_path=config,
                 phase5a=config_obj,
@@ -303,7 +304,7 @@ def _evidence(result) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _assert_nonce_nowhere(e2e, result, capfd) -> None:
+def _assert_nonce_nowhere(e2e, result, capfd, *, forbidden_text=()) -> None:
     assert e2e["nonces"], "fake profile was not built"
     nonce = e2e["nonces"][-1]
     run_dir = Path(result["run_dir"])
@@ -316,6 +317,7 @@ def _assert_nonce_nowhere(e2e, result, capfd) -> None:
             assert nonce.encode("utf-16-le") not in content, path.name
     captured = capfd.readouterr()
     assert nonce not in captured.out and nonce not in captured.err
+    assert all(text not in captured.out + captured.err for text in forbidden_text)
     assert nonce not in json.dumps(result)
     # The in-memory fake profile is dropped at the end of the run.
     assert e2e["profiles"][-1].values == {} and e2e["profiles"][-1].nonce == ""
@@ -330,6 +332,174 @@ def _assert_common_isolation(e2e) -> None:
     assert session._EXTENSION_CONTROL_TOKENS == {}
     assert session.extension_bridge_status()["running"] is False
     assert not list((e2e["tmp"] / "runtime").iterdir())  # temp Chromium profile removed
+
+
+@pytest.mark.parametrize("link", ["https://www.knshow.com/rd/one", "https://www.knshow.com/detail/one"])
+def test_knshow_manifest_alternative(link):
+    manifest = {
+        "candidate_id": "human-fixture", "knshow_link": link,
+        "campaign_period_start": "2026-10-01", "campaign_period_end": "2026-10-31",
+        "human_verified_at": "2026-10-01T10:00:00+09:00",
+    }
+    validated = pilot.validate_pilot_nonsubmit_manifest(manifest, today=date(2026, 10, 1))
+    assert validated.knshow_link == link
+    assert validated.url == validated.origin == ""
+
+
+@pytest.mark.parametrize("target", [
+    {},
+    {"url": "https://example.test/form", "origin": "https://example.test", "knshow_link": "https://www.knshow.com/rd/one"},
+    {"knshow_link": "https://external.test/rd/one"},
+    {"knshow_link": "https://www.knshow.com/rd/one?ticket=private"},
+    {"knshow_link": "https://www.knshow.com/rd/one#private"},
+    {"knshow_link": "https://www.knshow.com/other/one"},
+    {"knshow_link": "https://knshow.com/rd/one"},
+    {"knshow_link": "https://www.knshow.com:444/rd/one"},
+    {"knshow_link": "https://@www.knshow.com/rd/one"},
+    {"knshow_link": "http://www.knshow.com/rd/one"},
+    {"knshow_link": "http://localhost/rd/one"},
+    {"knshow_link": "https://www.knshow.com/rd/../other"},
+    {"knshow_link": "https://www.knshow.com/rd/one", "origin": "https://example.test"},
+])
+def test_knshow_manifest_rejects_invalid_target(target):
+    manifest = {
+        "candidate_id": "human-fixture",
+        "campaign_period_start": "2026-10-01", "campaign_period_end": "2026-10-31",
+        "human_verified_at": "2026-10-01T10:00:00+09:00", **target,
+    }
+    with pytest.raises(pilot.PilotManifestError):
+        pilot.validate_pilot_nonsubmit_manifest(manifest, today=date(2026, 10, 1))
+
+
+@pytest.mark.parametrize("mode,reason", [
+    ("happy", ""), ("timeout", "human_navigation_timeout"),
+    ("denied", "denied_domain"), ("terms", "terms_prohibit_automation"),
+    ("reload_origin", "human_navigation_reload_origin_changed"),
+])
+def test_knshow_human_navigation_offline(e2e, monkeypatch, capfd, mode, reason):
+    from urllib.parse import urlsplit
+    from playwright.sync_api import Page, Locator, Frame
+    from kensho_assistant.app import browser_manager, origin_policy
+
+    source = e2e["origin"].replace("127.0.0.1", "localhost") + "/rd/one"
+    target = e2e["origin"] + "/pilot_e2e_fixtures/form.html?ticket=PRIVATE-TICKET#private-fragment"
+    observed = {"ticks": 0, "operations": [], "injections": [], "reloads": 0,
+                "target_requests": [], "monitor_started": False}
+    real_start = stage.SentinelNetworkMonitor.start
+    def monitor_start(self, context):
+        real_start(self, context)
+        observed["monitor_started"] = True
+    monkeypatch.setattr(stage.SentinelNetworkMonitor, "start", monitor_start)
+    real_launch = stage.launch_dedicated_kensho_context
+    def launch(*args, **kwargs):
+        context, browser, verified = real_launch(*args, **kwargs)
+        def route(route):
+            url = route.request.url
+            host = urlsplit(url).hostname
+            if url == source:
+                assert observed["monitor_started"]
+                return route.fulfill(status=200, content_type="text/html", body=(
+                    "<title>Just a moment...</title>CHALLENGE-PRIVATE-BODY"
+                    f"<a id='human' href='{target}'>Continue</a>"
+                    "<script>fetch('/challenge-opaque', {method:'POST', headers:{'Content-Encoding':'gzip'}, body:'opaque'}).catch(()=>{});</script>"))
+            if host == "localhost" and urlsplit(url).path == "/challenge-opaque":
+                return route.fulfill(status=204)
+            if host not in {"127.0.0.1", "localhost"}:
+                return route.abort()
+            if url.startswith(e2e["origin"] + "/pilot_e2e_fixtures/form.html"):
+                observed["target_requests"].append(url)
+                if mode == "terms":
+                    return route.fulfill(status=200, content_type="text/html; charset=utf-8", body="自動応募は禁止です。LANDING-PRIVATE-BODY")
+                if mode == "reload_origin" and observed["reloads"]:
+                    return route.fulfill(status=302, headers={"Location": source.replace("/rd/one", "/other")})
+            return route.continue_()
+        context.route("**/*", route)
+        return context, browser, verified
+    monkeypatch.setattr(stage, "launch_dedicated_kensho_context", launch)
+
+    # Instrument the tool operations. Only the test harness acts as the person.
+    human_actor = {"active": False}
+    for cls, names in ((Page, ("click", "fill", "evaluate", "evaluate_handle", "locator")),
+                       (Frame, ("click", "fill", "evaluate", "evaluate_handle", "locator")),
+                       (Locator, ("click", "fill", "evaluate", "evaluate_handle"))):
+        for name in names:
+            original = getattr(cls, name)
+            def guarded(self, *args, _original=original, _name=name, **kwargs):
+                page = self if isinstance(self, Page) else self.page
+                if urlsplit(page.url).hostname == "localhost" and not human_actor["active"]:
+                    observed["operations"].append(_name)
+                    raise AssertionError("challenge document operation forbidden")
+                return _original(self, *args, **kwargs)
+            monkeypatch.setattr(cls, name, guarded)
+    real_wait = Page.wait_for_timeout
+    other_tab = []
+    def wait(page, ms):
+        if page.url == source:
+            observed["ticks"] += 1
+            human_actor["active"] = True
+            try:
+                observed["injections"].append(page.locator('[data-kensho-extension-root]').count())
+                worker = browser_manager._runtime_origin_worker(page.context)
+                assert stage.evaluate_worker(worker, "async () => getActiveOrigin()") is None
+                if observed["ticks"] == 1:
+                    tab = page.context.new_page()
+                    tab.goto(e2e["origin"] + "/pilot_e2e_fixtures/form.html?other-tab=1")
+                    assert tab.locator('[data-kensho-extension-root]').count() == 0
+                    other_tab.append(tab)
+                if mode != "timeout" and observed["ticks"] == 2:
+                    other_tab[0].close()
+                    page.locator("#human").click()  # person simulation, never production code
+            finally:
+                human_actor["active"] = False
+        return real_wait(page, min(ms, 20))
+    monkeypatch.setattr(Page, "wait_for_timeout", wait)
+    real_reload = Page.reload
+    def reload(page, **kwargs):
+        assert page.url == target  # never re-navigate to a query-free URL
+        observed["reloads"] += 1
+        return real_reload(page, **kwargs)
+    monkeypatch.setattr(Page, "reload", reload)
+    if mode == "denied":
+        monkeypatch.setattr(origin_policy, "DEFAULT_DENYLIST", origin_policy.DEFAULT_DENYLIST | {"127.0.0.1"})
+
+    manifest_path = e2e["write_manifest"]("form.html")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload.pop("url")
+    payload.pop("origin")
+    payload["knshow_link"] = source
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    result = e2e["run"](manifest_path=manifest_path, phase_options={
+        "knshow_url_classifier_for_tests": lambda url: urlsplit(url).hostname == "localhost",
+        "human_navigation_timeout_for_tests": 0.5 if mode == "timeout" else 10.0,
+    })
+    evidence = _evidence(result)
+    assert observed["operations"] == []
+    assert observed["injections"] and set(observed["injections"]) == {0}
+    assert result["stop_reason"] == reason, evidence
+    if mode == "happy":
+        assert result["overall"] == "LOCAL_FIXTURE_NON_SUBMIT_PASS", evidence
+        assert evidence["landing_kind"] == "human_navigation"
+        assert evidence["origin"] == result["origin"] == e2e["origin"]
+        assert evidence["url"] == target.split("?")[0]
+        assert evidence["landing_path"] == "/pilot_e2e_fixtures/form.html"
+        assert evidence["target_kind"] == "loopback_fixture"
+        assert observed["reloads"] == 1
+        assert observed["target_requests"] == [e2e["origin"] + "/pilot_e2e_fixtures/form.html?other-tab=1"] + [target.split("#")[0]] * 2
+        assert evidence["monitor"]["opaque_requests_before_fill"] >= 1
+        assert evidence["monitor"]["sentinel_network_leak"] == 0
+        assert evidence["rollback"]["restored_matches_snapshot"] is True
+    else:
+        assert result["overall"] == "STOPPED", evidence
+        assert evidence["steps"]["fill"] == "NOT_RUN"
+        assert e2e["capability_keys"] == [] and CAPABILITY_PATH not in e2e["api_paths"]
+    for path in Path(result["run_dir"]).rglob("*.json"):
+        text = path.read_text(encoding="utf-8")
+        assert all(secret not in text for secret in (
+            "PRIVATE-TICKET", "private-fragment", "CHALLENGE-PRIVATE-BODY", "LANDING-PRIVATE-BODY"))
+    assert "PRIVATE-TICKET" not in json.dumps(result)
+    _assert_common_isolation(e2e)
+    _assert_nonce_nowhere(e2e, result, capfd, forbidden_text=(
+        "PRIVATE-TICKET", "private-fragment", "CHALLENGE-PRIVATE-BODY", "LANDING-PRIVATE-BODY"))
 
 
 # ---------------------------------------------------------------- happy path

@@ -263,10 +263,29 @@ def lock_pilot_candidate(
         save_assisted_session_state(state)
         _PILOT_CANDIDATE = {
             "candidate_id": candidate,
+            "url": str(url or ""),
             "origin": str(origin or ""),
             "period_end": period_end,
         }
         return load_assisted_session_state()
+
+
+def bind_pilot_destination(url: str, origin: str, *, allow_loopback_http: bool = False) -> None:
+    """Bind the human landing to the existing lock; live URL stays in memory."""
+    safe_url = urlsplit(url)._replace(query="", fragment="").geturl()
+    validate_dedicated_target_url(safe_url, approved_candidate_origin=origin,
+        allow_loopback_http=allow_loopback_http)
+    with _STATE_LOCK:
+        if _PILOT_STORAGE is None or _PILOT_CANDIDATE is None:
+            raise PilotIsolationError("pilot_candidate_not_locked")
+        state = load_assisted_session_state()
+        if (state.get("active_candidate_id") != _PILOT_CANDIDATE["candidate_id"]
+                or state.get("workflow_state") != "CANDIDATE_LOCKED"
+                or _PILOT_CANDIDATE["url"] or _PILOT_CANDIDATE["origin"]):
+            raise PilotIsolationError("pilot_destination_binding_mismatch")
+        _PILOT_CANDIDATE.update(url=url, origin=origin)
+        state.update(current_url=safe_url, human_navigation_origin=origin)
+        save_assisted_session_state(state)
 
 
 def end_pilot_session() -> None:
@@ -299,6 +318,7 @@ def confirm_pilot_mapping(
         if _PILOT_STORAGE is None or _PILOT_CANDIDATE is None:
             raise PilotIsolationError("pilot_candidate_not_locked")
         candidate = str(_PILOT_CANDIDATE["candidate_id"])
+        live_url = str(_PILOT_CANDIDATE["url"])
     approved = sorted({str(key or "").strip() for key in approved_profile_keys})
     if not approved or "" in approved or any(key not in ALLOWED_PAYLOAD_KEYS for key in approved):
         raise PilotIsolationError("pilot_mapping_keys_invalid")
@@ -308,7 +328,8 @@ def confirm_pilot_mapping(
         not session_id
         or str(state.get("active_candidate_id", "") or "") != candidate
         or str(state.get("workflow_state", "") or "").upper() != "CANDIDATE_LOCKED"
-        or str(state.get("current_url", "") or "") != str(expected_url or "")
+        or live_url != str(expected_url or "")
+        or str(state.get("current_url", "") or "") != urlsplit(expected_url)._replace(query="", fragment="").geturl()
     ):
         raise PilotIsolationError("pilot_session_binding_mismatch")
     validate_extension_candidate(candidate)
@@ -999,7 +1020,7 @@ def save_assisted_session_state(payload: dict[str, object]) -> Path:
     with _STATE_LOCK:
         ASSISTED_SESSION_DIR.mkdir(parents=True, exist_ok=True)
         data = _normalize_state(payload)
-        if _PILOT_STORAGE is None and data.get("human_navigation_origin"):
+        if data.get("human_navigation_origin"):
             # Keep full live URLs only in the runner's memory for exact binding.
             # Query/fragment (including tickets) never reach the session file.
             def safe_urls(value):
@@ -1308,20 +1329,22 @@ def _validate_candidate_start(row: Mapping[str, object], *, allow_loopback_http:
         allow_loopback_http=allow_loopback_http)
 
 
-def _wait_for_human_navigation(page, source: str) -> str:
+def _wait_for_human_navigation(page, source: str, *, knshow_url_classifier=None, timeout_seconds=None) -> str:
     """Only navigate/read/wait; the person handles the challenge in the original tab."""
+    classify = knshow_url_classifier or is_knshow_url
+    timeout = HUMAN_NAVIGATION_TIMEOUT_SEC if timeout_seconds is None else timeout_seconds
     first_landing = []
     def navigated(frame):
         if frame == page.main_frame and not first_landing:
             url = str(frame.url)
-            if _is_valid_target_url(url) and not is_knshow_url(url):
+            if _is_valid_target_url(url) and not classify(url):
                 first_landing.append(url)
-    deadline = time.monotonic() + HUMAN_NAVIGATION_TIMEOUT_SEC
+    deadline = time.monotonic() + timeout
     page.on("framenavigated", navigated)
     try:
         try:
             page.goto(source, wait_until="domcontentloaded",
-                timeout=max(1, min(60000, HUMAN_NAVIGATION_TIMEOUT_SEC * 1000)))
+                timeout=max(1, min(60000, timeout * 1000)))
         except PlaywrightTimeoutError:
             # A slow load is still observed, never retried or clicked.
             pass

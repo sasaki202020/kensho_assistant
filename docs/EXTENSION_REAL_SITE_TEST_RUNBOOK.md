@@ -12,7 +12,7 @@
 
 ### 通常sessionのknshow手動遷移
 
-この経路は通常`prepare-session`のみで、`pilot-nonsubmit`には適用しない。
+通常`prepare-session`の手順は以下。`pilot-nonsubmit`は後述の`knshow_link` manifestを使い、通常のキュー・履歴・テンプレートストアを読み書きしない。
 resolverが403/503のチャレンジを検出した候補は`HUMAN_NAVIGATION_REQUIRED / bot_challenge`となり、
 同一ホストへの追加アクセスをその実行中は止める。未診断でも`build-queue`で承認でき、
 UIには「応募先未確定」、次のアクションには「ブラウザで開いて確認画面を通過」を表示する。
@@ -115,7 +115,7 @@ py -3.13 -B scripts/run_dedicated_chrome.py --verify-only --headless --candidate
 3. 固定commitで専用拡張をbuildする。実行中はbuildし直さない。
 
 ```powershell
-$env:PYTHONPATH='C:\Users\goo10\Projects'
+$env:PYTHONPATH='C:\Users\goo10\Projects\wt-pnav'
 py -3.13 -m kensho_assistant.scripts.build_dedicated_extension
 ```
 
@@ -142,12 +142,58 @@ py -3.13 -m kensho_assistant.scripts.build_dedicated_extension
   `origin_policy`が許可すること（人がmanifestを書くこと自体がorigin承認）。当日が期間外なら拒否。
 - `expected_fingerprint`を指定し、実フォームと異なれば`FORM_CHANGED_REVIEW_REQUIRED`で入力前に停止する。
 
+### 応募先が未確定のmanifest（Phase 5A）
+
+`url`/`origin`の代わりに`knshow_link`を指定できる。`url`と`knshow_link`は
+どちらか一方だけ必須で、併記・両方なしを拒否する。`knshow_link`と`origin`の併記も拒否する。
+本番では`https://www.knshow.com/rd/...`または`/detail/...`だけを許可し、
+query・fragment・認証情報・非標準portは不可。他の必須項目は従来どおり。
+
+```json
+{
+  "candidate_id": "knshow-2026-10-example",
+  "knshow_link": "https://www.knshow.com/rd/example",
+  "campaign_period_start": "2026-10-01",
+  "campaign_period_end": "2026-10-31",
+  "human_verified_at": "2026-10-01T10:00:00+09:00"
+}
+```
+
+上記は書式例。実際の候補ID・リンク・確認済みの応募期間・確認時刻を記入する。
+任意の`expected_fingerprint`は従来どおり利用できる。
+
+1. clean commit・build照合と保存領域のhash確認後、headed専用ブラウザを開く。
+   アクティブoriginを解除し、通信監視を開始してからknshowリンクへ一度だけ遷移する。
+2. 「確認画面が出たら通過してください。応募フォームに着くまで待ちます（最大300秒）」と
+   表示されたら、本人が見える元タブでチャレンジを通過する。
+   ツールはnavigate・URL/タイトル読み取り・待機のみ。UA/stealth/webdriver偽装、
+   Cookie流用、自動click/fill/evaluate、外部突破サービス、連続リトライを行わない。
+3. 元タブの最初の非knshowトップレベル着地だけを審査する。別タブは使わない。
+   タイムアウトは`STOPPED / human_navigation_timeout`。
+   拒否originはpolicy理由コード、本文で自動化禁止を検出した場合は
+   `STOPPED / terms_prohibit_automation`となり、入力・capability発行は行わない。本文は保存しない。
+4. 許可originを1つだけ有効化し、workerの登録・読み戻し一致を確認して同じページをreloadする。
+   query/fragmentを消したURLへ再遷移しない。別originへ移れば安全停止する。
+5. 既存Phase 5Aのpage state・prefill blocker・欄ごとの本人承認・入力・検証・rollback・clear・
+   静穏待機・残存検査・通常保存領域のhash比較をすべて実施する。合格判定は変更しない。
+
+証跡は着地origin・path（`origin`, `url`, `landing_path`）と
+`landing_kind="human_navigation"`を保存し、query/fragment・本文・入力値を保存しない。
+`landing_path`は最初の着地path、`url`はreload後に利用するページのqueryなしURLを表す。
+`target_kind`は着地がloopbackなら`loopback_fixture`、それ以外は`real_site`。
+入力前の不透明通信は`opaque_requests_before_fill`に分離する既存仕様で、
+入力後の漏洩・不透明通信・拡張機能非loopback通信の判定は維持する。
+チャレンジ上で入力前停止した場合は終了時もページをevaluateせず、未測定指標をUNVERIFIEDにする。
+pilotのURL解決はpilot保存領域だけで扱い、`campaigns.csv`・通常履歴・候補状態・
+`data/form_templates.json`を変更しない。認証・規約同意・最終送信は自動化しない。
+今回の検証は非loopback DNS遮断下のローカルfixtureのみ。実サイトへのアクセスは行わない。
+
 ### 実行
 
 リポジトリのルートで実行する。
 
 ```powershell
-$env:PYTHONPATH='C:\Users\goo10\Projects'
+$env:PYTHONPATH='C:\Users\goo10\Projects\wt-pnav'
 py -3.13 -m kensho_assistant.main pilot-nonsubmit --manifest data/pilot/manifests/<id>.json
 ```
 

@@ -42,6 +42,8 @@ from .browser_manager import (
     validate_dedicated_target_url,
 )
 from .extension_bridge import ALLOWED_PAYLOAD_KEYS
+from .origin_policy import normalize_origin, is_origin_allowed
+from .terms_policy import detect_automation_restrictions
 from .pilot_network_monitor import (
     SentinelNetworkMonitor, service_worker_network_events, live_extension_worker, evaluate_worker,
 )
@@ -359,6 +361,7 @@ def run_browser_stage(
     output: Callable[..., None] = cfg.output or print
     manifest = ctx.manifest
     url = manifest.url
+    human_navigation = bool(manifest.knshow_link)
     fake = ctx.fake_profile
     nonce = str(fake.nonce)
     fake_values = dict(fake.values)  # in memory only; never written
@@ -403,22 +406,27 @@ def run_browser_stage(
         try:
             # 1. launch + monitor before navigation ---------------------------
             try:
-                validate_dedicated_target_url(url, approved_candidate_origin=ctx.manifest.origin,
-                    allow_loopback_http=cfg.allow_loopback_http_for_tests)
+                if not human_navigation:
+                    validate_dedicated_target_url(url, approved_candidate_origin=ctx.manifest.origin,
+                        allow_loopback_http=cfg.allow_loopback_http_for_tests)
                 context, _browser, verified = launch_dedicated_kensho_context(
                     playwright,
                     run_id=f"pilot-{ctx.pilot_run_id[:12]}",
                     project_root=Path(cfg.project_root),
                     runtime_profiles_root=cfg.runtime_profiles_root,
-                    headless=bool(cfg.headless),
+                    headless=bool(cfg.headless) if (not human_navigation or cfg.allow_loopback_http_for_tests) else False,
                     extra_args=tuple(cfg.browser_args),
                 )
                 runtime_profile_dir = browser_manager._OWNED_RUNTIME_PROFILES.get(id(context))
                 if verified["build_sha256"] != preconditions["extension_build_sha256"]:
                     raise RuntimeError("extension_build_changed")
-                browser_manager.set_active_origin(context, ctx.manifest.origin, ctx.pilot_run_id,
-                    allow_loopback_http=cfg.allow_loopback_http_for_tests)
-                worker = _wait_for_registration(context)
+                if human_navigation:
+                    browser_manager.clear_active_origin(context)
+                    worker = _extension_worker(context)
+                else:
+                    browser_manager.set_active_origin(context, ctx.manifest.origin, ctx.pilot_run_id,
+                        allow_loopback_http=cfg.allow_loopback_http_for_tests)
+                    worker = _wait_for_registration(context)
                 extension_id = urlsplit(str(worker.url)).hostname or ""
             except Exception as exc:
                 raise _Stop("launch", _code(exc)) from None
@@ -438,12 +446,69 @@ def run_browser_stage(
                 if navigations["armed"] and frame == page.main_frame:
                     navigations["count"] += 1
             page.on("framenavigated", on_frame_navigated)
-            try:
-                page.goto(url, wait_until="load", timeout=60_000)
-            except Exception as exc:
-                raise _Stop("navigate", _code(exc)) from None
-            if str(page.url) != url:
-                raise _Stop("navigate", "unexpected_url_after_navigation")
+            if human_navigation:
+                output("確認画面が出たら通過してください。応募フォームに着くまで待ちます（最大300秒）")
+                try:
+                    url = assisted_session._wait_for_human_navigation(
+                        page, manifest.knshow_link,
+                        knshow_url_classifier=(cfg.knshow_url_classifier_for_tests
+                            if cfg.allow_loopback_http_for_tests else None),
+                        timeout_seconds=(cfg.human_navigation_timeout_for_tests
+                            if cfg.allow_loopback_http_for_tests else None),
+                    )
+                    origin = normalize_origin(url)
+                    path = urlsplit(url).path or "/"
+                    evidence.update(origin=origin, url=origin + path, landing_path=path,
+                                    landing_kind="human_navigation")
+                    allowed, reason = is_origin_allowed(origin,
+                        allow_loopback_http=cfg.allow_loopback_http_for_tests)
+                    if not allowed:
+                        raise _Stop("navigate", reason, STOPPED)
+                    if normalize_origin(page.url) != origin:
+                        raise _Stop("navigate", "human_navigation_origin_changed", STOPPED)
+                    policy = detect_automation_restrictions(page.locator("body").inner_text(timeout=5000))
+                    if policy["restricted"]:
+                        raise _Stop("navigate", "terms_prohibit_automation", STOPPED)
+                    # The landing document may still load; never navigate to a stripped URL.
+                    if normalize_origin(page.url) != origin:
+                        raise _Stop("navigate", "human_navigation_origin_changed", STOPPED)
+                    origin_changed = []
+                    def watch_origin(frame):
+                        if frame == page.main_frame:
+                            try:
+                                changed = normalize_origin(frame.url) != origin
+                            except ValueError:
+                                changed = True
+                            if changed:
+                                origin_changed.append(True)
+                    page.on("framenavigated", watch_origin)
+                    browser_manager.set_active_origin(context, origin, ctx.pilot_run_id,
+                        allow_loopback_http=cfg.allow_loopback_http_for_tests)
+                    worker = _wait_for_registration(context)
+                    if origin_changed or normalize_origin(page.url) != origin:
+                        browser_manager.clear_active_origin(context)
+                        raise _Stop("navigate", "human_navigation_origin_changed", STOPPED)
+                    page.reload(wait_until="load", timeout=60_000)
+                    if origin_changed or normalize_origin(page.url) != origin:
+                        browser_manager.clear_active_origin(context)
+                        raise _Stop("navigate", "human_navigation_reload_origin_changed", STOPPED)
+                    # Exact live URL binding for the reloaded document; only origin/path persist.
+                    url = str(page.url)
+                    path = urlsplit(url).path or "/"
+                    evidence.update(url=origin + path)
+                    assisted_session.bind_pilot_destination(url, origin,
+                        allow_loopback_http=cfg.allow_loopback_http_for_tests)
+                except _Stop:
+                    raise
+                except Exception as exc:
+                    raise _Stop("navigate", _code(exc), STOPPED) from None
+            else:
+                try:
+                    page.goto(url, wait_until="load", timeout=60_000)
+                except Exception as exc:
+                    raise _Stop("navigate", _code(exc)) from None
+                if str(page.url) != url:
+                    raise _Stop("navigate", "unexpected_url_after_navigation")
             steps["navigate"] = PASS
 
             state = dedicated_extension_page_state(page)
@@ -747,7 +812,7 @@ def _cleanup(*, ctx, cfg, evidence, steps, context, worker, page, monitor, nonce
                 evidence["residue"] = residue
                 steps["residue"] = PASS if residue.get("status") == PASS else (
                     FAIL if residue.get("status") == FAIL else UNVERIFIED)
-            monitor.close_pages()
+            monitor.close_pages(inspect_channels=fill_started)
             result = monitor.result()
             evidence["monitor"] = result
             if fill_started:

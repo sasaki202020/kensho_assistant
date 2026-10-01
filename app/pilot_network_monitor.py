@@ -1046,8 +1046,10 @@ class SentinelNetworkMonitor:
         if close_pages:
             self.close_pages()
 
-    def close_pages(self, grace_seconds: float = 2.0) -> None:
-        if self._final_channels is None:
+    def close_pages(self, grace_seconds: float = 2.0, *, inspect_channels: bool = True) -> None:
+        # An unfilled human-navigation stop may still be on a challenge page.
+        # Leave channel metrics unverified rather than evaluate that document.
+        if inspect_channels and self._final_channels is None:
             self._final_channels = self._read_channel_counters()
         for page in list(self._pages):
             try:
