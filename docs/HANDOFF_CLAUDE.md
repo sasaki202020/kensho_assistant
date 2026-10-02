@@ -1,65 +1,92 @@
-# Claude引継ぎ：kensho
+# Claude Code 引き継ぎ: 懸賞支援
 
-確認日: 2026-10-02。プロジェクト資料・Git・実行設定だけを読み取り調査。アプリ、取引、投稿、collector、runnerは起動していない。
+記録日: 2026-10-02 JST。対象はkensho_assistantだけ。競艇・SoundOnの契約やデータを持ち込まない。
+今回の許可は文書追加とローカルcommitのみ、pushなし。実サイト・本人プロフィールは開かない。
 
-場所: `%USERPROFILE%\projects\kensho_assistant`。追加前branch: `codex/high-value-kensho-v1`、HEAD: `dc86f67835ad546821c8a9830765710bc1409f11`。
+## 1. 現在の目標・進行中作業
 
-## 目標・完了範囲・次の作業
+ゴールは `REAL_SITE_NON_SUBMIT_PASS`。現在未達成。
+ローカル実装、fixtureテスト、preflight PASSと実サイト受入を区別する。
 
-懸賞候補の収集・審査・承認、応募準備、Chrome拡張の入力補助、送信直前チェックを支援する。最終送信は人間。目標 `REAL_SITE_NON_SUBMIT_PASS` は未達。
-直近commit `dc86f67835ad546821c8a9830765710bc1409f11` はPhase 5A knshow手動遷移の非送信pilot対応。`docs/GOAL_NON_SUBMIT_PILOT.md`、`docs/CLAUDE_HANDOFF.md` の10/1節を参照。応募先未確定リンクをorigin未設定の可視ブラウザへ開き、本人が確認画面を通過するのを最大300秒待ち、最初の外部着地だけ審査する。別origin移動、拒否origin、規約禁止で安全停止。
-資料上の検証は関連98 PASS、全Python907 PASS、Node48 PASS、Web smokeとpreflight成功。今回は文書のみのため再実行していない。preflightは実サイト成功ではない。古い `docs/CODEX_HANDOFF.md` / SELF_TEST_LOGの228件等を最新テスト数として扱わない。
-次は `docs/EXTENSION_REAL_SITE_TEST_RUNBOOK.md` と `docs/EXTENSION_SECURITY_MODEL.md` で固定commit/build fingerprint・候補規約・本人承認を確認し、明示承認された1件の架空値・非送信試験。今回はアプリ・ブラウザ・pilotを起動していない。
+- `dc86f67`: Phase 5Aで応募先未確定の `knshow_link` を受け取り、人間の元タブ内遷移を待つ入口を実装。
+- 非knshowの最初のトップレベル着地だけをorigin policy/規約で審査し、許可登録・読み戻し・reload後に既存の確認フローへ進む。
+- 上限300秒、拒否origin・規約禁止・timeout・別origin遷移は入力/capability発行前に停止。
+- チャレンジをclick/fill/evaluateせず、UA/stealth偽装、Cookie流用、外部突破、連続retryをしない。
+- 通常キュー・履歴・候補状態・値なしテンプレートをpilotで変更しない。本人プロフィールは使わない。
+- 送信ガード、origin policy、phase5a_overallを緩めず `submitted_count_auto=0`。
+- 次は現在のcommitとbuild fingerprint、未期限切れ候補、個別承認を確認してPhase 5Aの人間立会いnon-submit検証。
+  この文書作成依頼では実サイトpilotを開始しない。Phase 5Bや実応募へ自動で進めない。
 
-## AGENTS・Skills・承認境界
+正本入口は [AGENTS](../AGENTS.md)、[現在の詳細記録](CLAUDE_HANDOFF.md)、
+[ゴール](GOAL_NON_SUBMIT_PILOT.md)、[実サイトrunbook](EXTENSION_REAL_SITE_TEST_RUNBOOK.md)、
+[セキュリティ](EXTENSION_SECURITY_MODEL.md)、[high-value規則](HIGH_VALUE_RULES.md)。
+旧CODEX_HANDOFFのテスト件数や実行手順を最新状態とみなさない。
 
-AGENTS.mdを確認。最終送信、CAPTCHA/ログイン/規約同意/SNSの自動操作とチャレンジ回避は禁止。submitted_count_auto=0、個人情報/Cookie/認証情報/入力値を記録しない。profile.encは読まず、正式保存先は `%LOCALAPPDATA%/kensho_assistant/profile.enc`。pilotは通常候補/履歴/テンプレートストアを変えない。実サイトは固定commit/fingerprintと本人の候補・mapping・origin承認が必要。pushは別承認。`.agents/skills` はこのrepoには見当たらない。
+## 2. Git・branch・worktree
 
-## automation・Windows Task
+文書追加前: branch `codex/high-value-kensho-v1`、HEAD `dc86f67835ad546821c8a9830765710bc1409f11`、
+tracked/untracked差分0、staged 0。
 
-ローカルCodex automation.toml一覧にはkensho_assistantを対象とする登録は見当たらない。Codexアプリregistry・他ホストは未確認。
-Windows Taskの名前とActionを読取り、kensho_assistantを直接参照するTaskは見当たらない。関連候補 `ContestHunterDaily` は毎日09:00（設定offsetなし）、Ready、最終結果1。Actionを復号すると `%USERPROFILE%/kennsyou/scheduled_run.bat` で別場所。これを本repoの自動実行と断定しない。`auto_scan.bat` 等のファイル存在と登録/稼働は別。既存Taskを起動・変更しない。
+| branch / checkout | 文書追加前HEAD | 意味・保全 |
+| --- | --- | --- |
+| 正本 / codex/high-value-kensho-v1 | dc86f67 | high-value、origin/規約、手動遷移、non-submitの現在の実装。保全 |
+| .worktrees/pilot-5site-v1 / codex/pilot-5site-v1 | 99d4889 | 古い5-site pilotの独立checkout。cleanだが正本と同一版ではない。保全 |
+| codex/standalone-completion | bd28f51 | standalone baseline確認の履歴。checkoutなし。破棄承認なし |
 
-## 未解決・保留
+現在登録されたworktreeは正本とpilot-5site-v1の2つ。
+既存文書の `wt-nav` / `wt-pnav` は過去の作業場所で、今回そのパスは存在しなかった。
+cleanだから不要とは判断しない。安全に削除可能と確認したbranch/worktreeはない。
+reset/clean/stash、一括stage、worktree削除、branch切替、pushはこの依頼に含まない。
 
-実サイト互換性・初回mapping・query必須ページの再遷移は未証明。過去の別作業checkoutを指すdocsのパスは履歴であり、現在の作業先は冒頭と下記Git一覧。pilot用worktreeの証拠を保全する。最終送信は自動化しない。
-## Git状態・ブランチ・worktreeの保全
+`build/` の専用拡張やfixture等はGit対象外の場合がある。Git cloneだけでローカル検証証拠やプロフィールは移らない。
+本人情報、queue/historyの内容、暗号化プロフィール、Cookieを引き継ぎ文書へコピーしない。
 
-以下は追加前の実測。全既存変更・未追跡・worktree・branchは保全。破棄許可の根拠はない。remote一覧はfetchせずローカル参照を確認しただけで、現在のサーバ状態は未確認。
+## 3. 自動実行
 
-ブランチ一覧（氏名や認証値は転載しない）：
+2026-10-02にローカルCodex automation登録の名前・prompt/cwd照合とWindows Taskの名前・Action照合を読み取り確認。
+kensho_assistantを対象にする登録は今回の確認範囲で見当たらない。
+したがって報告できる対象の自動実行名・時刻・ACTIVE/Ready状態はない。
+別ホスト、未登録の手動起動プロセス、外部サービスまで停止を証明したものではない。
 
-```text
-* codex/high-value-kensho-v1                           dc86f67 Support human navigation for knshow non-submit pilots
-+ codex/pilot-5site-v1                                 99d4889 pilot: include safe diagnostic form candidates
-  codex/standalone-completion                          bd28f51 test: verify standalone kensho baseline
-  remotes/origin/HEAD                                  -> origin/main
-  remotes/origin/claude/boat-race-ai-production-vrorsv 9925740 Add profitability gate analysis for daily runs
-  remotes/origin/claude/boatrace-repo-structure-e0g5wk a396412 Prepare boatrace-ai standalone: add scripts, remove staging dependency, replace production with research
-  remotes/origin/claude/claude-md-docs-b8rxbm          b84b9f1 Add CLAUDE.md handoff for Kensho Entry Assistant
-  remotes/origin/claude/kensho-codex-handoff-eq7469    ab57b15 Record verified select→apply state and remaining manual step in handoff
-  remotes/origin/claude/pc-file-organization-9ygedp    a2cc606 Add pc_organizer general-purpose file-organization tool
-  remotes/origin/claude/sell-before-check-ios-k2axrs   f345e33 Add field_assessment_ai and sell_before_check_ai MVPs
-  remotes/origin/codex/boat-race-ai-daily-ops-handoff  0257cd8 Treat zero official odds as unavailable
-  remotes/origin/codex/high-value-kensho-v1            dc86f67 Support human navigation for knshow non-submit pilots
-  remotes/origin/main                                  2249ba9 Refine pre-submit audit and UI
-```
+`pilot-nonsubmit`、Web/CLI、Chrome拡張、ハーネス、build/preflightは手動入口。
+スクリプトの存在をScheduled Task登録や実サイトPASSと解釈しない。
+新automation/Task/heartbeat、ブラウザ・runner手動起動、候補収集は今回行わない。
 
-worktree一覧：
+## 4. 守る規則・必要な承認
 
-```text
-worktree %USERPROFILE%/projects/kensho_assistant
-HEAD dc86f67835ad546821c8a9830765710bc1409f11
-branch refs/heads/codex/high-value-kensho-v1
+- 最終送信、応募確定、CAPTCHA、ログイン、規約同意、SNSは自動化しない。
+- 個人情報、フォーム値、Cookie、認証、URL query/fragmentを永続化・ログ・文書へ出さない。
+- `%LOCALAPPDATA%/kensho_assistant/profile.enc` はリポジトリへ複製せず中身を読まない。
+- assisted_sessionが通常候補ロック・進行・手動送信報告の正本。pilotで通常データを更新しない。
+- 本人がorigin・項目・規約を確認する。初回mapping未承認、未知/外部origin、guard異常、二重拡張起動では入力しない。
+- rollback/clear・静穏待機・残存検査・hash比較・送信ロックを維持する。
+- high-valueの `terms_automation_restricted` は準備/読込/capabilityを `terms_prohibit_automation` で除外。
+  `uncertain`・本文取得失敗・旧未診断レコードを規約確認済みへ昇格しない。
+- 個別候補・固定commit/fingerprintに対応する実サイト承認が必要。過去buildの承認を使い回さない。
+- push、外部送信、権限変更、プロフィール利用、実応募、運用/自動実行変更は別承認。
+- ルート [CLAUDE](../CLAUDE.md) は今回追加した指定の2参照だけで、上記境界を拡張しない。
 
-worktree %USERPROFILE%/projects/kensho_assistant/.worktrees/pilot-5site-v1
-HEAD 99d4889b196404efc019e66ce2b083b1c65fb7e8
-branch refs/heads/codex/pilot-5site-v1
+## 5. 直近の判断・根拠
 
-```
+| commit | 判断・内容 |
+| --- | --- |
+| dc86f67 | knshowから人間の遷移を待つnon-submit pilot |
+| 21e185c | challengeされたリンクの人間遷移 |
+| 0b6f5f1 | 拒否originでbatch全体停止ではなく安全skip |
+| 02536d4 | runtime origin policy |
+| 006a0cb | pre-submit review |
 
-未commit変更: なし（追加前clean）。
+[CLAUDE_HANDOFF](CLAUDE_HANDOFF.md) の2026-10-01記録は関連pytest98、全pytest907、
+Node48、WEB_SMOKE_TEST_OK、READY_FOR_5_SITE_PILOT。
+これは過去の固定版に対するローカル検証記録で、今回再実行した結果ではない。
+preflightやfixtureからREAL_SITE_NON_SUBMIT_PASSを主張しない。
 
-意味: 競艇のcodex/research-autopilot-v1は終了研究、codex/exacta-conditional-second-v1は隔離Exacta、codex/roi-oof-v1-20261002は完了OOF、mainは共有base。kenshoのpilot-5site-v1は別pilot作業、standalone-completionとremote refsは履歴/参照で、破棄判断は未確認。SoundOn mainはローカル進捗、別Claude branchは履歴。各repoに存在するものだけを上記一覧で判断する。
+## 6. 未解決・次の安全な操作
 
-今回の追加予定は docs/HANDOFF_CLAUDE.md と、CLAUDE.mdがなければその2行参照ファイルだけ。既存CLAUDE.mdは未編集。追加文書だけをpath指定でcommitし、既存index/作業ツリーを混ぜない。push/reset/stash/checkout/cleanなし。前後の既存ファイルhash・git statusとcommit差分で文書追加以外の保全を確認する。コードテストは実行していない。
+- 実サイトPhase 5Aの新しい有効候補、規約確認、固定fingerprintへの承認と本人立会い。
+- 実ページでの通信監視・mapping・POST-FILL・rollback/clear・残存ゼロを測定した合格証拠。
+- 人間がchallengeを通過できない場合、迂回せず安全停止。古い・期限切れ候補を代用しない。
+- 履歴中の旧branch/path/buildと現在のcheckout対応の確認。旧pilotを正本へ自動mergeしない。
+- コード変更後の関連/全テスト・Web smoke・preflightは別の実装承認の範囲で実施。
+  今回は文書のリンク、秘密情報、Git差分だけを検証し、コード・候補・台帳・自動実行は変更していない。
+
